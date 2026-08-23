@@ -1,26 +1,37 @@
 <!--
   The one MCP Apps view for this server.
 
-  MCP Apps binds ONE ui:// resource per tool, and this server publishes a single
+  MCP Apps binds ONE ui:// resource per tool and this server publishes a single
   action-multiplexed tool, so the view is multiplexed the same way its tool is: it
-  reads whichever payload family came back and renders that. The families are the
-  shapes measured against the live sidecar, not guessed from the C# models --
-  events, emails, contacts, accounts, calendars -- and anything unrecognised falls
-  through to the raw JSON rather than rendering a confident blank.
+  adapts whichever payload family came back into one uniform row shape and renders
+  that. The families are the shapes measured against the live sidecar, not guessed
+  from the C# models -- events, emails, contacts, accounts, calendars -- and
+  anything unrecognised falls through to raw JSON rather than a confident blank.
 
-  It never fetches: everything shown arrives over postMessage from the host, which
-  is why the resource declares every CSP domain list empty.
+  Three panes, because the list and the item being read are different questions and
+  a client that answers only one of them at a time makes you lose your place.
+
+  It never fetches over the network: the first payload arrives over postMessage,
+  and anything further is a tools/call routed back through the host, which is why
+  the resource declares every CSP domain list empty. Nothing is ever assigned to
+  innerHTML -- a mailbox is exactly the place where someone else writes the strings.
 -->
 <style>
 /*{{THEME}}*/
 </style>
 
-<div class="sheet" id="root">
-  <div class="masthead">
-    <h1 id="title">Calendar</h1>
-    <div class="scope" id="scope"></div>
-  </div>
-  <div id="body"><p class="note">In attesa del risultato…</p></div>
+<div class="client" id="client">
+  <nav class="pane rail" id="rail" aria-label="Origini"></nav>
+  <section class="pane list" id="list" aria-label="Elenco">
+    <header class="listhead">
+      <h1 id="title">Calendar</h1>
+      <span class="scope" id="scope"></span>
+    </header>
+    <div id="rows"><p class="note">In attesa del risultato…</p></div>
+  </section>
+  <article class="pane reader" id="reader" aria-live="polite">
+    <p class="note">Seleziona un elemento.</p>
+  </article>
 </div>
 
 <script>
@@ -31,23 +42,32 @@
 (function () {
   "use strict";
 
-  var body = document.getElementById("body");
+  var client = document.getElementById("client");
+  var rail = document.getElementById("rail");
+  var rows = document.getElementById("rows");
+  var reader = document.getElementById("reader");
   var title = document.getElementById("title");
   var scope = document.getElementById("scope");
 
-  var DOW = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
-  var MON = ["gen", "feb", "mar", "apr", "mag", "giu",
-             "lug", "ago", "set", "ott", "nov", "dic"];
+  var DOW = ["domenica", "lunedì", "martedì", "mercoledì",
+             "giovedì", "venerdì", "sabato"];
+  var MON = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+             "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 
   var PROVIDER_SPINE = {
-    google: "var(--cal-google)",
-    microsoft: "var(--cal-microsoft)",
-    m365: "var(--cal-microsoft)",
-    outlook: "var(--cal-microsoft)",
-    imap: "var(--cal-imap)",
-    ical: "var(--cal-ical)",
-    json: "var(--cal-json)"
+    google: "var(--aura-google)",
+    microsoft: "var(--aura-microsoft)",
+    m365: "var(--aura-microsoft)",
+    outlook: "var(--aura-microsoft)",
+    imap: "var(--aura-imap)",
+    ical: "var(--aura-ical)",
+    json: "var(--aura-json)"
   };
+
+  var state = { items: [], family: null, source: null, selected: null,
+                detail: {}, timezone: null };
+
+  // ---- small helpers ----------------------------------------------------
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -56,145 +76,44 @@
     return n;
   }
 
-  function clear() { while (body.firstChild) body.removeChild(body.firstChild); }
+  function empty(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
   /**
-   * A local ISO stamp without a zone ("2026-08-24T09:00:00") must not be re-read
-   * in the viewer's zone: the server already converted it to the calendar's. So
-   * the parts are taken from the string itself, and only a zoned stamp goes
-   * through Date.
+   * A local ISO stamp without a zone ("2026-08-24T09:00:00") must not be re-read in
+   * the viewer's zone: the server already converted it to the calendar's. So the
+   * parts are taken from the string itself, and only a zoned stamp goes through Date.
    */
   function parseLocal(s) {
     if (!s) return null;
     var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(s));
     if (!m) return null;
-    return {
-      y: +m[1], mo: +m[2] - 1, d: +m[3],
-      hh: m[4] == null ? null : +m[4],
-      mm: m[5] == null ? null : +m[5]
-    };
+    return { y: +m[1], mo: +m[2] - 1, d: +m[3],
+             hh: m[4] == null ? null : +m[4], mm: m[5] == null ? null : +m[5] };
   }
 
-  /** Year 1 is not a date: it is a parse that failed upstream. Say so. */
-  function isUnknownDate(p) { return !p || p.y <= 1; }
+  /** Year 1 is not a date, it is a parse that failed upstream. Say so. */
+  function unknownDate(p) { return !p || p.y <= 1; }
 
   function hhmm(p) {
     if (!p || p.hh == null) return "";
     return (p.hh < 10 ? "0" : "") + p.hh + ":" + (p.mm < 10 ? "0" : "") + p.mm;
   }
 
-  function dayKey(p) { return p ? p.y + "-" + p.mo + "-" + p.d : "?"; }
+  function dayKey(p) { return unknownDate(p) ? "?" : p.y + "-" + p.mo + "-" + p.d; }
 
-  function isToday(p) {
-    if (!p) return false;
-    var n = new Date();
-    return n.getFullYear() === p.y && n.getMonth() === p.mo && n.getDate() === p.d;
+  function dayLabel(p) {
+    if (unknownDate(p)) return "data ignota";
+    var now = new Date();
+    if (now.getFullYear() === p.y && now.getMonth() === p.mo && now.getDate() === p.d) {
+      return "oggi · " + p.d + " " + MON[p.mo];
+    }
+    var jsDay = new Date(p.y, p.mo, p.d).getDay();
+    return DOW[jsDay] + " " + p.d + " " + MON[p.mo] +
+           (p.y === now.getFullYear() ? "" : " " + p.y);
   }
 
   function spineFor(provider) {
-    return PROVIDER_SPINE[String(provider || "").toLowerCase()] || "var(--cal-accent)";
-  }
-
-  function meta(parts) {
-    var m = el("div", "meta");
-    parts.filter(Boolean).forEach(function (t) { m.appendChild(el("span", null, t)); });
-    return m;
-  }
-
-  function groupByDay(items, stampOf) {
-    var order = [], byKey = {};
-    items.forEach(function (it) {
-      var p = parseLocal(stampOf(it));
-      var k = dayKey(p);
-      if (!byKey[k]) { byKey[k] = { when: p, items: [] }; order.push(k); }
-      byKey[k].items.push(it);
-    });
-    return order.map(function (k) { return byKey[k]; });
-  }
-
-  function dayBlock(group, render) {
-    var day = el("div", "day" + (isToday(group.when) ? " is-today" : ""));
-    var mark = el("div", "daymark");
-    if (isUnknownDate(group.when)) {
-      mark.appendChild(el("span", "dow", "data"));
-      mark.appendChild(el("span", "dnum", "?"));
-      mark.appendChild(el("span", "mon", "ignota"));
-    } else {
-      var jsDay = new Date(group.when.y, group.when.mo, group.when.d).getDay();
-      mark.appendChild(el("span", "dow", DOW[jsDay]));
-      mark.appendChild(el("span", "dnum", group.when.d));
-      mark.appendChild(el("span", "mon", MON[group.when.mo]));
-    }
-    day.appendChild(mark);
-    var list = el("div", "entries");
-    group.items.forEach(function (it) { list.appendChild(render(it)); });
-    day.appendChild(list);
-    return day;
-  }
-
-  // ---- families ---------------------------------------------------------
-
-  function renderEvents(p) {
-    var events = p.events || [];
-    title.textContent = "Agenda";
-    scope.textContent = events.length + (events.length === 1 ? " impegno" : " impegni") +
-      (p.timezone ? " · " + p.timezone : "");
-    if (!events.length) {
-      body.appendChild(el("p", "note", "Nessun impegno nel periodo richiesto."));
-      return;
-    }
-    groupByDay(events, function (e) { return e.start_local || e.start_utc; })
-      .forEach(function (g) {
-        body.appendChild(dayBlock(g, function (e) {
-          var start = parseLocal(e.start_local || e.start_utc);
-          var end = parseLocal(e.end_local || e.end_utc);
-          var entry = el("div", "entry" + (e.isAllDay ? " allday" : ""));
-          entry.style.setProperty("--spine", spineFor(e.accountId === "fixture" ? "json" : "google"));
-          entry.appendChild(el("div", "when",
-            e.isAllDay ? "tutto il giorno"
-                       : hhmm(start) + (end ? "–" + hhmm(end) : "")));
-          entry.appendChild(el("div", "what", e.subject || "(senza titolo)"));
-          var att = (e.attendees || []).length;
-          entry.appendChild(meta([
-            e.location || null,
-            att ? att + (att === 1 ? " invitato" : " invitati") : null,
-            e.organizer ? "org. " + e.organizer : null,
-            e.calendarId ? "· " + e.calendarId : null
-          ]));
-          return entry;
-        }));
-      });
-    if (p.warnings) {
-      body.appendChild(el("div", "warn", String(p.warnings)));
-    }
-  }
-
-  function renderEmails(p) {
-    var mails = p.emails || [];
-    title.textContent = "Posta";
-    var unread = mails.filter(function (m) { return m.isRead === false; }).length;
-    scope.textContent = mails.length + " messaggi" + (unread ? " · " + unread + " da leggere" : "");
-    if (!mails.length) {
-      body.appendChild(el("p", "note", "Nessun messaggio."));
-      return;
-    }
-    groupByDay(mails, function (m) { return m.receivedDateTime; })
-      .forEach(function (g) {
-        body.appendChild(dayBlock(g, function (m) {
-          var entry = el("div", "entry" + (m.isRead === false ? " unread" : ""));
-          entry.style.setProperty("--spine", spineFor("google"));
-          var p2 = parseLocal(m.receivedDateTime);
-          entry.appendChild(el("div", "when",
-            isUnknownDate(p2) ? "orario non disponibile" : hhmm(p2)));
-          entry.appendChild(el("div", "what", m.subject || "(senza oggetto)"));
-          entry.appendChild(meta([
-            m.fromName || m.from || null,
-            m.hasAttachments ? "allegati" : null,
-            m.accountId ? "· " + m.accountId : null
-          ]));
-          return entry;
-        }));
-      });
+    return PROVIDER_SPINE[String(provider || "").toLowerCase()] || "var(--color-ring-primary, var(--aura-ring))";
   }
 
   function initials(name) {
@@ -203,105 +122,509 @@
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
   }
 
-  function renderContacts(p) {
-    var people = p.contacts || [];
-    title.textContent = "Contatti";
-    scope.textContent = people.length + (people.length === 1 ? " contatto" : " contatti");
-    if (!people.length) {
-      body.appendChild(el("p", "note", "Nessun contatto."));
-      return;
+  /** Providers spell an address half a dozen ways; take whichever one is present. */
+  function addressOf(entry) {
+    if (!entry) return "";
+    if (typeof entry === "string") return entry;
+    return entry.Address || entry.address || entry.Number || entry.number ||
+           entry.email || entry.Email || entry.emailAddress || "";
+  }
+
+  function firstOf(obj, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var v = obj && obj[keys[i]];
+      if (typeof v === "string" && v.trim()) return v;
     }
-    var grid = el("div", "people");
-    people.forEach(function (c) {
-      var mail = (c.emailAddresses || [])[0];
-      var tel = (c.phoneNumbers || [])[0];
-      var label = c.displayName ||
-        [c.givenName, c.surname].filter(Boolean).join(" ") ||
-        (mail && (mail.Address || mail.address)) || "(senza nome)";
-      var row = el("div", "person");
-      row.appendChild(el("div", "monogram", initials(label)));
-      var who = el("div", "who");
-      who.appendChild(el("b", null, label));
-      who.appendChild(el("span", null,
-        (mail && (mail.Address || mail.address)) ||
-        (tel && (tel.Number || tel.number)) ||
-        c.companyName || c.jobTitle || c.accountId || ""));
-      row.appendChild(who);
-      grid.appendChild(row);
-    });
-    body.appendChild(grid);
+    return "";
   }
 
-  function renderAccounts(p) {
-    title.textContent = "Account";
-    var accs = p.accounts || [];
-    scope.textContent = accs.length + (accs.length === 1 ? " account" : " account");
-    var list = el("div", "entries");
-    accs.forEach(function (a) {
-      var entry = el("div", "entry");
-      entry.style.setProperty("--spine", spineFor(a.provider));
-      entry.appendChild(el("div", "when", a.provider || ""));
-      entry.appendChild(el("div", "what", a.displayName || a.accountId));
-      entry.appendChild(meta((a.capabilities || []).map(function (c) {
-        return c.name + (c.readOnly ? " (sola lettura)" : "");
-      }).concat([a.accountId ? "id " + a.accountId : null])));
-      list.appendChild(entry);
-    });
-    body.appendChild(list);
+  // ---- adapting each family to one row shape ----------------------------
+
+  function eventItem(e) {
+    var start = parseLocal(e.start_local || e.start_utc);
+    var end = parseLocal(e.end_local || e.end_utc);
+    var att = (e.attendees || []).length;
+    return {
+      kind: "event", raw: e, stamp: start,
+      source: { key: e.calendarId || e.accountId || "?",
+                label: e.calendarId || e.accountId || "calendario",
+                provider: e.accountId === "fixture" ? "json" : "google" },
+      who: e.organizer || (att ? att + (att === 1 ? " invitato" : " invitati") : ""),
+      time: e.isAllDay ? "tutto il giorno"
+                       : hhmm(start) + (end ? "–" + hhmm(end) : ""),
+      title: e.subject || "(senza titolo)",
+      snippet: e.location || e.bodyPreview || "",
+      unread: false
+    };
   }
 
-  function renderCalendars(p) {
-    title.textContent = "Calendari";
-    var cals = p.calendars || [];
-    scope.textContent = cals.length + (cals.length === 1 ? " calendario" : " calendari");
-    var list = el("div", "entries");
-    cals.forEach(function (c) {
-      var entry = el("div", "entry");
-      entry.style.setProperty("--spine", spineFor(c.provider));
-      entry.appendChild(el("div", "what", c.name || c.displayName || c.id));
-      entry.appendChild(meta([c.accountId ? "· " + c.accountId : null,
-                              c.isDefault ? "predefinito" : null]));
-      list.appendChild(entry);
-    });
-    body.appendChild(list);
+  function emailItem(m) {
+    var stamp = parseLocal(m.receivedDateTime || m.sentDateTime);
+    return {
+      kind: "email", raw: m, stamp: stamp,
+      source: { key: m.accountId || "?", label: m.accountId || "posta",
+                provider: m.provider || "google" },
+      who: m.fromName || m.from || "(mittente ignoto)",
+      time: unknownDate(stamp) ? "" : hhmm(stamp),
+      title: m.subject || "(senza oggetto)",
+      snippet: m.bodyPreview || m.snippet || "",
+      unread: m.isRead === false
+    };
   }
 
-  function renderRaw(payload) {
-    title.textContent = "Risultato";
-    scope.textContent = "";
-    var pre = el("pre", "raw", JSON.stringify(payload, null, 2));
-    body.appendChild(pre);
+  function contactItem(c) {
+    var mail = addressOf((c.emailAddresses || [])[0]);
+    var tel = addressOf((c.phoneNumbers || [])[0]);
+    var label = c.displayName || [c.givenName, c.surname].filter(Boolean).join(" ") ||
+                mail || "(senza nome)";
+    return {
+      kind: "contact", raw: c, stamp: null,
+      source: { key: c.accountId || "?", label: c.accountId || "rubrica",
+                provider: c.provider || "google" },
+      who: c.companyName || c.jobTitle || "", time: "",
+      // Half this address book has no display name, so the title IS the address; repeating
+      // it underneath reads as two different facts about one contact.
+      title: label,
+      snippet: label === mail ? (tel || c.companyName || "") : (mail || tel || ""),
+      unread: false
+    };
   }
+
+  function accountItem(a) {
+    return {
+      kind: "account", raw: a, stamp: null,
+      source: { key: a.provider || "?", label: a.provider || "account",
+                provider: a.provider },
+      who: a.provider || "", time: "",
+      title: a.displayName || a.accountId || "(account)",
+      snippet: (a.capabilities || []).map(function (c) { return c.name; }).join(" · "),
+      unread: false
+    };
+  }
+
+  function calendarItem(c) {
+    return {
+      kind: "calendar", raw: c, stamp: null,
+      source: { key: c.accountId || "?", label: c.accountId || "calendari",
+                provider: c.provider },
+      who: c.accountId || "", time: c.isDefault ? "predefinito" : "",
+      title: c.name || c.displayName || c.id || "(calendario)",
+      snippet: c.id || "", unread: false
+    };
+  }
+
+  var FAMILIES = [
+    { key: "events", heading: "Agenda", one: "impegno", many: "impegni", map: eventItem },
+    { key: "emails", heading: "Posta", one: "messaggio", many: "messaggi", map: emailItem },
+    { key: "contacts", heading: "Contatti", one: "contatto", many: "contatti", map: contactItem },
+    { key: "accounts", heading: "Account", one: "account", many: "account", map: accountItem },
+    { key: "calendars", heading: "Calendari", one: "calendario", many: "calendari", map: calendarItem }
+  ];
 
   /**
    * Dispatch on the shape, in the order the families are distinguishable. A single
-   * event or contact detail arrives unwrapped, so those are checked by their own
-   * marker fields rather than by a container key that will not be there.
+   * event, contact or message arrives unwrapped, so those are recognised by their
+   * own marker fields rather than by a container key that will not be there.
    */
+  function adapt(payload) {
+    for (var i = 0; i < FAMILIES.length; i++) {
+      var f = FAMILIES[i];
+      if (Array.isArray(payload[f.key])) {
+        return { family: f, items: payload[f.key].map(f.map) };
+      }
+    }
+    if (payload.eventId && payload.subject) return adapt({ events: [payload] });
+    if (payload.emailAddresses || payload.givenName) return adapt({ contacts: [payload] });
+    if (payload.subject && (payload.from || payload.fromName)) return adapt({ emails: [payload] });
+    return null;
+  }
+
+  // ---- rail -------------------------------------------------------------
+
+  function renderRail(items) {
+    empty(rail);
+    var order = [], seen = {};
+    items.forEach(function (it) {
+      var k = it.source.key;
+      if (!seen[k]) { seen[k] = { source: it.source, n: 0 }; order.push(k); }
+      seen[k].n++;
+    });
+    // One source is not a choice, it is a label -- and the rail is then just noise.
+    // The attribute (not an inline display) so the stylesheet can drop the grid column too.
+    client.setAttribute("data-rail", order.length < 2 ? "0" : "1");
+    if (order.length < 2) return;
+    rail.appendChild(el("h2", null, "Origini"));
+    var entries = [{ key: null, label: "Tutte", provider: null, n: items.length }]
+      .concat(order.map(function (k) {
+        return { key: k, label: seen[k].source.label,
+                 provider: seen[k].source.provider, n: seen[k].n };
+      }));
+    entries.forEach(function (s) {
+      var b = el("button", "source");
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.source === s.key ? "true" : "false");
+      var dot = el("span", "dot");
+      dot.style.setProperty("--spine", s.provider ? spineFor(s.provider) : "var(--color-text-tertiary, var(--aura-faint))");
+      b.appendChild(dot);
+      b.appendChild(el("span", "label", s.label));
+      b.appendChild(el("span", "count", s.n));
+      b.addEventListener("click", function () {
+        state.source = s.key;
+        state.selected = null;
+        draw();
+      });
+      rail.appendChild(b);
+    });
+  }
+
+  // ---- list -------------------------------------------------------------
+
+  function visibleItems() {
+    if (!state.source) return state.items;
+    return state.items.filter(function (it) { return it.source.key === state.source; });
+  }
+
+  function rowNode(it) {
+    var b = el("button", "row" + (it.unread ? " unread" : ""));
+    b.type = "button";
+    b.style.setProperty("--spine", spineFor(it.source.provider));
+    b.setAttribute("aria-selected", state.selected === it ? "true" : "false");
+    var top = el("div", "top");
+    top.appendChild(el("span", "who", it.who || it.source.label));
+    if (it.time) top.appendChild(el("span", "time", it.time));
+    b.appendChild(top);
+    b.appendChild(el("div", "subject", it.title));
+    if (it.snippet) b.appendChild(el("div", "snippet", it.snippet));
+    b.addEventListener("click", function () { select(it); });
+    return b;
+  }
+
+  function renderList(items, family) {
+    empty(rows);
+    title.textContent = family.heading;
+    scope.textContent = items.length + " " + (items.length === 1 ? family.one : family.many) +
+      (state.timezone ? " · " + state.timezone : "");
+    if (!items.length) {
+      rows.appendChild(el("p", "note", "Niente da mostrare qui."));
+      return;
+    }
+    var dated = items.some(function (it) { return it.stamp; });
+    var lastKey = null;
+    items.forEach(function (it) {
+      if (dated) {
+        var k = dayKey(it.stamp);
+        if (k !== lastKey) {
+          rows.appendChild(el("div", "daysep", dayLabel(it.stamp)));
+          lastKey = k;
+        }
+      }
+      rows.appendChild(rowNode(it));
+    });
+  }
+
+  // ---- reader -----------------------------------------------------------
+
+  function facts(pairs) {
+    var dl = el("dl", "facts");
+    pairs.forEach(function (p) {
+      if (!p[1]) return;
+      dl.appendChild(el("dt", null, p[0]));
+      dl.appendChild(el("dd", null, p[1]));
+    });
+    return dl.childNodes.length ? dl : null;
+  }
+
+  function prose(text) {
+    var box = el("div", "prose");
+    String(text).split(/\n{2,}/).forEach(function (para) {
+      if (para.trim()) box.appendChild(el("p", null, para.trim()));
+    });
+    return box;
+  }
+
+  /**
+   * Whether a body is markup. The payload cannot answer this: the sidecar reports
+   * bodyFormat:"text" for messages whose body is a complete HTML document (measured
+   * 2026-08-23 against the live mailbox -- a Google security alert and two GitHub CI
+   * notices all claimed "text" while carrying <!DOCTYPE html>), so the field is not
+   * usable as a discriminator and the content has to be sniffed instead.
+   */
+  function looksLikeHtml(s) {
+    return /<\s*(!doctype|html|head|body|table|div|p|br|span|a|img)[\s>/]/i.test(s);
+  }
+
+  /**
+   * Read an HTML body as text. DOMParser yields an INERT document -- no script runs
+   * and no image, font or stylesheet is fetched, because it has no browsing context --
+   * so the markup can be walked for its words without ever touching innerHTML and
+   * without the network access this app's CSP forbids outright.
+   */
+  function htmlToText(html) {
+    var doc = new DOMParser().parseFromString(html, "text/html");
+    Array.prototype.forEach.call(
+      doc.querySelectorAll("script, style, noscript, title"),
+      function (n) { n.remove(); });
+
+    var BLOCK = /^(P|DIV|TR|LI|BR|HR|H1|H2|H3|H4|H5|H6|TABLE|SECTION|ARTICLE|HEADER|FOOTER|BLOCKQUOTE|UL|OL)$/;
+    var out = [];
+    (function walk(node) {
+      for (var n = node.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3) { out.push(n.nodeValue); continue; }
+        if (n.nodeType !== 1) continue;
+        var block = BLOCK.test(n.tagName);
+        if (block) out.push("\n");
+        walk(n);
+        if (block) out.push("\n");
+      }
+    })(doc.body || doc);
+
+    // Mail markup is mostly layout tables, so the walk emits far more blank lines than
+    // the message has paragraphs; collapse runs of space and of newline back to prose.
+    return out.join("")
+      .replace(/[ \t\u00a0]+/g, " ")
+      .replace(/ *\n */g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function bodyText(obj) {
+    var body = firstOf(obj, ["bodyText", "textBody", "body", "description", "bodyPreview", "snippet"]);
+    return body && looksLikeHtml(body) ? htmlToText(body) : body;
+  }
+
+  function chips(labels) {
+    var box = el("div", "chips");
+    labels.filter(Boolean).forEach(function (t) { box.appendChild(el("span", "chip", t)); });
+    return box.childNodes.length ? box : null;
+  }
+
+  function whoRow(name, sub) {
+    var row = el("div", "who-row");
+    row.appendChild(el("div", "monogram", initials(name)));
+    var who = el("div");
+    who.appendChild(el("b", null, name || "—"));
+    if (sub) {
+      who.appendChild(document.createElement("br"));
+      who.appendChild(el("span", "busy", sub));
+    }
+    row.appendChild(who);
+    return row;
+  }
+
+  function backButton() {
+    var b = el("button", "back", "‹ Elenco");
+    b.type = "button";
+    b.addEventListener("click", function () { client.setAttribute("data-reading", "0"); });
+    return b;
+  }
+
+  function readEvent(it, detail) {
+    var e = detail || it.raw;
+    var start = parseLocal(e.start_local || e.start_utc);
+    var end = parseLocal(e.end_local || e.end_utc);
+    reader.appendChild(el("h2", null, e.subject || "(senza titolo)"));
+    var when = unknownDate(start) ? "data ignota"
+      : dayLabel(start) + (e.isAllDay ? " · tutto il giorno"
+          : " · " + hhmm(start) + (end ? "–" + hhmm(end) : ""));
+    var f = facts([
+      ["quando", when],
+      ["dove", e.location],
+      ["organizzatore", e.organizer],
+      ["calendario", e.calendarId],
+      ["account", e.accountId],
+      ["stato", e.isCancelled ? "annullato" : (e.status || e.showAs)],
+      ["riunione", e.onlineMeetingUrl],
+      ["ricorrenza", e.isRecurring ? "ricorrente" : ""]
+    ]);
+    if (f) reader.appendChild(f);
+    // attendeeDetails carries names, attendees only addresses; prefer the richer list.
+    var att = (e.attendeeDetails && e.attendeeDetails.length ? e.attendeeDetails : e.attendees || [])
+      .map(function (a) {
+        return typeof a === "string" ? a : (a.name || a.Name || addressOf(a));
+      });
+    var c = chips(att);
+    if (c) reader.appendChild(c);
+    var body = bodyText(e);
+    reader.appendChild(body ? prose(body) : el("p", "note", "Nessuna descrizione."));
+  }
+
+  function readEmail(it, detail) {
+    var m = detail || it.raw;
+    var stamp = parseLocal(m.receivedDateTime || m.sentDateTime);
+    reader.appendChild(el("h2", null, m.subject || "(senza oggetto)"));
+    reader.appendChild(whoRow(m.fromName || m.from, m.fromName ? m.from : ""));
+    var f = facts([
+      ["ricevuto", unknownDate(stamp) ? "data ignota"
+                                      : dayLabel(stamp) + " · " + hhmm(stamp)],
+      ["a", (m.toRecipients || m.to || []).map(addressOf).filter(Boolean).join(", ")],
+      ["cc", (m.ccRecipients || []).map(addressOf).filter(Boolean).join(", ")],
+      ["cartella", m.folder || m.folderName],
+      ["account", m.accountId],
+      ["stato", m.isRead === false ? "da leggere" : (m.isRead === true ? "letto" : "")]
+    ]);
+    if (f) reader.appendChild(f);
+    var names = (m.attachments || []).map(function (a) {
+      return typeof a === "string" ? a : (a.name || a.fileName || a.id);
+    });
+    var c = chips(names);
+    if (c) reader.appendChild(c);
+    var body = bodyText(m);
+    if (body) reader.appendChild(prose(body));
+    else if (detail === undefined) reader.appendChild(el("p", "busy", "Carico il messaggio…"));
+    else reader.appendChild(el("p", "note", "Il messaggio non ha corpo di testo."));
+  }
+
+  function readContact(it) {
+    var c = it.raw;
+    reader.appendChild(el("h2", null, it.title));
+    reader.appendChild(whoRow(it.title, c.jobTitle || c.companyName || ""));
+    var f = facts([
+      ["email", (c.emailAddresses || []).map(addressOf).filter(Boolean).join(", ")],
+      ["telefono", (c.phoneNumbers || []).map(addressOf).filter(Boolean).join(", ")],
+      ["azienda", c.companyName],
+      ["ruolo", c.jobTitle],
+      ["account", c.accountId],
+      ["note", c.notes]
+    ]);
+    reader.appendChild(f || el("p", "note", "Nessun recapito registrato."));
+  }
+
+  function readAccount(it) {
+    var a = it.raw;
+    reader.appendChild(el("h2", null, it.title));
+    var f = facts([
+      ["provider", a.provider],
+      ["id", a.accountId],
+      ["domini", (a.domains || []).join(", ")]
+    ]);
+    if (f) reader.appendChild(f);
+    var caps = chips((a.capabilities || []).map(function (c) {
+      return c.name + (c.readOnly ? " (sola lettura)" : "");
+    }));
+    reader.appendChild(caps || el("p", "note", "Nessuna capability dichiarata."));
+  }
+
+  function readCalendar(it) {
+    var c = it.raw;
+    reader.appendChild(el("h2", null, it.title));
+    var f = facts([
+      ["id", c.id],
+      ["account", c.accountId],
+      ["proprietario", c.owner],
+      ["predefinito", c.isDefault ? "sì" : ""],
+      ["modificabile", c.canEdit === false ? "no" : (c.canEdit ? "sì" : "")]
+    ]);
+    reader.appendChild(f || el("p", "note", "Nessun dettaglio."));
+  }
+
+  var READERS = {
+    event: readEvent, email: readEmail, contact: readContact,
+    account: readAccount, calendar: readCalendar
+  };
+
+  function renderReader() {
+    empty(reader);
+    if (!state.selected) {
+      reader.appendChild(el("p", "note", "Seleziona un elemento per leggerlo."));
+      return;
+    }
+    reader.appendChild(backButton());
+    var it = state.selected;
+    READERS[it.kind](it, state.detail[keyOf(it)]);
+  }
+
+  // ---- detail fetch -----------------------------------------------------
+
+  function keyOf(it) {
+    var r = it.raw;
+    return it.kind + ":" + (r.eventId || r.id || r.contactId || r.accountId || it.title);
+  }
+
+  /**
+   * The list actions return a preview; the detail actions return the whole thing.
+   * Fetching goes back out through the host as a tools/call rather than a fetch(),
+   * which is both what the CSP allows and what lets the host apply its own policy to
+   * a call this view makes on the user's behalf.
+   */
+  function detailRequest(it) {
+    var r = it.raw;
+    if (it.kind === "email" && r.accountId && r.id) {
+      return { action: "get_email_details", accountId: r.accountId, emailId: r.id };
+    }
+    if (it.kind === "event" && r.eventId && r.calendarId) {
+      return { action: "get_calendar_event_details", calendarId: r.calendarId,
+               eventId: r.eventId, timeZone: state.timezone || "Europe/Rome" };
+    }
+    return null;
+  }
+
+  function select(it) {
+    state.selected = it;
+    client.setAttribute("data-reading", "1");
+    draw();
+
+    var k = keyOf(it);
+    if (k in state.detail) return; // already fetched, or in flight
+    var args = detailRequest(it);
+    if (!args) return;
+
+    state.detail[k] = null;
+    window.McpApp.callTool("calendar", args).then(function (result) {
+      var payload = window.McpApp.payloadOf(result);
+      if (payload && payload.emails) payload = payload.emails[0];
+      if (payload && payload.events) payload = payload.events[0];
+      state.detail[k] = payload || null;
+      if (state.selected === it) renderReader();
+    }).catch(function (err) {
+      state.detail[k] = null;
+      if (state.selected !== it) return;
+      renderReader();
+      reader.appendChild(el("div", "warn",
+        "Non sono riuscito a caricare il dettaglio: " + ((err && err.message) || err)));
+    });
+  }
+
+  // ---- top level --------------------------------------------------------
+
+  function draw() {
+    renderRail(state.items);
+    renderList(visibleItems(), state.family);
+    renderReader();
+  }
+
+  function renderRaw(payload, note) {
+    client.setAttribute("data-raw", "1");
+    empty(reader);
+    if (note) reader.appendChild(el("div", "warn", note));
+    reader.appendChild(el("pre", "raw",
+      typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)));
+  }
+
   function render(payload) {
-    clear();
+    client.setAttribute("data-raw", "0");
     if (payload == null) {
-      body.appendChild(el("p", "note", "Nessun risultato."));
+      empty(rows);
+      rows.appendChild(el("p", "note", "Nessun risultato."));
       return;
     }
     if (typeof payload === "string") {
       try { payload = JSON.parse(payload); } catch (_) { renderRaw(payload); return; }
     }
     try {
-      if (payload.events) return renderEvents(payload);
-      if (payload.emails) return renderEmails(payload);
-      if (payload.contacts) return renderContacts(payload);
-      if (payload.accounts) return renderAccounts(payload);
-      if (payload.calendars) return renderCalendars(payload);
-      if (payload.eventId && payload.subject) return renderEvents({ events: [payload] });
-      if (payload.emailAddresses || payload.givenName) return renderContacts({ contacts: [payload] });
-      if (payload.id && payload.subject && payload.from) return renderEmails({ emails: [payload] });
-      renderRaw(payload);
+      var adapted = adapt(payload);
+      if (!adapted) { renderRaw(payload); return; }
+      state.items = adapted.items;
+      state.family = adapted.family;
+      state.source = null;
+      state.selected = null;
+      state.detail = {};
+      state.timezone = payload.timezone || null;
+      client.setAttribute("data-reading", "0");
+      draw();
+      if (payload.warnings) rows.appendChild(el("div", "warn", String(payload.warnings)));
     } catch (err) {
-      clear();
-      body.appendChild(el("div", "warn", "La vista non ha potuto rendere questo risultato: " +
-        ((err && err.message) || err)));
-      renderRaw(payload);
+      renderRaw(payload, "La vista non ha potuto rendere questo risultato: " +
+        ((err && err.message) || err));
     }
   }
 
@@ -317,9 +640,7 @@
   }).then(function (init) {
     if (init && init.toolResult) onResult({ result: init.toolResult });
   }).catch(function (err) {
-    clear();
-    body.appendChild(el("div", "warn",
-      "Handshake con l'host non riuscito: " + ((err && err.message) || err)));
+    renderRaw("", "Handshake con l'host non riuscito: " + ((err && err.message) || err));
   });
 })();
 </script>

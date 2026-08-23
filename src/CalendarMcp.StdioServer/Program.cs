@@ -1,3 +1,4 @@
+using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tools;
 using Microsoft.Extensions.Configuration;
@@ -122,6 +123,9 @@ public class Program
                 // advertise the identical curated surface.
                 services.AddMcpServer(CalendarMcpServerOptions.Configure)
                     .WithCalendarActionTool()
+                    // Aura fork: the MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
+                    // set in WithCalendarActionTool's factory, beside the schema patch.
+                    .WithCalendarView()
                     .WithTools<CalendarMcp.Core.Tools.GetGuideTool>()
                     .WithTools<CalendarMcp.Core.Tools.GetEmailAttachmentTool>()
                     .WithTools<CalendarMcp.Core.Tools.DeleteEmailTool>()

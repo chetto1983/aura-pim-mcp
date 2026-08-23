@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using CalendarMcp.Auth;
+using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tools;
 using CalendarMcp.HttpServer.Admin;
@@ -125,6 +126,9 @@ public class Program
             // registered-but-hidden. get_calendar_event_details no longer takes accountId
             // (MCP-05/D-20) -- see CalendarActionTool for the full contract.
             .WithCalendarActionTool()
+            // Aura fork: the MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
+            // set in WithCalendarActionTool's factory, beside the schema patch.
+            .WithCalendarView()
             .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
             .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
             .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>()

@@ -1,51 +1,51 @@
 /*
- * The shared look for this server's View: a paper agenda.
+ * The look for this server's View: a three-pane personal-information client.
  *
- * The sibling fork (whatsapp-mcp) reasons that a view of a conversation should
- * look like the thing it shows, and takes WhatsApp Web's palette. The same rule
- * lands somewhere else here: this server spans Google, Microsoft, IMAP, iCal and
- * JSON accounts at once, so aping any one vendor's chrome would misdescribe four
- * of the five. What every account IS, whatever hosts it, is a diary — so the
- * surface is ruled paper, the dates are set in a serif the way a printed almanac
- * sets them, and the provider shows up only as a coloured spine on the entry.
+ * Sources on the left, the list in the middle, the item being read on the right --
+ * the shape every mail and calendar client has settled on, because it is the one
+ * that lets you keep your place in a list while reading out of it.
  *
- * Every colour is a variable the host may override (ext-apps section Theming);
- * what follows is the fallback for a host that offers nothing.
+ * EVERY colour, font, radius and size is read from the MCP Apps host variables
+ * (hostContext.styles.variables, applied to the root element by _bridge.js) with an
+ * Aura token as the fallback. That order is the whole styling strategy: a
+ * spec-compliant host themes this view while knowing nothing about it, and when no
+ * host variable arrives the view still looks like Aura rather than like nothing.
+ * Hosts may send any subset, so no rule may depend on one arriving.
  *
- * No images and no @font-face: a ui:// resource loads under a restrictive CSP
- * (this server declares every domain list empty), so the paper grain is a
- * gradient and the rules are borders.
+ * The fallbacks are Aura's own tokens, copied from web/src/styles/theme.css (itself
+ * generated from tokens/tokens.json): cool slate surfaces, a deep navy accent, and
+ * the ring blue for anything that must catch the eye. Dark is the default because
+ * that is the cockpit's default -- Aura's :root:not([data-theme]) resolves to dark --
+ * so a frame that opened light would announce itself as somebody else's app.
+ *
+ * No images and no @font-face: a ui:// resource loads under a restrictive CSP (this
+ * server declares every domain list empty), so rules are borders and depth is a
+ * shadow. A host that wants its own faces sends them as styles.css.fonts, which the
+ * bridge injects; --font-sans and --font-mono then name them.
  */
 
 :root {
-  --cal-paper: #f7f4ed;
-  --cal-card: #fffdf8;
-  --cal-ink: #1d1a15;
-  --cal-muted: #6c6459;
-  --cal-faint: #a09689;
-  --cal-rule: #e3ddd0;
-  --cal-accent: #9a3412;
-  --cal-accent-soft: #f3e6de;
-  --cal-today: #b45309;
-  --cal-shadow: 0 1px 2px rgba(29, 26, 21, 0.06), 0 0 0 1px rgba(29, 26, 21, 0.04);
+  /* Aura dark -- the cockpit default, and the fallback for every variable below. */
+  --aura-bg: #101214;
+  --aura-surface: #191c20;
+  --aura-surface-2: #252a31;
+  --aura-surface-3: #303741;
+  --aura-border: #343c46;
+  --aura-border-strong: #718394;
+  --aura-text: #eef2f6;
+  --aura-muted: #c8d0d8;
+  --aura-faint: #9ba8b5;
+  --aura-accent: #1f3760;
+  --aura-ring: #8ab4f8;
+  --aura-warning: #fdd663;
 
-  /* Provider spines. Hue carries the account, never the only signal — the
-     provider is also written out, so a colour-blind reader loses nothing. */
-  --cal-google: #1a73e8;
-  --cal-microsoft: #7719aa;
-  --cal-imap: #0f766e;
-  --cal-ical: #a16207;
-  --cal-json: #57534e;
-
-  --color-background-primary: var(--cal-paper);
-  --color-background-secondary: var(--cal-card);
-  --color-text-primary: var(--cal-ink);
-  --color-text-secondary: var(--cal-muted);
-  --color-border-primary: var(--cal-rule);
-
-  --font-cal-sans: "Segoe UI", "Helvetica Neue", Helvetica, system-ui, sans-serif;
-  --font-cal-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
-    "Times New Roman", serif;
+  /* Provider spines, drawn from Aura's semantic ramp rather than invented hues.
+     Colour is never the only signal -- the provider is written on the row too. */
+  --aura-google: #aecbfa;
+  --aura-microsoft: #c9b3f5;
+  --aura-imap: #81c995;
+  --aura-ical: #fdd663;
+  --aura-json: #9ba8b5;
 
   --safe-top: 0px;
   --safe-right: 0px;
@@ -53,299 +53,393 @@
   --safe-left: 0px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --cal-paper: #14120f;
-    --cal-card: #1f1c17;
-    --cal-ink: #efe9dd;
-    --cal-muted: #a89e8f;
-    --cal-faint: #6f665a;
-    --cal-rule: #2e2a23;
-    --cal-accent: #fb923c;
-    --cal-accent-soft: #2a201a;
-    --cal-today: #fbbf24;
-    --cal-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
-    --cal-google: #7cb0f5;
-    --cal-microsoft: #c99ae0;
-    --cal-imap: #5eccc0;
-    --cal-ical: #dcb45e;
-    --cal-json: #a8a29e;
+/* Aura light: when the host says so, and when a host that stamps nothing at all is
+   read by someone who prefers it. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --aura-bg: #f8fafb;
+  --aura-surface: #ffffff;
+  --aura-surface-2: #f3f6f8;
+  --aura-surface-3: #e8eef2;
+  --aura-border: #dee3e8;
+  --aura-border-strong: #6b7785;
+  --aura-text: #172026;
+  --aura-muted: #3f4b55;
+  --aura-faint: #64717d;
+  --aura-accent: #d7e7ff;
+  --aura-ring: #0b57d0;
+  --aura-warning: #8a4b00;
+  --aura-google: #0b57d0;
+  --aura-microsoft: #6c3fb8;
+  --aura-imap: #137333;
+  --aura-ical: #8a4b00;
+  --aura-json: #64717d;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --aura-bg: #f8fafb;
+    --aura-surface: #ffffff;
+    --aura-surface-2: #f3f6f8;
+    --aura-surface-3: #e8eef2;
+    --aura-border: #dee3e8;
+    --aura-border-strong: #6b7785;
+    --aura-text: #172026;
+    --aura-muted: #3f4b55;
+    --aura-faint: #64717d;
+    --aura-accent: #d7e7ff;
+    --aura-ring: #0b57d0;
+    --aura-warning: #8a4b00;
+    --aura-google: #0b57d0;
+    --aura-microsoft: #6c3fb8;
+    --aura-imap: #137333;
+    --aura-ical: #8a4b00;
+    --aura-json: #64717d;
   }
 }
 
-:root[data-theme="dark"] {
-  --cal-paper: #14120f;
-  --cal-card: #1f1c17;
-  --cal-ink: #efe9dd;
-  --cal-muted: #a89e8f;
-  --cal-faint: #6f665a;
-  --cal-rule: #2e2a23;
-  --cal-accent: #fb923c;
-  --cal-accent-soft: #2a201a;
-  --cal-today: #fbbf24;
-  --cal-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
-  --cal-google: #7cb0f5;
-  --cal-microsoft: #c99ae0;
-  --cal-imap: #5eccc0;
-  --cal-ical: #dcb45e;
-  --cal-json: #a8a29e;
-}
+* { box-sizing: border-box; }
 
-* {
-  box-sizing: border-box;
-}
+html, body { height: 100%; }
 
 body {
   margin: 0;
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
-  background-color: var(--color-background-primary, var(--cal-paper));
-  background-image: linear-gradient(
-    var(--color-background-primary, var(--cal-paper)),
-    var(--color-background-primary, var(--cal-paper))
-  );
-  color: var(--color-text-primary, var(--cal-ink));
-  font-family: var(--font-cal-sans);
-  font-size: var(--font-text-md-size, 14px);
-  line-height: 1.45;
+  overflow: hidden; /* each pane scrolls; the document itself never does */
+  background: var(--color-background-primary, var(--aura-bg));
+  color: var(--color-text-primary, var(--aura-text));
+  font-family: var(--font-sans, "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif);
+  font-size: var(--text-md, 14px);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- shell ---------------------------------------------------------- */
+/* ---- the three panes ------------------------------------------------- */
 
-.sheet {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 14px 16px 28px;
+.client {
+  display: grid;
+  grid-template-columns: 178px minmax(240px, 1fr) minmax(0, 1.35fr);
+  height: 100%;
+  min-height: 320px;
+  border: var(--border-width-regular, 1px) solid var(--color-border-primary, var(--aura-border));
+  border-radius: var(--border-radius-md, 14px);
+  overflow: hidden;
+  background: var(--color-background-secondary, var(--aura-surface));
 }
 
-.masthead {
+/* With a single origin the rail is a label, not a choice, so it is dropped -- and the
+   grid must drop its column with it. Hiding the element alone leaves a 178px track that
+   the list then slides into, which is how the list first shipped at rail width. */
+.client[data-rail="0"] { grid-template-columns: minmax(240px, 1fr) minmax(0, 1.35fr); }
+.client[data-rail="0"] .rail { display: none; }
+
+.pane { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+
+.rail {
+  background: var(--color-background-primary, var(--aura-bg));
+  border-right: 1px solid var(--color-border-primary, var(--aura-border));
+  padding: 10px 8px;
+}
+
+.list { border-right: 1px solid var(--color-border-primary, var(--aura-border)); }
+
+.reader { padding: 18px 20px 26px; }
+
+/* One pane at a time when there is no room for three. The list keeps priority:
+   a reader with nothing selected is a blank slab, a list never is. */
+@media (max-width: 760px) {
+  /* Every variant is listed because a media query adds no specificity: plain `.client`
+     alone loses to `.client[data-rail="0"]` and the single pane stayed at rail width. */
+  .client,
+  .client[data-rail="0"],
+  .client[data-rail="1"] { grid-template-columns: 1fr; }
+  .rail { display: none; }
+  .client[data-reading="1"] .list { display: none; }
+  .client:not([data-reading="1"]) .reader { display: none; }
+  .list { border-right: none; }
+}
+
+/* An unrecognised payload has neither sources nor a list, so the raw JSON takes
+   the whole width rather than sitting in a third of it beside two empty panes. */
+.client[data-raw="1"] { grid-template-columns: 1fr; }
+.client[data-raw="1"] .rail,
+.client[data-raw="1"] .list { display: none; }
+
+/* ---- rail ------------------------------------------------------------ */
+
+.rail h2 {
+  margin: 6px 6px 10px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary, var(--aura-faint));
+  font-weight: var(--font-weight-bold, 700);
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--border-radius-sm, 8px);
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+  text-align: left;
+}
+
+.source:hover { background: var(--color-background-tertiary, var(--aura-surface-2)); }
+
+.source[aria-pressed="true"] {
+  background: var(--color-background-ghost, var(--aura-accent));
+  font-weight: var(--font-weight-semibold, 700);
+}
+
+.source .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--spine, var(--color-ring-primary, var(--aura-ring)));
+}
+
+.source .label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source .count {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* ---- list ------------------------------------------------------------ */
+
+.listhead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--color-text-primary, var(--cal-ink));
-  margin-bottom: 4px;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-background-secondary, var(--aura-surface));
+  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
 }
 
-.masthead h1 {
+.listhead h1 {
   margin: 0;
-  font-family: var(--font-cal-serif);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: var(--heading-sm, 16px);
+  font-weight: var(--font-weight-semibold, 600);
+  letter-spacing: -0.01em;
 }
 
-.masthead .scope {
-  font-size: 12px;
-  color: var(--color-text-secondary, var(--cal-muted));
+.listhead .scope {
+  font-size: 11px;
+  color: var(--color-text-tertiary, var(--aura-faint));
   font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
-/* ---- day grouping --------------------------------------------------- */
-
-.day {
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  gap: 12px;
-  padding: 14px 0 4px;
-  border-bottom: 1px solid var(--color-border-primary, var(--cal-rule));
-}
-
-.day:last-child {
-  border-bottom: none;
-}
-
-.daymark {
-  text-align: center;
-  padding-top: 2px;
-}
-
-.daymark .dow {
-  display: block;
-  font-size: 10px;
-  letter-spacing: 0.14em;
+.daysep {
+  position: sticky;
+  top: 40px;
+  padding: 5px 14px;
+  background: var(--color-background-tertiary, var(--aura-surface-2));
+  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--cal-faint);
+  color: var(--color-text-tertiary, var(--aura-faint));
 }
 
-.daymark .dnum {
+.row {
   display: block;
-  font-family: var(--font-cal-serif);
-  font-size: 30px;
-  line-height: 1.05;
-  font-weight: 600;
-  font-variant-numeric: lining-nums tabular-nums;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  border-left: 3px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 9px 14px;
+  cursor: pointer;
 }
 
-.daymark .mon {
-  display: block;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--cal-faint);
+.row:hover { background: var(--color-background-tertiary, var(--aura-surface-2)); }
+
+.row[aria-selected="true"] {
+  background: var(--color-background-ghost, var(--aura-accent));
+  border-left-color: var(--spine, var(--color-ring-primary, var(--aura-ring)));
 }
 
-.day.is-today .daymark .dnum,
-.day.is-today .daymark .dow {
-  color: var(--cal-today);
-}
+.row .top { display: flex; align-items: baseline; gap: 8px; }
 
-/* ---- entries -------------------------------------------------------- */
-
-.entries {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.row .who {
+  flex: 1;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-secondary, var(--aura-muted));
+  font-size: var(--text-sm, 12px);
 }
 
-.entry {
-  position: relative;
-  background: var(--color-background-secondary, var(--cal-card));
-  border-radius: 6px;
-  box-shadow: var(--cal-shadow);
-  padding: 8px 10px 8px 14px;
-  min-width: 0;
-}
-
-.entry::before {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--spine, var(--cal-accent));
-}
-
-.entry .when {
+.row .time {
+  flex: none;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--color-text-secondary, var(--cal-muted));
-  letter-spacing: 0.02em;
+  color: var(--color-text-tertiary, var(--aura-faint));
 }
 
-.entry .what {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.entry .meta {
-  font-size: 11.5px;
-  color: var(--color-text-secondary, var(--cal-muted));
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+.row .subject {
   margin-top: 2px;
+  font-weight: var(--font-weight-medium, 500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.entry .meta .tag {
-  color: var(--cal-faint);
+.row .snippet {
+  margin-top: 2px;
+  font-size: var(--text-sm, 12px);
+  color: var(--color-text-tertiary, var(--aura-faint));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.entry.allday .when {
-  font-style: italic;
-}
+.row.unread .subject { font-weight: var(--font-weight-bold, 700); }
 
-.entry.unread .what::after {
+.row.unread .who::before {
   content: "";
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--cal-accent);
-  margin-left: 6px;
-  vertical-align: 0.12em;
+  background: var(--color-ring-primary, var(--aura-ring));
+  margin-right: 6px;
+  vertical-align: 0.08em;
 }
 
-/* ---- monogram list (contacts) --------------------------------------- */
+/* ---- reader ---------------------------------------------------------- */
 
-.people {
+.back {
+  display: none;
+  margin: 0 0 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-secondary, var(--aura-border-strong));
+  border-radius: var(--border-radius-full, 999px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm, 12px);
+  cursor: pointer;
+}
+
+@media (max-width: 760px) { .back { display: inline-block; } }
+
+.reader h2 {
+  margin: 0 0 8px;
+  font-size: var(--heading-lg, 20px);
+  line-height: 1.25;
+  font-weight: var(--font-weight-semibold, 600);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 6px;
-  padding-top: 10px;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 12px 0 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border-primary, var(--aura-border));
+  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  font-size: 12.5px;
 }
 
-.person {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  background: var(--color-background-secondary, var(--cal-card));
-  border-radius: 6px;
-  box-shadow: var(--cal-shadow);
-  padding: 7px 9px;
-  min-width: 0;
+.facts dt {
+  color: var(--color-text-tertiary, var(--aura-faint));
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding-top: 2px;
 }
 
-.monogram {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--cal-accent-soft);
-  color: var(--cal-accent);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-cal-serif);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
+.facts dd { margin: 0; overflow-wrap: anywhere; }
 
-.person .who {
-  min-width: 0;
-}
-
-.person .who b {
-  display: block;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.person .who span {
-  display: block;
-  font-size: 11.5px;
-  color: var(--color-text-secondary, var(--cal-muted));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ---- states --------------------------------------------------------- */
+.prose { overflow-wrap: anywhere; color: var(--color-text-secondary, var(--aura-muted)); }
+.prose p { margin: 0 0 11px; }
 
 .note {
-  padding: 22px 4px;
-  color: var(--color-text-secondary, var(--cal-muted));
-  font-family: var(--font-cal-serif);
-  font-size: 14px;
+  padding: 28px 4px;
+  color: var(--color-text-tertiary, var(--aura-faint));
+  font-style: italic;
+  text-align: center;
+}
+
+.busy {
+  color: var(--color-text-tertiary, var(--aura-faint));
+  font-size: var(--text-sm, 12px);
   font-style: italic;
 }
 
 .warn {
-  margin-top: 10px;
-  padding: 7px 10px;
-  border-left: 3px solid var(--cal-today);
-  background: var(--cal-accent-soft);
-  border-radius: 0 4px 4px 0;
-  font-size: 12px;
+  margin: 12px 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--color-background-warning, var(--aura-warning));
+  background: var(--color-background-tertiary, var(--aura-surface-2));
+  border-radius: 0 var(--border-radius-sm, 8px) var(--border-radius-sm, 8px) 0;
+  font-size: 12.5px;
 }
 
 .raw {
-  margin: 10px 0 0;
-  padding: 10px;
-  background: var(--color-background-secondary, var(--cal-card));
-  border-radius: 6px;
-  box-shadow: var(--cal-shadow);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  margin: 0;
+  padding: 12px;
+  background: var(--color-background-primary, var(--aura-bg));
+  border: 1px solid var(--color-border-primary, var(--aura-border));
+  border-radius: var(--border-radius-sm, 8px);
+  font-family: var(--font-mono, ui-monospace, "Cascadia Mono", Consolas, monospace);
   font-size: 11.5px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 320px;
+  max-height: 60vh;
   overflow: auto;
 }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+
+.chip {
+  padding: 2px 9px;
+  border: 1px solid var(--color-border-primary, var(--aura-border));
+  border-radius: var(--border-radius-full, 999px);
+  font-size: 11.5px;
+  color: var(--color-text-secondary, var(--aura-muted));
+  background: var(--color-background-tertiary, var(--aura-surface-2));
+}
+
+.monogram {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-background-ghost, var(--aura-accent));
+  color: var(--color-text-primary, var(--aura-text));
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.who-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

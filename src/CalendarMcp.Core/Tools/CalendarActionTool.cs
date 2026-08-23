@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
+using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -344,6 +346,13 @@ public static class CalendarActionToolServiceExtensions
                 new McpServerToolCreateOptions { Services = services });
 
             CalendarActionTool.PatchActionEnumIntoSchema(tool.ProtocolTool);
+
+            // Bind the MCP Apps view. Set here rather than via [McpAppUi] because the tool is
+            // built by hand in this factory, and its _meta belongs beside the schema patch that
+            // is already applied here instead of in a second, attribute-driven mechanism.
+#pragma warning disable MCPEXP003 // MCP Apps (SEP-1865) is experimental; see Apps/CalendarView.cs.
+            McpApps.SetAppUi(tool, new McpUiToolMeta { ResourceUri = CalendarView.ResourceUri });
+#pragma warning restore MCPEXP003
 
             return tool;
         });

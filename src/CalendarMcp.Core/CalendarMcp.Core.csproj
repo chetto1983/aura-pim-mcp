@@ -31,6 +31,14 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Skills/*.md" />
+    <!--
+      The MCP Apps view, embedded rather than copied to output: a ui:// resource is served as
+      one HTML string over the protocol, never read off disk. LogicalName is explicit so that
+      moving the folder breaks the build rather than the runtime lookup (Apps/CalendarView.cs).
+    -->
+    <EmbeddedResource Include="Apps/ui/view.html" LogicalName="calendar-app/view.html" />
+    <EmbeddedResource Include="Apps/ui/_theme.css" LogicalName="calendar-app/theme.css" />
+    <EmbeddedResource Include="Apps/ui/_bridge.js" LogicalName="calendar-app/bridge.js" />
   </ItemGroup>
 
 </Project>
