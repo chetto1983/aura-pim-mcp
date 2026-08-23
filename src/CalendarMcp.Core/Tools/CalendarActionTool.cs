@@ -33,20 +33,30 @@ public sealed partial class CalendarActionTool
     private readonly IAttachmentStore _attachmentStore;
     private readonly ILogger<CalendarActionTool> _logger;
 
+    // The twelve actions in CalendarActionTool.Delegated.cs forward to implementation
+    // classes whose constructors this facade must not restate: UnsubscribeFromEmailTool
+    // wants an UnsubscribeExecutor, GetGuideTool wants only a logger, and hand-wiring
+    // each one made this file wrong twice before the compiler caught it. Holding the
+    // provider lets ActivatorUtilities resolve whatever each class asks for, so a
+    // dependency added upstream needs no edit here.
+    private readonly IServiceProvider _services;
+
     public CalendarActionTool(
         IAccountRegistry accountRegistry,
         IProviderServiceFactory providerFactory,
         IAttachmentStore attachmentStore,
-        ILogger<CalendarActionTool> logger)
+        ILogger<CalendarActionTool> logger,
+        IServiceProvider services)
     {
         _accountRegistry = accountRegistry;
         _providerFactory = providerFactory;
         _attachmentStore = attachmentStore;
         _logger = logger;
+        _services = services;
     }
 
     /// <summary>
-    /// The 17 curated action names, in the exact casing the design doc's
+    /// The 29 curated action names, in the exact casing the design doc's
     /// calendar action table specifies. Single source of truth for both the
     /// published JSON schema <c>enum</c> (see <see cref="SchemaOptions"/>)
     /// and this method's own unknown-action validation -- there is
@@ -71,6 +81,18 @@ public sealed partial class CalendarActionTool
         "delete_email",
         "mark_email_read",
         "move_email",
+        "delete_event",
+        "create_contact",
+        "update_contact",
+        "delete_contact",
+        "get_email_attachment",
+        "get_contextual_email_summary",
+        "get_guide",
+        "get_unsubscribe_info",
+        "unsubscribe_from_email",
+        "bulk_delete_emails",
+        "bulk_mark_emails_read",
+        "bulk_move_emails",
     ];
 
     private const string ToolDescription = """
@@ -92,6 +114,18 @@ public sealed partial class CalendarActionTool
         - delete_email: delete an email. Requires accountId, emailId. Google trashes it; Microsoft deletes outright.
         - mark_email_read: mark an email read or unread. Requires accountId, emailId, isRead.
         - move_email: move an email to a folder or label. Requires accountId, emailId, destination.
+        - delete_event: delete a calendar event. Requires eventId; pass accountId (and calendarId) or the first account is used.
+        - create_contact: create a contact. Requires displayName. accountId, givenName, surname, email, phone, jobTitle, companyName, notes optional.
+        - update_contact: update a contact. Requires accountId, contactId. Any of displayName, givenName, surname, email, phone, jobTitle, companyName, notes.
+        - delete_contact: delete a contact. Requires accountId, contactId.
+        - get_email_attachment: fetch one attachment. Requires accountId, emailId, attachmentId. mode 'stash' (default) or 'inline'.
+        - get_contextual_email_summary: cluster recent mail into topics. topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster optional.
+        - get_guide: read an in-depth topical guide. Omit name (or pass 'index') for the list.
+        - get_unsubscribe_info: report how a mailing can be unsubscribed from. Requires accountId, emailId.
+        - unsubscribe_from_email: act on that unsubscribe. Requires accountId, emailId. method 'auto' (default), 'http' or 'mailto'.
+        - bulk_delete_emails: delete several emails. Requires items, each with accountId and emailId.
+        - bulk_mark_emails_read: mark several emails read or unread. Requires items and isRead.
+        - bulk_move_emails: move several emails. Requires items and destination.
         """;
 
     [McpServerTool, Description(ToolDescription)]
@@ -155,7 +189,41 @@ public sealed partial class CalendarActionTool
         [Description("mark_email_read only. Required. True to mark the email read, false to mark it unread.")]
         bool? isRead = null,
         [Description("move_email only. Required. Destination: 'archive', 'inbox', 'trash', 'spam', 'drafts' (Microsoft only), 'sentitems' (Microsoft only), or a custom label/folder id (Google only). Aliases: 'deleteditems'='trash', 'junkemail'='spam'.")]
-        string? destination = null)
+        string? destination = null,
+        [Description("create_contact/update_contact. Contact display name. Required for create_contact.")]
+        string? displayName = null,
+        [Description("create_contact/update_contact. Given (first) name.")]
+        string? givenName = null,
+        [Description("create_contact/update_contact. Surname (last name).")]
+        string? surname = null,
+        [Description("create_contact/update_contact. Primary email address.")]
+        string? email = null,
+        [Description("create_contact/update_contact. Primary phone number.")]
+        string? phone = null,
+        [Description("create_contact/update_contact. Job title.")]
+        string? jobTitle = null,
+        [Description("create_contact/update_contact. Company name.")]
+        string? companyName = null,
+        [Description("create_contact/update_contact. Free-text notes.")]
+        string? notes = null,
+        [Description("get_email_attachment only. Required. Attachment id from get_email_details.")]
+        string? attachmentId = null,
+        [Description("get_email_attachment only. 'stash' (default) writes the attachment to the attachment store and returns a handle; 'inline' returns base64 content.")]
+        string? mode = null,
+        [Description("get_contextual_email_summary only. Comma-separated topics to cluster around; omit to let the summary choose.")]
+        string? topics = null,
+        [Description("get_contextual_email_summary only. How many emails to scan per account. Default 50.")]
+        int? countPerAccount = null,
+        [Description("get_contextual_email_summary only. Include a short body preview with each sample. Default false.")]
+        bool? includeBodyPreview = null,
+        [Description("get_contextual_email_summary only. Maximum sample emails shown per cluster. Default 5.")]
+        int? maxSamplesPerCluster = null,
+        [Description("get_guide only. Guide name; omit (or pass 'index') for the list of available guides.")]
+        string? name = null,
+        [Description("unsubscribe_from_email only. Unsubscribe method: 'auto' (default), 'http', or 'mailto'.")]
+        string? method = null,
+        [Description("bulk_delete_emails/bulk_mark_emails_read/bulk_move_emails. Required. The emails to act on, each item carrying its accountId and emailId.")]
+        BulkEmailItem[]? items = null)
     {
         if (!ActionNames.Contains(action, StringComparer.Ordinal))
         {
@@ -181,6 +249,18 @@ public sealed partial class CalendarActionTool
             "delete_email" => DeleteEmailAction(accountId, emailId),
             "mark_email_read" => MarkEmailReadAction(accountId, emailId, isRead),
             "move_email" => MoveEmailAction(accountId, emailId, destination),
+            "delete_event" => DeleteEventAction(eventId, accountId, calendarId),
+            "create_contact" => CreateContactAction(displayName, accountId, givenName, surname, email, phone, jobTitle, companyName, notes),
+            "update_contact" => UpdateContactAction(accountId, contactId, displayName, givenName, surname, email, phone, jobTitle, companyName, notes),
+            "delete_contact" => DeleteContactAction(accountId, contactId),
+            "get_email_attachment" => GetEmailAttachmentAction(accountId, emailId, attachmentId, mode),
+            "get_contextual_email_summary" => GetContextualEmailSummaryAction(topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster),
+            "get_guide" => GetGuideAction(name),
+            "get_unsubscribe_info" => GetUnsubscribeInfoAction(accountId, emailId),
+            "unsubscribe_from_email" => UnsubscribeFromEmailAction(accountId, emailId, method),
+            "bulk_delete_emails" => BulkDeleteEmailsAction(items),
+            "bulk_mark_emails_read" => BulkMarkEmailsReadAction(items, isRead),
+            "bulk_move_emails" => BulkMoveEmailsAction(items, destination),
             _ => throw UnknownAction(action),
         };
     }
