@@ -1,0 +1,351 @@
+/*
+ * The shared look for this server's View: a paper agenda.
+ *
+ * The sibling fork (whatsapp-mcp) reasons that a view of a conversation should
+ * look like the thing it shows, and takes WhatsApp Web's palette. The same rule
+ * lands somewhere else here: this server spans Google, Microsoft, IMAP, iCal and
+ * JSON accounts at once, so aping any one vendor's chrome would misdescribe four
+ * of the five. What every account IS, whatever hosts it, is a diary — so the
+ * surface is ruled paper, the dates are set in a serif the way a printed almanac
+ * sets them, and the provider shows up only as a coloured spine on the entry.
+ *
+ * Every colour is a variable the host may override (ext-apps section Theming);
+ * what follows is the fallback for a host that offers nothing.
+ *
+ * No images and no @font-face: a ui:// resource loads under a restrictive CSP
+ * (this server declares every domain list empty), so the paper grain is a
+ * gradient and the rules are borders.
+ */
+
+:root {
+  --cal-paper: #f7f4ed;
+  --cal-card: #fffdf8;
+  --cal-ink: #1d1a15;
+  --cal-muted: #6c6459;
+  --cal-faint: #a09689;
+  --cal-rule: #e3ddd0;
+  --cal-accent: #9a3412;
+  --cal-accent-soft: #f3e6de;
+  --cal-today: #b45309;
+  --cal-shadow: 0 1px 2px rgba(29, 26, 21, 0.06), 0 0 0 1px rgba(29, 26, 21, 0.04);
+
+  /* Provider spines. Hue carries the account, never the only signal — the
+     provider is also written out, so a colour-blind reader loses nothing. */
+  --cal-google: #1a73e8;
+  --cal-microsoft: #7719aa;
+  --cal-imap: #0f766e;
+  --cal-ical: #a16207;
+  --cal-json: #57534e;
+
+  --color-background-primary: var(--cal-paper);
+  --color-background-secondary: var(--cal-card);
+  --color-text-primary: var(--cal-ink);
+  --color-text-secondary: var(--cal-muted);
+  --color-border-primary: var(--cal-rule);
+
+  --font-cal-sans: "Segoe UI", "Helvetica Neue", Helvetica, system-ui, sans-serif;
+  --font-cal-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    "Times New Roman", serif;
+
+  --safe-top: 0px;
+  --safe-right: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cal-paper: #14120f;
+    --cal-card: #1f1c17;
+    --cal-ink: #efe9dd;
+    --cal-muted: #a89e8f;
+    --cal-faint: #6f665a;
+    --cal-rule: #2e2a23;
+    --cal-accent: #fb923c;
+    --cal-accent-soft: #2a201a;
+    --cal-today: #fbbf24;
+    --cal-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --cal-google: #7cb0f5;
+    --cal-microsoft: #c99ae0;
+    --cal-imap: #5eccc0;
+    --cal-ical: #dcb45e;
+    --cal-json: #a8a29e;
+  }
+}
+
+:root[data-theme="dark"] {
+  --cal-paper: #14120f;
+  --cal-card: #1f1c17;
+  --cal-ink: #efe9dd;
+  --cal-muted: #a89e8f;
+  --cal-faint: #6f665a;
+  --cal-rule: #2e2a23;
+  --cal-accent: #fb923c;
+  --cal-accent-soft: #2a201a;
+  --cal-today: #fbbf24;
+  --cal-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --cal-google: #7cb0f5;
+  --cal-microsoft: #c99ae0;
+  --cal-imap: #5eccc0;
+  --cal-ical: #dcb45e;
+  --cal-json: #a8a29e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  background-color: var(--color-background-primary, var(--cal-paper));
+  background-image: linear-gradient(
+    var(--color-background-primary, var(--cal-paper)),
+    var(--color-background-primary, var(--cal-paper))
+  );
+  color: var(--color-text-primary, var(--cal-ink));
+  font-family: var(--font-cal-sans);
+  font-size: var(--font-text-md-size, 14px);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- shell ---------------------------------------------------------- */
+
+.sheet {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 14px 16px 28px;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--color-text-primary, var(--cal-ink));
+  margin-bottom: 4px;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-family: var(--font-cal-serif);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.masthead .scope {
+  font-size: 12px;
+  color: var(--color-text-secondary, var(--cal-muted));
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- day grouping --------------------------------------------------- */
+
+.day {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
+  padding: 14px 0 4px;
+  border-bottom: 1px solid var(--color-border-primary, var(--cal-rule));
+}
+
+.day:last-child {
+  border-bottom: none;
+}
+
+.daymark {
+  text-align: center;
+  padding-top: 2px;
+}
+
+.daymark .dow {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cal-faint);
+}
+
+.daymark .dnum {
+  display: block;
+  font-family: var(--font-cal-serif);
+  font-size: 30px;
+  line-height: 1.05;
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.daymark .mon {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cal-faint);
+}
+
+.day.is-today .daymark .dnum,
+.day.is-today .daymark .dow {
+  color: var(--cal-today);
+}
+
+/* ---- entries -------------------------------------------------------- */
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.entry {
+  position: relative;
+  background: var(--color-background-secondary, var(--cal-card));
+  border-radius: 6px;
+  box-shadow: var(--cal-shadow);
+  padding: 8px 10px 8px 14px;
+  min-width: 0;
+}
+
+.entry::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--spine, var(--cal-accent));
+}
+
+.entry .when {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary, var(--cal-muted));
+  letter-spacing: 0.02em;
+}
+
+.entry .what {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.entry .meta {
+  font-size: 11.5px;
+  color: var(--color-text-secondary, var(--cal-muted));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+
+.entry .meta .tag {
+  color: var(--cal-faint);
+}
+
+.entry.allday .when {
+  font-style: italic;
+}
+
+.entry.unread .what::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cal-accent);
+  margin-left: 6px;
+  vertical-align: 0.12em;
+}
+
+/* ---- monogram list (contacts) --------------------------------------- */
+
+.people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--color-background-secondary, var(--cal-card));
+  border-radius: 6px;
+  box-shadow: var(--cal-shadow);
+  padding: 7px 9px;
+  min-width: 0;
+}
+
+.monogram {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--cal-accent-soft);
+  color: var(--cal-accent);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-cal-serif);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.person .who {
+  min-width: 0;
+}
+
+.person .who b {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.person .who span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--color-text-secondary, var(--cal-muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- states --------------------------------------------------------- */
+
+.note {
+  padding: 22px 4px;
+  color: var(--color-text-secondary, var(--cal-muted));
+  font-family: var(--font-cal-serif);
+  font-size: 14px;
+  font-style: italic;
+}
+
+.warn {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--cal-today);
+  background: var(--cal-accent-soft);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+}
+
+.raw {
+  margin: 10px 0 0;
+  padding: 10px;
+  background: var(--color-background-secondary, var(--cal-card));
+  border-radius: 6px;
+  box-shadow: var(--cal-shadow);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}

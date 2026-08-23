@@ -1499,8 +1499,19 @@ public class GoogleProviderService : IGoogleProviderService
         var toList = ParseEmailAddresses(to);
         var ccList = ParseEmailAddresses(cc);
 
-        // Parse date
-        DateTime.TryParse(date, out var receivedDate);
+        // The Date header is sender-supplied and not always RFC-parseable: 2 of 25 live
+        // Gmail messages failed TryParse (a newsletter and a utility bill), and because
+        // the discarded bool left DateTime.MinValue standing in as a real timestamp, both
+        // reported as year 1 and sort last forever under "newest first". InternalDate is
+        // Gmail's own receipt clock in epoch milliseconds, returned for the default `full`
+        // format this provider requests, and it cannot fail to parse -- so it is the
+        // authority whenever the header does not yield one.
+        if (!DateTime.TryParse(date, out var receivedDate) || receivedDate == DateTime.MinValue)
+        {
+            receivedDate = message.InternalDate is long internalMs
+                ? DateTimeOffset.FromUnixTimeMilliseconds(internalMs).UtcDateTime
+                : DateTime.MinValue;
+        }
 
         // Get body
         var body = includeBody ? GetMessageBody(message) : (message.Snippet ?? string.Empty);
