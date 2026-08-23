@@ -1,0 +1,325 @@
+<!--
+  The one MCP Apps view for this server.
+
+  MCP Apps binds ONE ui:// resource per tool, and this server publishes a single
+  action-multiplexed tool, so the view is multiplexed the same way its tool is: it
+  reads whichever payload family came back and renders that. The families are the
+  shapes measured against the live sidecar, not guessed from the C# models --
+  events, emails, contacts, accounts, calendars -- and anything unrecognised falls
+  through to the raw JSON rather than rendering a confident blank.
+
+  It never fetches: everything shown arrives over postMessage from the host, which
+  is why the resource declares every CSP domain list empty.
+-->
+<style>
+/*{{THEME}}*/
+</style>
+
+<div class="sheet" id="root">
+  <div class="masthead">
+    <h1 id="title">Calendar</h1>
+    <div class="scope" id="scope"></div>
+  </div>
+  <div id="body"><p class="note">In attesa del risultato…</p></div>
+</div>
+
+<script>
+/*{{BRIDGE}}*/
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var body = document.getElementById("body");
+  var title = document.getElementById("title");
+  var scope = document.getElementById("scope");
+
+  var DOW = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+  var MON = ["gen", "feb", "mar", "apr", "mag", "giu",
+             "lug", "ago", "set", "ott", "nov", "dic"];
+
+  var PROVIDER_SPINE = {
+    google: "var(--cal-google)",
+    microsoft: "var(--cal-microsoft)",
+    m365: "var(--cal-microsoft)",
+    outlook: "var(--cal-microsoft)",
+    imap: "var(--cal-imap)",
+    ical: "var(--cal-ical)",
+    json: "var(--cal-json)"
+  };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = String(text);
+    return n;
+  }
+
+  function clear() { while (body.firstChild) body.removeChild(body.firstChild); }
+
+  /**
+   * A local ISO stamp without a zone ("2026-08-24T09:00:00") must not be re-read
+   * in the viewer's zone: the server already converted it to the calendar's. So
+   * the parts are taken from the string itself, and only a zoned stamp goes
+   * through Date.
+   */
+  function parseLocal(s) {
+    if (!s) return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(s));
+    if (!m) return null;
+    return {
+      y: +m[1], mo: +m[2] - 1, d: +m[3],
+      hh: m[4] == null ? null : +m[4],
+      mm: m[5] == null ? null : +m[5]
+    };
+  }
+
+  /** Year 1 is not a date: it is a parse that failed upstream. Say so. */
+  function isUnknownDate(p) { return !p || p.y <= 1; }
+
+  function hhmm(p) {
+    if (!p || p.hh == null) return "";
+    return (p.hh < 10 ? "0" : "") + p.hh + ":" + (p.mm < 10 ? "0" : "") + p.mm;
+  }
+
+  function dayKey(p) { return p ? p.y + "-" + p.mo + "-" + p.d : "?"; }
+
+  function isToday(p) {
+    if (!p) return false;
+    var n = new Date();
+    return n.getFullYear() === p.y && n.getMonth() === p.mo && n.getDate() === p.d;
+  }
+
+  function spineFor(provider) {
+    return PROVIDER_SPINE[String(provider || "").toLowerCase()] || "var(--cal-accent)";
+  }
+
+  function meta(parts) {
+    var m = el("div", "meta");
+    parts.filter(Boolean).forEach(function (t) { m.appendChild(el("span", null, t)); });
+    return m;
+  }
+
+  function groupByDay(items, stampOf) {
+    var order = [], byKey = {};
+    items.forEach(function (it) {
+      var p = parseLocal(stampOf(it));
+      var k = dayKey(p);
+      if (!byKey[k]) { byKey[k] = { when: p, items: [] }; order.push(k); }
+      byKey[k].items.push(it);
+    });
+    return order.map(function (k) { return byKey[k]; });
+  }
+
+  function dayBlock(group, render) {
+    var day = el("div", "day" + (isToday(group.when) ? " is-today" : ""));
+    var mark = el("div", "daymark");
+    if (isUnknownDate(group.when)) {
+      mark.appendChild(el("span", "dow", "data"));
+      mark.appendChild(el("span", "dnum", "?"));
+      mark.appendChild(el("span", "mon", "ignota"));
+    } else {
+      var jsDay = new Date(group.when.y, group.when.mo, group.when.d).getDay();
+      mark.appendChild(el("span", "dow", DOW[jsDay]));
+      mark.appendChild(el("span", "dnum", group.when.d));
+      mark.appendChild(el("span", "mon", MON[group.when.mo]));
+    }
+    day.appendChild(mark);
+    var list = el("div", "entries");
+    group.items.forEach(function (it) { list.appendChild(render(it)); });
+    day.appendChild(list);
+    return day;
+  }
+
+  // ---- families ---------------------------------------------------------
+
+  function renderEvents(p) {
+    var events = p.events || [];
+    title.textContent = "Agenda";
+    scope.textContent = events.length + (events.length === 1 ? " impegno" : " impegni") +
+      (p.timezone ? " · " + p.timezone : "");
+    if (!events.length) {
+      body.appendChild(el("p", "note", "Nessun impegno nel periodo richiesto."));
+      return;
+    }
+    groupByDay(events, function (e) { return e.start_local || e.start_utc; })
+      .forEach(function (g) {
+        body.appendChild(dayBlock(g, function (e) {
+          var start = parseLocal(e.start_local || e.start_utc);
+          var end = parseLocal(e.end_local || e.end_utc);
+          var entry = el("div", "entry" + (e.isAllDay ? " allday" : ""));
+          entry.style.setProperty("--spine", spineFor(e.accountId === "fixture" ? "json" : "google"));
+          entry.appendChild(el("div", "when",
+            e.isAllDay ? "tutto il giorno"
+                       : hhmm(start) + (end ? "–" + hhmm(end) : "")));
+          entry.appendChild(el("div", "what", e.subject || "(senza titolo)"));
+          var att = (e.attendees || []).length;
+          entry.appendChild(meta([
+            e.location || null,
+            att ? att + (att === 1 ? " invitato" : " invitati") : null,
+            e.organizer ? "org. " + e.organizer : null,
+            e.calendarId ? "· " + e.calendarId : null
+          ]));
+          return entry;
+        }));
+      });
+    if (p.warnings) {
+      body.appendChild(el("div", "warn", String(p.warnings)));
+    }
+  }
+
+  function renderEmails(p) {
+    var mails = p.emails || [];
+    title.textContent = "Posta";
+    var unread = mails.filter(function (m) { return m.isRead === false; }).length;
+    scope.textContent = mails.length + " messaggi" + (unread ? " · " + unread + " da leggere" : "");
+    if (!mails.length) {
+      body.appendChild(el("p", "note", "Nessun messaggio."));
+      return;
+    }
+    groupByDay(mails, function (m) { return m.receivedDateTime; })
+      .forEach(function (g) {
+        body.appendChild(dayBlock(g, function (m) {
+          var entry = el("div", "entry" + (m.isRead === false ? " unread" : ""));
+          entry.style.setProperty("--spine", spineFor("google"));
+          var p2 = parseLocal(m.receivedDateTime);
+          entry.appendChild(el("div", "when",
+            isUnknownDate(p2) ? "orario non disponibile" : hhmm(p2)));
+          entry.appendChild(el("div", "what", m.subject || "(senza oggetto)"));
+          entry.appendChild(meta([
+            m.fromName || m.from || null,
+            m.hasAttachments ? "allegati" : null,
+            m.accountId ? "· " + m.accountId : null
+          ]));
+          return entry;
+        }));
+      });
+  }
+
+  function initials(name) {
+    var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+  }
+
+  function renderContacts(p) {
+    var people = p.contacts || [];
+    title.textContent = "Contatti";
+    scope.textContent = people.length + (people.length === 1 ? " contatto" : " contatti");
+    if (!people.length) {
+      body.appendChild(el("p", "note", "Nessun contatto."));
+      return;
+    }
+    var grid = el("div", "people");
+    people.forEach(function (c) {
+      var mail = (c.emailAddresses || [])[0];
+      var tel = (c.phoneNumbers || [])[0];
+      var label = c.displayName ||
+        [c.givenName, c.surname].filter(Boolean).join(" ") ||
+        (mail && (mail.Address || mail.address)) || "(senza nome)";
+      var row = el("div", "person");
+      row.appendChild(el("div", "monogram", initials(label)));
+      var who = el("div", "who");
+      who.appendChild(el("b", null, label));
+      who.appendChild(el("span", null,
+        (mail && (mail.Address || mail.address)) ||
+        (tel && (tel.Number || tel.number)) ||
+        c.companyName || c.jobTitle || c.accountId || ""));
+      row.appendChild(who);
+      grid.appendChild(row);
+    });
+    body.appendChild(grid);
+  }
+
+  function renderAccounts(p) {
+    title.textContent = "Account";
+    var accs = p.accounts || [];
+    scope.textContent = accs.length + (accs.length === 1 ? " account" : " account");
+    var list = el("div", "entries");
+    accs.forEach(function (a) {
+      var entry = el("div", "entry");
+      entry.style.setProperty("--spine", spineFor(a.provider));
+      entry.appendChild(el("div", "when", a.provider || ""));
+      entry.appendChild(el("div", "what", a.displayName || a.accountId));
+      entry.appendChild(meta((a.capabilities || []).map(function (c) {
+        return c.name + (c.readOnly ? " (sola lettura)" : "");
+      }).concat([a.accountId ? "id " + a.accountId : null])));
+      list.appendChild(entry);
+    });
+    body.appendChild(list);
+  }
+
+  function renderCalendars(p) {
+    title.textContent = "Calendari";
+    var cals = p.calendars || [];
+    scope.textContent = cals.length + (cals.length === 1 ? " calendario" : " calendari");
+    var list = el("div", "entries");
+    cals.forEach(function (c) {
+      var entry = el("div", "entry");
+      entry.style.setProperty("--spine", spineFor(c.provider));
+      entry.appendChild(el("div", "what", c.name || c.displayName || c.id));
+      entry.appendChild(meta([c.accountId ? "· " + c.accountId : null,
+                              c.isDefault ? "predefinito" : null]));
+      list.appendChild(entry);
+    });
+    body.appendChild(list);
+  }
+
+  function renderRaw(payload) {
+    title.textContent = "Risultato";
+    scope.textContent = "";
+    var pre = el("pre", "raw", JSON.stringify(payload, null, 2));
+    body.appendChild(pre);
+  }
+
+  /**
+   * Dispatch on the shape, in the order the families are distinguishable. A single
+   * event or contact detail arrives unwrapped, so those are checked by their own
+   * marker fields rather than by a container key that will not be there.
+   */
+  function render(payload) {
+    clear();
+    if (payload == null) {
+      body.appendChild(el("p", "note", "Nessun risultato."));
+      return;
+    }
+    if (typeof payload === "string") {
+      try { payload = JSON.parse(payload); } catch (_) { renderRaw(payload); return; }
+    }
+    try {
+      if (payload.events) return renderEvents(payload);
+      if (payload.emails) return renderEmails(payload);
+      if (payload.contacts) return renderContacts(payload);
+      if (payload.accounts) return renderAccounts(payload);
+      if (payload.calendars) return renderCalendars(payload);
+      if (payload.eventId && payload.subject) return renderEvents({ events: [payload] });
+      if (payload.emailAddresses || payload.givenName) return renderContacts({ contacts: [payload] });
+      if (payload.id && payload.subject && payload.from) return renderEmails({ emails: [payload] });
+      renderRaw(payload);
+    } catch (err) {
+      clear();
+      body.appendChild(el("div", "warn", "La vista non ha potuto rendere questo risultato: " +
+        ((err && err.message) || err)));
+      renderRaw(payload);
+    }
+  }
+
+  function onResult(params) {
+    var result = params && (params.result || params.toolResult || params);
+    render(window.McpApp.payloadOf(result));
+  }
+
+  window.McpApp.start({
+    name: "calendar-view",
+    version: "1.0.0",
+    onToolResult: onResult
+  }).then(function (init) {
+    if (init && init.toolResult) onResult({ result: init.toolResult });
+  }).catch(function (err) {
+    clear();
+    body.appendChild(el("div", "warn",
+      "Handshake con l'host non riuscito: " + ((err && err.message) || err)));
+  });
+})();
+</script>

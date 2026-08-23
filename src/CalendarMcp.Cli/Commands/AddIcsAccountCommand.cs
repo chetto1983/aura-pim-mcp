@@ -18,7 +18,7 @@ public class AddIcsAccountCommand : AsyncCommand<AddIcsAccountCommand.Settings>
         public string? ConfigPath { get; init; }
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
+    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         AnsiConsole.Write(new FigletText("Calendar MCP")
             .Centered()

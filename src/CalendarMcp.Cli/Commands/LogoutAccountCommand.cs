@@ -22,7 +22,7 @@ public class LogoutAccountCommand : AsyncCommand<LogoutAccountCommand.Settings>
         public required string AccountId { get; init; }
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
+    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         AnsiConsole.Write(new FigletText("Calendar MCP")
             .Centered()

@@ -117,7 +117,7 @@ public class ProviderServiceFactoryTests
     {
         var factory = CreateFactory();
 
-        Assert.ThrowsException<ArgumentException>(() => factory.GetProvider("unknown"));
+        Assert.Throws<ArgumentException>(() => factory.GetProvider("unknown"));
     }
 
     [TestMethod]

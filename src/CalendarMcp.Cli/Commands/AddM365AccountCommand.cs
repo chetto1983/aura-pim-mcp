@@ -26,7 +26,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
         _authService = authService;
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings)
+    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         AnsiConsole.Write(new FigletText("Calendar MCP")
             .Centered()

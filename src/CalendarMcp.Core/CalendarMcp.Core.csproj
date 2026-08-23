@@ -9,24 +9,24 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="ModelContextProtocol.Extensions.Apps" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Graph" Version="5.68.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Graph" Version="6.5.0" />
     <!-- Aura fork: pin patched Kiota.Abstractions over the transitive 1.15.2 (GHSA-7j59-v9qr-6fq9, HIGH). -->
-    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.2" />
-    <PackageReference Include="Microsoft.Identity.Client" Version="4.66.2" />
-    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.66.2" />
-    <PackageReference Include="Google.Apis.Gmail.v1" Version="1.69.0.3742" />
-    <PackageReference Include="Google.Apis.Calendar.v3" Version="1.68.0.3592" />
-    <PackageReference Include="Google.Apis.Auth" Version="1.69.0" />
-    <PackageReference Include="Google.Apis.PeopleService.v1" Version="1.69.0.3785" />
+    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="2.0.0" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.88.0" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.88.0" />
+    <PackageReference Include="Google.Apis.Gmail.v1" Version="1.75.0.4225" />
+    <PackageReference Include="Google.Apis.Calendar.v3" Version="1.75.0.4206" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.76.0" />
+    <PackageReference Include="Google.Apis.PeopleService.v1" Version="1.74.0.3973" />
     <PackageReference Include="Ical.Net" Version="4.3.1" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
-    <PackageReference Include="MailKit" Version="4.16.0" />
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" />
-    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.11" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>

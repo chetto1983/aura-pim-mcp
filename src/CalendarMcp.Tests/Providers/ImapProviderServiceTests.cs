@@ -45,7 +45,7 @@ public class ImapProviderServiceTests
     [DataRow("INBOX/1234/notanumber")]
     public void ParseEmailId_RejectsInvalidFormats(string bad)
     {
-        Assert.ThrowsException<FormatException>(() => ImapProviderService.ParseEmailId(bad));
+        Assert.Throws<FormatException>(() => ImapProviderService.ParseEmailId(bad));
     }
 
     [TestMethod]
@@ -53,6 +53,6 @@ public class ImapProviderServiceTests
     [DataRow("   ")]
     public void ParseEmailId_RejectsEmptyOrWhitespace(string bad)
     {
-        Assert.ThrowsException<ArgumentException>(() => ImapProviderService.ParseEmailId(bad));
+        Assert.Throws<ArgumentException>(() => ImapProviderService.ParseEmailId(bad));
     }
 }
