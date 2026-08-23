@@ -7,7 +7,10 @@ name: aura-publish-image
 on:
   workflow_dispatch:
   push:
-    branches: [aura/pim-sidecar]
+    # main carries the sidecar work since the MCP Apps view merged there; the
+    # aura/pim-sidecar branch it used to name is now an ancestor of main, so a
+    # push to main was building nothing and the deployed pin went stale.
+    branches: [main, aura/pim-sidecar]
     paths:
       - 'src/**'
       - 'Dockerfile'
