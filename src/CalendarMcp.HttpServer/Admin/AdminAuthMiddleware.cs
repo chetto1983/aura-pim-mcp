@@ -1,3 +1,5 @@
+using CalendarMcp.Core.Tenancy;
+
 namespace CalendarMcp.HttpServer.Admin;
 
 /// <summary>
@@ -29,11 +31,10 @@ public class AdminAuthMiddleware
     {
         _next = next;
         _logger = logger;
-        _adminToken = Environment.GetEnvironmentVariable("CALENDAR_MCP_ADMIN_TOKEN")
-            ?? configuration.GetValue<string>("CalendarMcp:AdminToken");
+        _adminToken = CalendarTokenAuthentication.Resolve(configuration);
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
     {
         var path = context.Request.Path.Value ?? "";
 
@@ -44,20 +45,17 @@ public class AdminAuthMiddleware
             return;
         }
 
-        // If no admin token is configured, allow access (development mode).
+        // A remote-capable management plane never has an unauthenticated mode.
         if (string.IsNullOrEmpty(_adminToken))
         {
-            _logger.LogWarning("No admin token configured. Admin API is unprotected. " +
-                "Set CALENDAR_MCP_ADMIN_TOKEN environment variable for production use.");
-            await _next(context);
+            _logger.LogError("Calendar admin token is not configured; refusing request.");
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await context.Response.WriteAsJsonAsync(new { error = "Calendar admin API is not configured." });
             return;
         }
 
         // Header-based token auth for every /admin route.
-        var token = context.Request.Headers.Authorization.FirstOrDefault()?.Replace("Bearer ", "")
-            ?? context.Request.Headers["X-Admin-Token"].FirstOrDefault();
-
-        if (string.IsNullOrEmpty(token) || !string.Equals(token, _adminToken, StringComparison.Ordinal))
+        if (!CalendarTokenAuthentication.IsAuthorized(context.Request, _adminToken))
         {
             _logger.LogWarning("Unauthorized admin API access attempt from {RemoteIp}",
                 context.Connection.RemoteIpAddress);
@@ -66,7 +64,23 @@ public class AdminAuthMiddleware
             return;
         }
 
-        await _next(context);
+        var identity = context.Request.Headers["X-Aura-Identity"].FirstOrDefault();
+        IDisposable binding;
+        try
+        {
+            binding = tenantContext.Bind(identity ?? "");
+        }
+        catch (ArgumentException)
+        {
+            _logger.LogWarning("Admin API request carried no valid Aura identity from {RemoteIp}",
+                context.Connection.RemoteIpAddress);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { error = "Authenticated Aura identity required." });
+            return;
+        }
+
+        using (binding)
+            await _next(context);
     }
 
     private static bool IsExemptPath(string path)
@@ -78,4 +92,5 @@ public class AdminAuthMiddleware
         }
         return false;
     }
+
 }

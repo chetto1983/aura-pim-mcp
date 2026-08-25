@@ -2,6 +2,7 @@ using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Tests.Helpers;
+using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CalendarMcp.Tests.Providers;
@@ -9,14 +10,27 @@ namespace CalendarMcp.Tests.Providers;
 [TestClass]
 public class AccountRegistryTests
 {
-    private static AccountRegistry CreateRegistry(params AccountInfo[] accounts)
+    private TenantContext _tenantContext = null!;
+    private IDisposable _tenantBinding = null!;
+
+    [TestInitialize]
+    public void BindTenant()
+    {
+        _tenantContext = new TenantContext();
+        _tenantBinding = _tenantContext.Bind(TestData.TenantA);
+    }
+
+    [TestCleanup]
+    public void UnbindTenant() => _tenantBinding.Dispose();
+
+    private AccountRegistry CreateRegistry(params AccountInfo[] accounts)
     {
         var config = new CalendarMcpConfiguration
         {
             Accounts = [.. accounts]
         };
         var monitor = new TestOptionsMonitor<CalendarMcpConfiguration>(config);
-        return new AccountRegistry(monitor, NullLogger<AccountRegistry>.Instance);
+        return new AccountRegistry(monitor, NullLogger<AccountRegistry>.Instance, _tenantContext);
     }
 
     [TestMethod]
@@ -134,5 +148,35 @@ public class AccountRegistryTests
         var accounts = (await registry.GetAllAccountsAsync()).ToList();
 
         Assert.AreEqual(0, accounts.Count);
+    }
+
+    [TestMethod]
+    public async Task AccountReads_FilterForeignTenantIncludingExplicitId()
+    {
+        var own = TestData.CreateAccount(id: "own");
+        var foreign = TestData.CreateAccount(id: "foreign", tenantId: TestData.TenantB);
+        using var registry = CreateRegistry(own, foreign);
+
+        var listed = (await registry.GetAllAccountsAsync()).ToList();
+
+        Assert.AreEqual(1, listed.Count);
+        Assert.AreEqual("own", listed[0].Id);
+        Assert.IsNull(await registry.GetAccountAsync("foreign"));
+    }
+
+    [TestMethod]
+    public async Task AccountReads_RequireBoundTenant()
+    {
+        using var registry = CreateRegistry(TestData.CreateAccount());
+        _tenantBinding.Dispose();
+        _tenantBinding = new NoopDisposable();
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () => _ = await registry.GetAllAccountsAsync());
+    }
+
+    private sealed class NoopDisposable : IDisposable
+    {
+        public void Dispose() { }
     }
 }

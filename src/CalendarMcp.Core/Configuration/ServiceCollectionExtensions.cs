@@ -2,6 +2,7 @@ using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tools;
+using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,10 +18,12 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddCalendarMcpCore(this IServiceCollection services)
     {
+        services.AddSingleton<ITenantContext, TenantContext>();
+
         // Register authentication services
         services.AddSingleton<IM365AuthenticationService, M365AuthenticationService>();
         services.AddSingleton<IGoogleAuthenticationService, GoogleAuthenticationService>();
-        
+
         // Register provider services
         services.AddSingleton<IM365ProviderService, M365ProviderService>();
         services.AddSingleton<IGoogleProviderService, GoogleProviderService>();
@@ -44,7 +47,7 @@ public static class ServiceCollectionExtensions
 
         // Register unsubscribe executor
         services.AddSingleton<UnsubscribeExecutor>();
-        
+
         // Register account registry
         services.AddSingleton<IAccountRegistry, AccountRegistry>();
 
@@ -53,7 +56,7 @@ public static class ServiceCollectionExtensions
         // consume is sufficient there).
         services.AddOptions<AttachmentStoreOptions>();
         services.AddSingleton<IAttachmentStore, InMemoryAttachmentStore>();
-        
+
         // Register MCP tools (method-based pattern - just register the classes)
         // Aura fork: the 14 individually registered tools this curated action tool
         // replaces (list_accounts, get_emails, get_email_details, search_emails,

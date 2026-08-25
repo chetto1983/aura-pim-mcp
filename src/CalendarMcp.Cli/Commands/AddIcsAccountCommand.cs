@@ -50,10 +50,11 @@ public class AddIcsAccountCommand : AsyncCommand<AddIcsAccountCommand.Settings>
         AnsiConsole.WriteLine();
 
         // Prompt for account details
-        var accountId = AnsiConsole.Prompt(
+        var localAccountId = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Account ID[/] (e.g., 'xebia-calendar'):")
                 .ValidationErrorMessage("[red]Account ID is required[/]")
                 .Validate(id => !string.IsNullOrWhiteSpace(id)));
+        var accountId = CliTenant.AccountId(localAccountId);
 
         var displayName = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Display Name[/] (e.g., 'Xebia Calendar (ICS)'):")
@@ -139,8 +140,7 @@ public class AddIcsAccountCommand : AsyncCommand<AddIcsAccountCommand.Settings>
             }
 
             // Check if account already exists
-            var existingIndex = accounts.FindIndex(a =>
-                a.TryGetValue("Id", out var id) && id?.ToString() == accountId);
+            var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
             var providerConfig = new Dictionary<string, string>
             {
@@ -151,6 +151,7 @@ public class AddIcsAccountCommand : AsyncCommand<AddIcsAccountCommand.Settings>
             var newAccount = new Dictionary<string, object>
             {
                 { "Id", accountId },
+                { "TenantId", CliTenant.RequireIdentity() },
                 { "DisplayName", displayName },
                 { "Provider", "ics" },
                 { "Enabled", true },

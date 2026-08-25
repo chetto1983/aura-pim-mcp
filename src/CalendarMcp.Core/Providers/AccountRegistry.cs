@@ -1,6 +1,7 @@
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -14,11 +15,16 @@ public class AccountRegistry : IAccountRegistry, IDisposable
 {
     private volatile Dictionary<string, AccountInfo> _accounts;
     private readonly ILogger<AccountRegistry> _logger;
+    private readonly ITenantContext _tenantContext;
     private readonly IDisposable? _changeSubscription;
 
-    public AccountRegistry(IOptionsMonitor<CalendarMcpConfiguration> configuration, ILogger<AccountRegistry> logger)
+    public AccountRegistry(
+        IOptionsMonitor<CalendarMcpConfiguration> configuration,
+        ILogger<AccountRegistry> logger,
+        ITenantContext tenantContext)
     {
         _logger = logger;
+        _tenantContext = tenantContext;
         _accounts = BuildAccountsDictionary(configuration.CurrentValue);
 
         _changeSubscription = configuration.OnChange(config =>
@@ -38,7 +44,11 @@ public class AccountRegistry : IAccountRegistry, IDisposable
 
             foreach (var account in config.Accounts)
             {
-                accounts[account.Id] = account;
+                var tenantId = TenantIdentity.Normalize(account.TenantId);
+                if (!accounts.TryAdd(account.Id, account))
+                {
+                    throw new InvalidOperationException($"Duplicate account id '{account.Id}' across tenant configuration.");
+                }
 
                 var domains = account.Domains.Count > 0
                     ? string.Join(", ", account.Domains)
@@ -46,8 +56,9 @@ public class AccountRegistry : IAccountRegistry, IDisposable
                 var status = account.Enabled ? "enabled" : "disabled";
 
                 _logger.LogInformation(
-                    "  Account: {AccountId} | {DisplayName} | Provider: {Provider} | Domains: {Domains} | Status: {Status} | Priority: {Priority}",
+                    "  Account: {AccountId} | Tenant: {TenantId} | {DisplayName} | Provider: {Provider} | Domains: {Domains} | Status: {Status} | Priority: {Priority}",
                     account.Id,
+                    tenantId,
                     account.DisplayName,
                     account.Provider,
                     domains,
@@ -69,29 +80,30 @@ public class AccountRegistry : IAccountRegistry, IDisposable
 
     public Task<IEnumerable<AccountInfo>> GetAllAccountsAsync()
     {
-        return Task.FromResult<IEnumerable<AccountInfo>>(_accounts.Values);
+        return Task.FromResult<IEnumerable<AccountInfo>>(TenantAccounts());
     }
 
     public Task<AccountInfo?> GetAccountAsync(string accountId)
     {
-        var account = _accounts.TryGetValue(accountId, out var acc) ? acc : null;
+        var tenantId = _tenantContext.RequireTenantId();
+        var account = _accounts.TryGetValue(accountId, out var acc) && OwnedBy(acc, tenantId) ? acc : null;
         return Task.FromResult(account);
     }
 
     public IEnumerable<AccountInfo> GetEnabledAccounts()
     {
-        return _accounts.Values.Where(a => a.Enabled);
+        return TenantAccounts().Where(a => a.Enabled);
     }
 
     public IEnumerable<AccountInfo> GetAccountsByProvider(string provider)
     {
-        return _accounts.Values.Where(a =>
+        return TenantAccounts().Where(a =>
             string.Equals(a.Provider, provider, StringComparison.OrdinalIgnoreCase));
     }
 
     public IEnumerable<AccountInfo> GetAccountsByDomain(string domain)
     {
-        return _accounts.Values.Where(a =>
+        return TenantAccounts().Where(a =>
             a.Domains.Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -99,4 +111,13 @@ public class AccountRegistry : IAccountRegistry, IDisposable
     {
         _changeSubscription?.Dispose();
     }
+
+    private IEnumerable<AccountInfo> TenantAccounts()
+    {
+        var tenantId = _tenantContext.RequireTenantId();
+        return _accounts.Values.Where(account => OwnedBy(account, tenantId));
+    }
+
+    private static bool OwnedBy(AccountInfo account, string tenantId) =>
+        string.Equals(account.TenantId, tenantId, StringComparison.OrdinalIgnoreCase);
 }

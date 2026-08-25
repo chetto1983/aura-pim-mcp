@@ -2,6 +2,7 @@ using CalendarMcp.Auth;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Tenancy;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -88,7 +89,8 @@ public static class AdminEndpoints
     /// </summary>
     private static async Task<IResult> CreateAccount(
         CreateAccountRequest request,
-        IAccountConfigurationService configService)
+        IAccountConfigurationService configService,
+        ITenantContext tenantContext)
     {
         // Validate ID
         var (idValid, idError) = AccountValidation.ValidateAccountId(request.Id);
@@ -107,7 +109,8 @@ public static class AdminEndpoints
 
         var account = new AccountInfo
         {
-            Id = request.Id,
+            Id = TenantIdentity.AccountId(tenantContext.RequireTenantId(), request.Id),
+            TenantId = tenantContext.RequireTenantId(),
             DisplayName = request.DisplayName,
             Provider = request.Provider,
             Domains = request.Domains,
@@ -156,6 +159,7 @@ public static class AdminEndpoints
         var updated = new AccountInfo
         {
             Id = accountId,
+            TenantId = existing.TenantId,
             DisplayName = request.DisplayName,
             Provider = existing.Provider, // immutable
             Domains = request.Domains,
@@ -255,8 +259,13 @@ public static class AdminEndpoints
     /// <summary>
     /// Get the status of a pending device code authentication flow.
     /// </summary>
-    private static IResult GetAuthStatus(string accountId, DeviceCodeAuthManager authManager)
+    private static async Task<IResult> GetAuthStatus(
+        string accountId,
+        DeviceCodeAuthManager authManager,
+        IAccountRegistry accountRegistry)
     {
+        if (await accountRegistry.GetAccountAsync(accountId) is null)
+            return Results.NotFound(new { error = $"Account '{accountId}' not found." });
         var status = authManager.GetFlowStatus(accountId);
         return Results.Ok(status);
     }
@@ -264,8 +273,13 @@ public static class AdminEndpoints
     /// <summary>
     /// Cancel a pending device code authentication flow.
     /// </summary>
-    private static IResult CancelAuth(string accountId, DeviceCodeAuthManager authManager)
+    private static async Task<IResult> CancelAuth(
+        string accountId,
+        DeviceCodeAuthManager authManager,
+        IAccountRegistry accountRegistry)
     {
+        if (await accountRegistry.GetAccountAsync(accountId) is null)
+            return Results.NotFound(new { error = $"Account '{accountId}' not found." });
         var cancelled = authManager.CancelFlow(accountId);
         if (cancelled)
         {

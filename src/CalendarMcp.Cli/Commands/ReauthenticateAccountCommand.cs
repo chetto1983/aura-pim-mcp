@@ -69,6 +69,7 @@ public class ReauthenticateAccountCommand : AsyncCommand<ReauthenticateAccountCo
             }
 
             var accounts = accountsElement.Deserialize<List<Dictionary<string, JsonElement>>>();
+            accounts = accounts?.Where(account => CliTenant.Owns(account)).ToList();
             var account = accounts?.FirstOrDefault(a =>
                 (a.TryGetValue("Id", out var idElem) || a.TryGetValue("id", out idElem)) &&
                 idElem.GetString() == settings.AccountId);

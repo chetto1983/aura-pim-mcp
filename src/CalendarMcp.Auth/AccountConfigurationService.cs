@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.Logging;
 
 namespace CalendarMcp.Auth;
@@ -20,10 +21,14 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
 
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly ILogger<AccountConfigurationService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public AccountConfigurationService(ILogger<AccountConfigurationService> logger)
+    public AccountConfigurationService(
+        ILogger<AccountConfigurationService> logger,
+        ITenantContext tenantContext)
     {
         _logger = logger;
+        _tenantContext = tenantContext;
     }
 
     public async Task<IReadOnlyList<AccountInfo>> GetAllAccountsFromConfigAsync(CancellationToken ct = default)
@@ -32,7 +37,10 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         try
         {
             var (_, accountsArray) = await ReadConfigAsync(ct);
-            return ParseAccounts(accountsArray);
+            var tenantId = _tenantContext.RequireTenantId();
+            return ParseAccounts(accountsArray)
+                .Where(account => OwnedBy(account, tenantId))
+                .ToList();
         }
         finally
         {
@@ -52,6 +60,8 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         try
         {
             var (root, accountsArray) = await ReadConfigAsync(ct);
+
+            RequireOwned(account);
 
             // Check for duplicate
             if (FindAccountIndex(accountsArray, account.Id) >= 0)
@@ -75,8 +85,10 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         {
             var (root, accountsArray) = await ReadConfigAsync(ct);
 
+            RequireOwned(account);
+
             var index = FindAccountIndex(accountsArray, account.Id);
-            if (index < 0)
+            if (index < 0 || !NodeOwnedBy(accountsArray[index], account.TenantId))
                 throw new InvalidOperationException($"Account '{account.Id}' not found.");
 
             accountsArray[index] = AccountInfoToNode(account);
@@ -98,9 +110,10 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         try
         {
             var (root, accountsArray) = await ReadConfigAsync(ct);
+            var tenantId = _tenantContext.RequireTenantId();
 
             var index = FindAccountIndex(accountsArray, accountId);
-            if (index < 0)
+            if (index < 0 || !NodeOwnedBy(accountsArray[index], tenantId))
                 throw new InvalidOperationException($"Account '{accountId}' not found.");
 
             // Capture provider before removal for credential clearing
@@ -119,11 +132,18 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
 
         if (clearCredentials && provider is not null)
         {
-            await ClearCredentialsAsync(accountId, provider, ct);
+            ClearCredentials(accountId, provider);
         }
     }
 
-    public Task ClearCredentialsAsync(string accountId, string provider, CancellationToken ct = default)
+    public async Task ClearCredentialsAsync(string accountId, string provider, CancellationToken ct = default)
+    {
+        if (await GetAccountFromConfigAsync(accountId, ct) is null)
+            throw new InvalidOperationException($"Account '{accountId}' not found.");
+        ClearCredentials(accountId, provider);
+    }
+
+    private void ClearCredentials(string accountId, string provider)
     {
         switch (provider.ToLowerInvariant())
         {
@@ -137,7 +157,6 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
                 _logger.LogDebug("No credentials to clear for provider '{Provider}'", provider);
                 break;
         }
-        return Task.CompletedTask;
     }
 
     public async Task<bool> AccountExistsAsync(string accountId, CancellationToken ct = default)
@@ -146,7 +165,8 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         try
         {
             var (_, accountsArray) = await ReadConfigAsync(ct);
-            return FindAccountIndex(accountsArray, accountId) >= 0;
+            var index = FindAccountIndex(accountsArray, accountId);
+            return index >= 0 && NodeOwnedBy(accountsArray[index], _tenantContext.RequireTenantId());
         }
         finally
         {
@@ -237,6 +257,7 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         var obj = new JsonObject
         {
             ["Id"] = account.Id,
+            ["TenantId"] = account.TenantId,
             ["DisplayName"] = account.DisplayName,
             ["Provider"] = account.Provider,
             ["Enabled"] = account.Enabled,
@@ -273,9 +294,12 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
             var id = GetStringProperty(obj, "Id");
             var displayName = GetStringProperty(obj, "DisplayName");
             var provider = GetStringProperty(obj, "Provider");
+            var tenantId = GetStringProperty(obj, "TenantId");
 
-            if (id is null || displayName is null || provider is null)
-                continue;
+            if (id is null || displayName is null || provider is null || tenantId is null)
+                throw new InvalidDataException("Every Calendar account must have Id, TenantId, DisplayName, and Provider.");
+
+            tenantId = TenantIdentity.Normalize(tenantId);
 
             var enabled = GetBoolProperty(obj, "Enabled") ?? true;
             var priority = GetIntProperty(obj, "Priority") ?? 0;
@@ -285,6 +309,7 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
             results.Add(new AccountInfo
             {
                 Id = id,
+                TenantId = tenantId,
                 DisplayName = displayName,
                 Provider = provider,
                 Enabled = enabled,
@@ -372,5 +397,22 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
                 _logger.LogWarning(ex, "Failed to delete Google credentials for account '{AccountId}'", accountId);
             }
         }
+    }
+
+    private void RequireOwned(AccountInfo account)
+    {
+        var tenantId = _tenantContext.RequireTenantId();
+        if (!OwnedBy(account, tenantId))
+            throw new InvalidOperationException($"Account '{account.Id}' not found.");
+    }
+
+    private static bool OwnedBy(AccountInfo account, string tenantId) =>
+        string.Equals(account.TenantId, tenantId, StringComparison.OrdinalIgnoreCase);
+
+    private static bool NodeOwnedBy(JsonNode? node, string tenantId)
+    {
+        var configured = GetStringProperty(node?.AsObject(), "TenantId");
+        return configured is not null &&
+            string.Equals(TenantIdentity.Normalize(configured), tenantId, StringComparison.OrdinalIgnoreCase);
     }
 }

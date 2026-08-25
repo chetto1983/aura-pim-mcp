@@ -74,6 +74,7 @@ public class RemoveAccountCommand : AsyncCommand<RemoveAccountCommand.Settings>
             }
 
             var accounts = accountsElement.Deserialize<List<Dictionary<string, JsonElement>>>();
+            accounts = accounts?.Where(account => CliTenant.Owns(account)).ToList();
             var accountIndex = accounts?.FindIndex(a =>
                 (a.TryGetValue("Id", out var idElem) || a.TryGetValue("id", out idElem)) &&
                 idElem.GetString() == settings.AccountId) ?? -1;

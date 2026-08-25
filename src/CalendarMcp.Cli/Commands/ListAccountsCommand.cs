@@ -68,6 +68,7 @@ public class ListAccountsCommand : AsyncCommand<ListAccountsCommand.Settings>
             }
 
             var accounts = accountsElement.Deserialize<List<Dictionary<string, JsonElement>>>();
+            accounts = accounts?.Where(account => CliTenant.Owns(account)).ToList();
 
             if (accounts == null || accounts.Count == 0)
             {

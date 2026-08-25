@@ -59,10 +59,11 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
         AnsiConsole.WriteLine();
 
         // Prompt for account details
-        var accountId = AnsiConsole.Prompt(
+        var localAccountId = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Account ID[/] (e.g., 'work-account'):")
                 .ValidationErrorMessage("[red]Account ID is required[/]")
                 .Validate(id => !string.IsNullOrWhiteSpace(id)));
+        var accountId = CliTenant.AccountId(localAccountId);
 
         var displayName = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Display Name[/] (e.g., 'Work Account'):")
@@ -152,8 +153,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
             }
 
             // Check if account already exists
-            var existingIndex = accounts.FindIndex(a =>
-                a.TryGetValue("Id", out var id) && id?.ToString() == accountId);
+            var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
             // Create new account config (PascalCase to match CalendarMcpConfiguration model)
             var domainList = domains.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -169,6 +169,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
             var newAccount = new Dictionary<string, object>
             {
                 { "Id", accountId },
+                { "TenantId", CliTenant.RequireIdentity() },
                 { "DisplayName", displayName },
                 { "Provider", "microsoft365" },
                 { "Enabled", true },

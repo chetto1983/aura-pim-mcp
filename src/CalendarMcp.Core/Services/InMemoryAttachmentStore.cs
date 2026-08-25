@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using CalendarMcp.Core.Tenancy;
 
 namespace CalendarMcp.Core.Services;
 
@@ -16,15 +17,18 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
     private readonly AttachmentStoreOptions _options;
     private readonly ILogger<InMemoryAttachmentStore> _logger;
     private readonly TimeProvider _time;
+    private readonly ITenantContext _tenantContext;
     private long _totalBytes;
 
     public InMemoryAttachmentStore(
         IOptions<AttachmentStoreOptions> options,
         ILogger<InMemoryAttachmentStore> logger,
+        ITenantContext tenantContext,
         TimeProvider? timeProvider = null)
     {
         _options = options.Value;
         _logger = logger;
+        _tenantContext = tenantContext;
         _time = timeProvider ?? TimeProvider.System;
     }
 
@@ -37,9 +41,11 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
         }
 
         var id = NewId();
+        var tenantId = _tenantContext.RequireTenantId();
         var entry = new StoredAttachment
         {
             Id = id,
+            TenantId = tenantId,
             Name = string.IsNullOrWhiteSpace(name) ? "attachment" : name,
             ContentType = contentType,
             Bytes = bytes,
@@ -67,9 +73,12 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
         if (string.IsNullOrEmpty(attachmentId))
             return null;
 
+        var tenantId = _tenantContext.RequireTenantId();
         lock (_gate)
         {
             if (!_entries.TryGetValue(attachmentId, out var entry))
+                return null;
+            if (!OwnedBy(entry, tenantId))
                 return null;
 
             _entries.Remove(attachmentId);
@@ -90,9 +99,12 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
         if (string.IsNullOrEmpty(attachmentId))
             return null;
 
+        var tenantId = _tenantContext.RequireTenantId();
         lock (_gate)
         {
             if (!_entries.TryGetValue(attachmentId, out var entry))
+                return null;
+            if (!OwnedBy(entry, tenantId))
                 return null;
 
             if (entry.ExpiresAt <= _time.GetUtcNow())
@@ -112,10 +124,12 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
         if (string.IsNullOrEmpty(attachmentId))
             return false;
 
+        var tenantId = _tenantContext.RequireTenantId();
         lock (_gate)
         {
-            if (!_entries.Remove(attachmentId, out var entry))
+            if (!_entries.TryGetValue(attachmentId, out var entry) || !OwnedBy(entry, tenantId))
                 return false;
+            _entries.Remove(attachmentId);
             _totalBytes -= entry.Bytes.Length;
             return true;
         }
@@ -161,4 +175,7 @@ public sealed class InMemoryAttachmentStore : IAttachmentStore
             .Replace('+', '-')
             .Replace('/', '_');
     }
+
+    private static bool OwnedBy(StoredAttachment entry, string tenantId) =>
+        string.Equals(entry.TenantId, tenantId, StringComparison.OrdinalIgnoreCase);
 }

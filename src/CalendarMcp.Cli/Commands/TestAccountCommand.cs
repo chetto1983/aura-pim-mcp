@@ -69,6 +69,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             }
 
             var accounts = accountsElement.Deserialize<List<Dictionary<string, JsonElement>>>();
+            accounts = accounts?.Where(account => CliTenant.Owns(account)).ToList();
             var account = accounts?.FirstOrDefault(a =>
                 (a.TryGetValue("Id", out var idElem) || a.TryGetValue("id", out idElem)) &&
                 idElem.GetString() == settings.AccountId);
@@ -83,7 +84,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             string? provider = null;
             if (account.TryGetValue("Provider", out var provElem) || account.TryGetValue("provider", out provElem))
                 provider = provElem.GetString();
-            
+
             // Support M365, Outlook.com, and Google accounts
             if (string.IsNullOrEmpty(provider) ||
                 (provider != "microsoft365" && provider != "outlook.com" && provider != "google"))
@@ -101,7 +102,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
                 return 1;
             }
 
-            var providerConfig = providerConfigElem.Deserialize<Dictionary<string, string>>() 
+            var providerConfig = providerConfigElem.Deserialize<Dictionary<string, string>>()
                 ?? new Dictionary<string, string>();
 
             if (provider == "google")
@@ -127,7 +128,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             providerConfig.TryGetValue("tenantId", out tenantId);
         if (!providerConfig.TryGetValue("ClientId", out var clientId))
             providerConfig.TryGetValue("clientId", out clientId);
-            
+
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(clientId))
         {
             AnsiConsole.MarkupLine($"[red]Error: Account missing tenantId or clientId.[/]");
@@ -158,7 +159,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             AnsiConsole.MarkupLine("[green]✓ Authentication successful![/]");
             AnsiConsole.MarkupLine($"[dim]Token: {token[..20]}...[/]");
             AnsiConsole.WriteLine();
-            
+
             var table = new Table();
             table.AddColumn("Property");
             table.AddColumn("Value");
@@ -166,9 +167,9 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             table.AddRow("Provider", provider);
             table.AddRow("Status", "[green]Authenticated[/]");
             table.AddRow("Token Cached", "✓ Yes");
-            
+
             AnsiConsole.Write(table);
-            
+
             return 0;
         }
         else
@@ -187,7 +188,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             providerConfig.TryGetValue("clientId", out clientId);
         if (!providerConfig.TryGetValue("ClientSecret", out var clientSecret))
             providerConfig.TryGetValue("clientSecret", out clientSecret);
-            
+
         if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
         {
             AnsiConsole.MarkupLine($"[red]Error: Account missing clientId or clientSecret.[/]");
@@ -212,7 +213,7 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
         {
             AnsiConsole.MarkupLine("[green]✓ Authentication successful![/]");
             AnsiConsole.WriteLine();
-            
+
             var table = new Table();
             table.AddColumn("Property");
             table.AddColumn("Value");
@@ -220,9 +221,9 @@ public class TestAccountCommand : AsyncCommand<TestAccountCommand.Settings>
             table.AddRow("Provider", "google");
             table.AddRow("Status", "[green]Authenticated[/]");
             table.AddRow("Token Cached", "✓ Yes");
-            
+
             AnsiConsole.Write(table);
-            
+
             return 0;
         }
         else

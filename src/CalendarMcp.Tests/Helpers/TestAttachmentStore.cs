@@ -22,6 +22,7 @@ public sealed class TestAttachmentStore : IAttachmentStore
         var entry = new StoredAttachment
         {
             Id = id,
+            TenantId = TestData.TenantA,
             Name = name,
             ContentType = contentType,
             Bytes = bytes,

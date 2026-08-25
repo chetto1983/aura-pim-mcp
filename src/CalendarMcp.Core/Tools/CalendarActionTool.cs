@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -34,6 +35,7 @@ public sealed partial class CalendarActionTool
     private readonly IProviderServiceFactory _providerFactory;
     private readonly IAttachmentStore _attachmentStore;
     private readonly ILogger<CalendarActionTool> _logger;
+    private readonly ITenantContext _tenantContext;
 
     // The twelve actions in CalendarActionTool.Delegated.cs forward to implementation
     // classes whose constructors this facade must not restate: UnsubscribeFromEmailTool
@@ -48,13 +50,15 @@ public sealed partial class CalendarActionTool
         IProviderServiceFactory providerFactory,
         IAttachmentStore attachmentStore,
         ILogger<CalendarActionTool> logger,
-        IServiceProvider services)
+        IServiceProvider services,
+        ITenantContext tenantContext)
     {
         _accountRegistry = accountRegistry;
         _providerFactory = providerFactory;
         _attachmentStore = attachmentStore;
         _logger = logger;
         _services = services;
+        _tenantContext = tenantContext;
     }
 
     /// <summary>
@@ -131,7 +135,8 @@ public sealed partial class CalendarActionTool
         """;
 
     [McpServerTool, Description(ToolDescription)]
-    public Task<string> Calendar(
+    public async Task<string> Calendar(
+        RequestContext<CallToolRequestParams> requestContext,
         [Description("Required. The operation to perform -- see the tool description for each action's required and optional fields.")]
         string action,
         [Description("Account id. A defaultable routing hint on get_emails/search_emails/list_calendars/get_calendar_events/get_contacts/search_contacts/create_event/respond_to_event (omit to use all accounts or smart routing). Required (not a hint) on get_email_details, get_contact_details, update_event, delete_email, mark_email_read, move_email. NOT used by get_calendar_event_details -- pass its eventId instead. Obtain from list_accounts.")]
@@ -227,44 +232,56 @@ public sealed partial class CalendarActionTool
         [Description("bulk_delete_emails/bulk_mark_emails_read/bulk_move_emails. Required. The emails to act on, each item carrying its accountId and emailId.")]
         BulkEmailItem[]? items = null)
     {
-        if (!ActionNames.Contains(action, StringComparer.Ordinal))
+        IDisposable tenantScope;
+        try
         {
-            throw UnknownAction(action);
+            tenantScope = _tenantContext.Bind(TenantIdentity.FromMcpMeta(requestContext.Params.Meta));
         }
-
-        return action switch
+        catch (ArgumentException ex)
         {
-            "list_accounts" => ListAccountsAction(),
-            "get_emails" => GetEmailsAction(accountId, count, unreadOnly),
-            "get_email_details" => GetEmailDetailsAction(accountId, emailId),
-            "search_emails" => SearchEmailsAction(query, accountId, count, fromDate, toDate),
-            "list_calendars" => ListCalendarsAction(accountId),
-            "get_calendar_events" => GetCalendarEventsAction(timeZone, startDate, endDate, accountId, calendarId, count),
-            "get_calendar_event_details" => GetCalendarEventDetailsAction(timeZone, calendarId, eventId),
-            "get_contacts" => GetContactsAction(accountId, count),
-            "search_contacts" => SearchContactsAction(query, accountId, count),
-            "get_contact_details" => GetContactDetailsAction(accountId, contactId),
-            "create_event" => CreateEventAction(subject, start, end, accountId, calendarId, location, attendees, body, timeZone),
-            "update_event" => UpdateEventAction(accountId, calendarId, eventId, subject, start, end, location, attendees, timeZone),
-            "respond_to_event" => RespondToEventAction(eventId, response, accountId, calendarId, comment),
-            "send_email" => SendEmailAction(to, subject, body, accountId, bodyFormat, cc, attachments, textBody, htmlBody),
-            "delete_email" => DeleteEmailAction(accountId, emailId),
-            "mark_email_read" => MarkEmailReadAction(accountId, emailId, isRead),
-            "move_email" => MoveEmailAction(accountId, emailId, destination),
-            "delete_event" => DeleteEventAction(eventId, accountId, calendarId),
-            "create_contact" => CreateContactAction(displayName, accountId, givenName, surname, email, phone, jobTitle, companyName, notes),
-            "update_contact" => UpdateContactAction(accountId, contactId, displayName, givenName, surname, email, phone, jobTitle, companyName, notes),
-            "delete_contact" => DeleteContactAction(accountId, contactId),
-            "get_email_attachment" => GetEmailAttachmentAction(accountId, emailId, attachmentId, mode),
-            "get_contextual_email_summary" => GetContextualEmailSummaryAction(topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster),
-            "get_guide" => GetGuideAction(name),
-            "get_unsubscribe_info" => GetUnsubscribeInfoAction(accountId, emailId),
-            "unsubscribe_from_email" => UnsubscribeFromEmailAction(accountId, emailId, method),
-            "bulk_delete_emails" => BulkDeleteEmailsAction(items),
-            "bulk_mark_emails_read" => BulkMarkEmailsReadAction(items, isRead),
-            "bulk_move_emails" => BulkMoveEmailsAction(items, destination),
-            _ => throw UnknownAction(action),
-        };
+            throw new McpException(ex.Message);
+        }
+        using (tenantScope)
+        {
+            if (!ActionNames.Contains(action, StringComparer.Ordinal))
+            {
+                throw UnknownAction(action);
+            }
+
+            return await (action switch
+            {
+                "list_accounts" => ListAccountsAction(),
+                "get_emails" => GetEmailsAction(accountId, count, unreadOnly),
+                "get_email_details" => GetEmailDetailsAction(accountId, emailId),
+                "search_emails" => SearchEmailsAction(query, accountId, count, fromDate, toDate),
+                "list_calendars" => ListCalendarsAction(accountId),
+                "get_calendar_events" => GetCalendarEventsAction(timeZone, startDate, endDate, accountId, calendarId, count),
+                "get_calendar_event_details" => GetCalendarEventDetailsAction(timeZone, calendarId, eventId),
+                "get_contacts" => GetContactsAction(accountId, count),
+                "search_contacts" => SearchContactsAction(query, accountId, count),
+                "get_contact_details" => GetContactDetailsAction(accountId, contactId),
+                "create_event" => CreateEventAction(subject, start, end, accountId, calendarId, location, attendees, body, timeZone),
+                "update_event" => UpdateEventAction(accountId, calendarId, eventId, subject, start, end, location, attendees, timeZone),
+                "respond_to_event" => RespondToEventAction(eventId, response, accountId, calendarId, comment),
+                "send_email" => SendEmailAction(to, subject, body, accountId, bodyFormat, cc, attachments, textBody, htmlBody),
+                "delete_email" => DeleteEmailAction(accountId, emailId),
+                "mark_email_read" => MarkEmailReadAction(accountId, emailId, isRead),
+                "move_email" => MoveEmailAction(accountId, emailId, destination),
+                "delete_event" => DeleteEventAction(eventId, accountId, calendarId),
+                "create_contact" => CreateContactAction(displayName, accountId, givenName, surname, email, phone, jobTitle, companyName, notes),
+                "update_contact" => UpdateContactAction(accountId, contactId, displayName, givenName, surname, email, phone, jobTitle, companyName, notes),
+                "delete_contact" => DeleteContactAction(accountId, contactId),
+                "get_email_attachment" => GetEmailAttachmentAction(accountId, emailId, attachmentId, mode),
+                "get_contextual_email_summary" => GetContextualEmailSummaryAction(topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster),
+                "get_guide" => GetGuideAction(name),
+                "get_unsubscribe_info" => GetUnsubscribeInfoAction(accountId, emailId),
+                "unsubscribe_from_email" => UnsubscribeFromEmailAction(accountId, emailId, method),
+                "bulk_delete_emails" => BulkDeleteEmailsAction(items),
+                "bulk_mark_emails_read" => BulkMarkEmailsReadAction(items, isRead),
+                "bulk_move_emails" => BulkMoveEmailsAction(items, destination),
+                _ => throw UnknownAction(action),
+            }).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

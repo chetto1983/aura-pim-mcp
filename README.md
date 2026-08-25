@@ -65,6 +65,8 @@ See the [Installation Guide](docs/INSTALLATION.md) for detailed steps.
 Use the CLI to add accounts:
 
 ```bash
+export AURA_IDENTITY_ID=11111111-1111-1111-1111-111111111111
+
 # Microsoft 365 or Outlook.com
 CalendarMcp.Cli add-m365-account
 
@@ -112,13 +114,20 @@ CalendarMcp.StdioServer
 
 For remote or shared deployments. Includes a Blazor admin UI and health check endpoint.
 
+The HTTP transport is identity-scoped. Every request requires the service bearer configured by
+`CALENDAR_MCP_ADMIN_TOKEN`; every `tools/call` must also carry the authenticated owner at
+`_meta.aura.user_identifier`. Account configuration, credentials, provider caches, and attachments
+are visible only to that owner. The identity is transport metadata, never a tool argument.
+
 ```bash
 # Run directly
 dotnet run --project src/CalendarMcp.HttpServer
 
 # Or via Docker
 docker build -t calendar-mcp-http .
-docker run -p 8080:8080 -v calendar-mcp-data:/app/data calendar-mcp-http
+docker run -p 8080:8080 \
+  -e CALENDAR_MCP_ADMIN_TOKEN='<service-secret>' \
+  -v calendar-mcp-data:/app/data calendar-mcp-http
 ```
 
 See the HTTP transport documentation for Kubernetes and other container orchestration setups.

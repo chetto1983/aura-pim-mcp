@@ -26,4 +26,8 @@
     <ProjectReference Include="../CalendarMcp.Auth/CalendarMcp.Auth.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="CalendarMcp.Tests" />
+  </ItemGroup>
+
 </Project>

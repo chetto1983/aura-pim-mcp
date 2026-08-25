@@ -6,6 +6,16 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
+try
+{
+    CliTenant.RequireIdentity();
+}
+catch (ArgumentException ex)
+{
+    AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)} Set {CliTenant.IdentityVariable} before using the CLI.[/]");
+    return 1;
+}
+
 // Set up dependency injection
 var services = new ServiceCollection();
 

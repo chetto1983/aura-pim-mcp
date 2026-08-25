@@ -1,19 +1,35 @@
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using CalendarMcp.Core.Tenancy;
+using CalendarMcp.Tests.Helpers;
 
 namespace CalendarMcp.Tests.Services;
 
 [TestClass]
 public class InMemoryAttachmentStoreTests
 {
-    private static InMemoryAttachmentStore CreateStore(
+    private TenantContext _tenantContext = null!;
+    private IDisposable _tenantBinding = null!;
+
+    [TestInitialize]
+    public void BindTenant()
+    {
+        _tenantContext = new TenantContext();
+        _tenantBinding = _tenantContext.Bind(TestData.TenantA);
+    }
+
+    [TestCleanup]
+    public void UnbindTenant() => _tenantBinding.Dispose();
+
+    private InMemoryAttachmentStore CreateStore(
         AttachmentStoreOptions? options = null,
         TimeProvider? time = null)
     {
         return new InMemoryAttachmentStore(
             Options.Create(options ?? new AttachmentStoreOptions()),
             NullLogger<InMemoryAttachmentStore>.Instance,
+            _tenantContext,
             time);
     }
 
@@ -155,6 +171,23 @@ public class InMemoryAttachmentStoreTests
         // Quota should be reclaimed: a fresh 80-byte upload now fits.
         var second = store.Put("b", null, new byte[80]);
         Assert.IsNotNull(second);
+    }
+
+    [TestMethod]
+    public void ReadConsumeAndDelete_HideForeignTenantAttachment()
+    {
+        var store = CreateStore();
+        var stored = store.Put("private.txt", "text/plain", "private"u8.ToArray());
+        Assert.IsNotNull(stored);
+
+        using (_tenantContext.Bind(TestData.TenantB))
+        {
+            Assert.IsNull(store.TryRead(stored!.Id));
+            Assert.IsNull(store.TryConsume(stored.Id));
+            Assert.IsFalse(store.TryDelete(stored.Id));
+        }
+
+        Assert.IsNotNull(store.TryConsume(stored!.Id));
     }
 
     private sealed class FakeTimeProvider(DateTimeOffset start) : TimeProvider

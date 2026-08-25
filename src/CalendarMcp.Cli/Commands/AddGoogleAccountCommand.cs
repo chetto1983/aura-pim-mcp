@@ -69,10 +69,11 @@ public class AddGoogleAccountCommand : AsyncCommand<AddGoogleAccountCommand.Sett
         AnsiConsole.WriteLine();
 
         // Prompt for account details
-        var accountId = AnsiConsole.Prompt(
+        var localAccountId = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Account ID[/] (e.g., 'personal-gmail' or 'work-workspace'):")
                 .ValidationErrorMessage("[red]Account ID is required[/]")
                 .Validate(id => !string.IsNullOrWhiteSpace(id)));
+        var accountId = CliTenant.AccountId(localAccountId);
 
         var displayName = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Display Name[/] (e.g., 'Personal Gmail' or 'Work Workspace'):")
@@ -159,8 +160,7 @@ public class AddGoogleAccountCommand : AsyncCommand<AddGoogleAccountCommand.Sett
             }
 
             // Check if account already exists
-            var existingIndex = accounts.FindIndex(a =>
-                a.TryGetValue("Id", out var id) && id?.ToString() == accountId);
+            var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
             // Create new account config
             var domainList = domains.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -175,6 +175,7 @@ public class AddGoogleAccountCommand : AsyncCommand<AddGoogleAccountCommand.Sett
             var newAccount = new Dictionary<string, object>
             {
                 { "id", accountId },
+                { "tenantId", CliTenant.RequireIdentity() },
                 { "displayName", displayName },
                 { "provider", "google" },
                 { "enabled", true },

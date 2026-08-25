@@ -61,10 +61,11 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
         AnsiConsole.WriteLine();
 
         // Prompt for account details
-        var accountId = AnsiConsole.Prompt(
+        var localAccountId = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Account ID[/] (e.g., 'work-calendar-json'):")
                 .ValidationErrorMessage("[red]Account ID is required[/]")
                 .Validate(id => !string.IsNullOrWhiteSpace(id)));
+        var accountId = CliTenant.AccountId(localAccountId);
 
         var displayName = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Display Name[/] (e.g., 'Work Calendar (JSON)'):")
@@ -149,6 +150,7 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
 
                     foreach (var acct in accountsArray.EnumerateArray())
                     {
+                        if (!CliTenant.Owns(acct)) continue;
                         var id = "";
                         if (acct.TryGetProperty("id", out var idProp)) id = idProp.GetString() ?? "";
                         else if (acct.TryGetProperty("Id", out idProp)) id = idProp.GetString() ?? "";
@@ -363,12 +365,12 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
             }
 
             // Check if account already exists
-            var existingIndex = accounts.FindIndex(a =>
-                a.TryGetValue("Id", out var id) && id?.ToString() == accountId);
+            var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
             var newAccount = new Dictionary<string, object>
             {
                 { "id", accountId },
+                { "tenantId", CliTenant.RequireIdentity() },
                 { "displayName", displayName },
                 { "provider", "json" },
                 { "enabled", true },

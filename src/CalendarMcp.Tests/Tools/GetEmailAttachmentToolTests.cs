@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using Rocks;
+using CalendarMcp.Core.Tenancy;
 
 namespace CalendarMcp.Tests.Tools;
 
@@ -22,9 +23,12 @@ public class GetEmailAttachmentToolTests
             account, "msg-1", "graph-att-1",
             new EmailAttachmentContent { Name = "report.pdf", ContentType = "application/pdf", Bytes = bytes });
 
+        var tenantContext = new TenantContext();
+        using var tenantBinding = tenantContext.Bind(TestData.TenantA);
         var store = new InMemoryAttachmentStore(
             Options.Create(new AttachmentStoreOptions()),
-            NullLogger<InMemoryAttachmentStore>.Instance);
+            NullLogger<InMemoryAttachmentStore>.Instance,
+            tenantContext);
 
         var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
             NullLogger<GetEmailAttachmentTool>.Instance);

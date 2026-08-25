@@ -1,5 +1,4 @@
 using CalendarMcp.Core.Configuration;
-using CalendarMcp.Core.Services;
 
 namespace CalendarMcp.HttpServer.Admin;
 
@@ -18,22 +17,14 @@ public static class HealthEndpoints
         }));
 
         // Readiness probe - are services initialized?
-        app.MapGet("/health/ready", async (IAccountRegistry accountRegistry) =>
+        app.MapGet("/health/ready", () =>
         {
             try
             {
-                var accounts = await accountRegistry.GetAllAccountsAsync();
-                var accountList = accounts.ToList();
-
                 return Results.Ok(new
                 {
                     status = "ready",
                     timestamp = DateTimeOffset.UtcNow,
-                    accounts = new
-                    {
-                        total = accountList.Count,
-                        enabled = accountList.Count(a => a.Enabled)
-                    },
                     configDirectory = ConfigurationPaths.GetDataDirectory(),
                     configFileExists = File.Exists(ConfigurationPaths.GetConfigFilePath())
                 });

@@ -44,6 +44,7 @@ public interface IAttachmentStore
 
 public sealed class StoredAttachment
 {
+    public required string TenantId { get; init; }
     public required string Id { get; init; }
     public required string Name { get; init; }
     public string? ContentType { get; init; }

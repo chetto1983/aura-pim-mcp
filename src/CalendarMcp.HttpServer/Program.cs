@@ -161,9 +161,20 @@ public class Program
         forwardedHeadersOptions.KnownProxies.Clear();
         app.UseForwardedHeaders(forwardedHeadersOptions);
 
+        // Everything outside the explicitly public health/docs and the separately
+        // authenticated admin/attachment planes is the remote MCP transport.
+        app.UseWhen(
+            context => !context.Request.Path.StartsWithSegments("/health") &&
+                       !context.Request.Path.StartsWithSegments("/openapi") &&
+                       !context.Request.Path.StartsWithSegments("/scalar") &&
+                       !context.Request.Path.StartsWithSegments("/admin") &&
+                       !context.Request.Path.StartsWithSegments("/attachments"),
+            mcpApp => mcpApp.UseMiddleware<McpServiceAuthMiddleware>());
+
         // Aura fork: token-auth middleware for /admin endpoints (Blazor cookie auth removed).
         app.UseWhen(
-            context => context.Request.Path.StartsWithSegments("/admin"),
+            context => context.Request.Path.StartsWithSegments("/admin") ||
+                       context.Request.Path.StartsWithSegments("/attachments"),
             adminApp =>
             {
                 adminApp.UseMiddleware<AdminAuthMiddleware>();

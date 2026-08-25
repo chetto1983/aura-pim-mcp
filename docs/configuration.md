@@ -55,7 +55,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
   "CalendarMcp": {
     "Accounts": [
       {
-        "Id": "work-account",
+        "Id": "11111111111111111111111111111111__work-account",
+        "TenantId": "11111111-1111-1111-1111-111111111111",
         "DisplayName": "Work Account",
         "Provider": "microsoft365",
         "Enabled": true,
@@ -67,7 +68,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
         }
       },
       {
-        "Id": "consulting-work",
+        "Id": "11111111111111111111111111111111__consulting-work",
+        "TenantId": "11111111-1111-1111-1111-111111111111",
         "DisplayName": "Consulting Work",
         "Provider": "microsoft365",
         "Enabled": true,
@@ -79,7 +81,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
         }
       },
       {
-        "Id": "personal-gmail",
+        "Id": "11111111111111111111111111111111__personal-gmail",
+        "TenantId": "11111111-1111-1111-1111-111111111111",
         "DisplayName": "Personal Gmail",
         "Provider": "google",
         "Enabled": true,
@@ -92,7 +95,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
         }
       },
       {
-        "Id": "personal-outlook",
+        "Id": "11111111111111111111111111111111__personal-outlook",
+        "TenantId": "11111111-1111-1111-1111-111111111111",
         "DisplayName": "Personal Outlook",
         "Provider": "outlook.com",
         "Enabled": true,
@@ -123,12 +127,18 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 
 ## Account Configuration
 
+Every account has a required top-level `TenantId` containing its Aura owner UUID. Its `Id` is
+globally unique and uses `<tenant-uuid-without-dashes>__<local-slug>`; the CLI derives both values
+from `AURA_IDENTITY_ID`. A top-level `TenantId` is not the same field as
+`ProviderConfig.TenantId`, which is the Microsoft Entra directory used by that provider.
+
 ### Microsoft 365 Accounts
 
 **Shared App Registration Pattern** (one ClientId for multiple tenants):
 ```json
 {
-  "id": "tenant1-work",
+  "id": "11111111111111111111111111111111__tenant1-work",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
   "provider": "microsoft365",
   "configuration": {
     "tenantId": "tenant1-id",
@@ -141,7 +151,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 **Per-Tenant App Registration Pattern** (different ClientId per tenant):
 ```json
 {
-  "id": "tenant1-work",
+  "id": "11111111111111111111111111111111__tenant1-work",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
   "provider": "microsoft365",
   "configuration": {
     "tenantId": "tenant1-id",
@@ -169,7 +180,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 **Shared OAuth Client Pattern** (one ClientId for multiple accounts):
 ```json
 {
-  "id": "personal-gmail",
+  "id": "11111111111111111111111111111111__personal-gmail",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
   "provider": "google",
   "configuration": {
     "clientId": "shared-oauth-client-id.apps.googleusercontent.com",
@@ -188,7 +200,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 **Per-Organization OAuth Client Pattern** (different ClientId per org):
 ```json
 {
-  "id": "workspace-org",
+  "id": "11111111111111111111111111111111__workspace-org",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
   "provider": "google",
   "configuration": {
     "clientId": "org-specific-id.apps.googleusercontent.com",
@@ -217,7 +230,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 
 ```json
 {
-  "id": "personal-outlook",
+  "id": "11111111111111111111111111111111__personal-outlook",
+  "tenantId": "11111111-1111-1111-1111-111111111111",
   "provider": "outlook.com",
   "configuration": {
     "clientId": "personal-msa-app-client-id",
@@ -243,7 +257,8 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 
 ```json
 {
-  "Id": "rockbot-imap",
+  "Id": "11111111111111111111111111111111__rockbot-imap",
+  "TenantId": "11111111-1111-1111-1111-111111111111",
   "DisplayName": "Rockbot Mailbox",
   "Provider": "imap",
   "Domains": ["gmail.com"],
@@ -484,7 +499,7 @@ See [Authentication](authentication.md#per-account-token-storage) for details.
 
 On startup, Calendar-MCP validates:
 
-1. **Required fields**: All required account fields present
+1. **Required fields**: All required account fields and a valid owner `TenantId` are present
 2. **Unique IDs**: No duplicate account IDs
 3. **Valid providers**: Provider must be "microsoft365", "google", or "outlook.com"
 4. **Router backend**: Supported backend type

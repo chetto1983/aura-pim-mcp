@@ -4,8 +4,12 @@ namespace CalendarMcp.Tests.Helpers;
 
 internal static class TestData
 {
+    public const string TenantA = "11111111-1111-1111-1111-111111111111";
+    public const string TenantB = "22222222-2222-2222-2222-222222222222";
+
     public static AccountInfo CreateAccount(
         string id = "test-account",
+        string tenantId = TenantA,
         string displayName = "Test Account",
         string provider = "microsoft365",
         bool enabled = true,
@@ -15,6 +19,7 @@ internal static class TestData
         return new AccountInfo
         {
             Id = id,
+            TenantId = tenantId,
             DisplayName = displayName,
             Provider = provider,
             Enabled = enabled,

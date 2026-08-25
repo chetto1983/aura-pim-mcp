@@ -61,10 +61,11 @@ public class AddOutlookComAccountCommand : AsyncCommand<AddOutlookComAccountComm
         AnsiConsole.WriteLine();
 
         // Prompt for account details
-        var accountId = AnsiConsole.Prompt(
+        var localAccountId = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Account ID[/] (e.g., 'personal-outlook'):")
                 .ValidationErrorMessage("[red]Account ID is required[/]")
                 .Validate(id => !string.IsNullOrWhiteSpace(id)));
+        var accountId = CliTenant.AccountId(localAccountId);
 
         var displayName = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Display Name[/] (e.g., 'Personal Outlook'):")
@@ -85,7 +86,7 @@ public class AddOutlookComAccountCommand : AsyncCommand<AddOutlookComAccountComm
                     "consumers - Personal Microsoft accounts only (recommended for Outlook.com)",
                     "common - Both personal and organizational accounts"
                 }));
-        
+
         var tenantId = tenantChoice.StartsWith("consumers") ? "consumers" : "common";
 
         var domains = AnsiConsole.Prompt(
@@ -153,8 +154,7 @@ public class AddOutlookComAccountCommand : AsyncCommand<AddOutlookComAccountComm
             }
 
             // Check if account already exists
-            var existingIndex = accounts.FindIndex(a =>
-                a.TryGetValue("Id", out var id) && id?.ToString() == accountId);
+            var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
             // Create new account config
             var domainList = domains.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -169,6 +169,7 @@ public class AddOutlookComAccountCommand : AsyncCommand<AddOutlookComAccountComm
             var newAccount = new Dictionary<string, object>
             {
                 { "id", accountId },
+                { "tenantId", CliTenant.RequireIdentity() },
                 { "displayName", displayName },
                 { "provider", "outlook.com" },
                 { "enabled", true },
