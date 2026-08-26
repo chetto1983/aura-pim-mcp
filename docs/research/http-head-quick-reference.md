@@ -75,13 +75,15 @@ Container                     User's Phone
 ## 🔐 Security
 
 ### Admin Access
-**Simple bearer token authentication**
+**Standard OAuth bearer authentication**
 ```bash
-# Required for admin API/UI access
-CALENDAR_MCP_ADMIN_TOKEN=<secret-token>
+# Configure the resource server
+CALENDAR_MCP_OAuth__Issuer=https://auth.example
+CALENDAR_MCP_OAuth__MetadataAddress=https://auth.example/.well-known/oauth-authorization-server
+CALENDAR_MCP_OAuth__Resource=https://calendar.example/
 
 # Usage
-curl -H "X-Admin-Token: secret-token" \
+curl -H "Authorization: Bearer <access-token>" \
   http://localhost:8080/admin/accounts
 ```
 
@@ -129,8 +131,9 @@ curl -H "X-Admin-Token: secret-token" \
 ```bash
 docker run -p 8080:8080 \
   -v /path/to/data:/app/data \
-  -e CALENDAR_MCP_ADMIN_TOKEN=secret123 \
-  -e CALENDAR_MCP_AUTH_MODE=device-code \
+  -e CALENDAR_MCP_OAuth__Issuer=https://auth.example \
+  -e CALENDAR_MCP_OAuth__MetadataAddress=https://auth.example/.well-known/oauth-authorization-server \
+  -e CALENDAR_MCP_OAuth__Resource=https://calendar.example/ \
   calendar-mcp:latest
 ```
 
@@ -150,13 +153,12 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: CALENDAR_MCP_ADMIN_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: calendar-mcp-secrets
-              key: admin-token
-        - name: CALENDAR_MCP_AUTH_MODE
-          value: "device-code"
+        - name: CALENDAR_MCP_OAuth__Issuer
+          value: "https://auth.example"
+        - name: CALENDAR_MCP_OAuth__MetadataAddress
+          value: "https://auth.example/.well-known/oauth-authorization-server"
+        - name: CALENDAR_MCP_OAuth__Resource
+          value: "https://calendar.example/"
         volumeMounts:
         - name: data
           mountPath: /app/data

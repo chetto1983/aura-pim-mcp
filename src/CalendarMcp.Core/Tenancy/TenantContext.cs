@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+using System.Security.Claims;
 
 namespace CalendarMcp.Core.Tenancy;
 
@@ -9,7 +9,7 @@ public interface ITenantContext
 }
 
 /// <summary>
-/// Carries the authenticated Aura identity through one asynchronous request.
+/// Carries the authenticated OAuth subject through one asynchronous request.
 /// The singleton service is safe because AsyncLocal isolates concurrent flows.
 /// </summary>
 public sealed class TenantContext : ITenantContext
@@ -17,7 +17,7 @@ public sealed class TenantContext : ITenantContext
     private readonly AsyncLocal<string?> _current = new();
 
     public string RequireTenantId() =>
-        _current.Value ?? throw new InvalidOperationException("No authenticated Aura identity is bound to this request.");
+        _current.Value ?? throw new InvalidOperationException("No authenticated tenant is bound to this request.");
 
     public IDisposable Bind(string tenantId)
     {
@@ -44,25 +44,19 @@ public sealed class TenantContext : ITenantContext
 
 public static class TenantIdentity
 {
+    public const string OAuthClaimName = "sub";
+
     public static string Normalize(string? value)
     {
         if (!Guid.TryParse(value?.Trim(), out var tenantId) || tenantId == Guid.Empty)
         {
-            throw new ArgumentException("Aura identity must be a non-empty UUID.", nameof(value));
+            throw new ArgumentException("OAuth subject must be a non-empty UUID.", nameof(value));
         }
         return tenantId.ToString("D");
     }
 
-    public static string FromMcpMeta(JsonObject? meta)
-    {
-        if (meta?["aura"] is not JsonObject aura ||
-            aura["user_identifier"] is not JsonValue value ||
-            !value.TryGetValue<string>(out var tenantId))
-        {
-            throw new ArgumentException("Missing _meta.aura.user_identifier on Calendar MCP call.");
-        }
-        return Normalize(tenantId);
-    }
+    public static string FromPrincipal(ClaimsPrincipal? principal) =>
+        Normalize(principal?.FindFirst(OAuthClaimName)?.Value);
 
     /// <summary>
     /// Produces a globally unique provider/cache key while preserving the human slug.

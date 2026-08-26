@@ -65,7 +65,7 @@ See the [Installation Guide](docs/INSTALLATION.md) for detailed steps.
 Use the CLI to add accounts:
 
 ```bash
-export AURA_IDENTITY_ID=11111111-1111-1111-1111-111111111111
+export CALENDAR_MCP_TENANT_ID=11111111-1111-1111-1111-111111111111
 
 # Microsoft 365 or Outlook.com
 CalendarMcp.Cli add-m365-account
@@ -114,10 +114,10 @@ CalendarMcp.StdioServer
 
 For remote or shared deployments. Includes a Blazor admin UI and health check endpoint.
 
-The HTTP transport is identity-scoped. Every request requires the service bearer configured by
-`CALENDAR_MCP_ADMIN_TOKEN`; every `tools/call` must also carry the authenticated owner at
-`_meta.aura.user_identifier`. Account configuration, credentials, provider caches, and attachments
-are visible only to that owner. The identity is transport metadata, never a tool argument.
+The HTTP transport is OAuth subject-scoped. Every MCP, attachment, and admin request requires a
+signed access token with the configured audience and `mcp:tools` scope. The standard `sub` claim
+selects the tenant and must be a UUID. Account configuration, credentials, provider caches, and
+attachments are visible only to that subject; no tool argument or custom header can override it.
 
 ```bash
 # Run directly
@@ -126,7 +126,9 @@ dotnet run --project src/CalendarMcp.HttpServer
 # Or via Docker
 docker build -t calendar-mcp-http .
 docker run -p 8080:8080 \
-  -e CALENDAR_MCP_ADMIN_TOKEN='<service-secret>' \
+  -e CALENDAR_MCP_OAuth__Issuer='https://auth.example' \
+  -e CALENDAR_MCP_OAuth__MetadataAddress='https://auth.example/.well-known/oauth-authorization-server' \
+  -e CALENDAR_MCP_OAuth__Resource='https://calendar.example/' \
   -v calendar-mcp-data:/app/data calendar-mcp-http
 ```
 

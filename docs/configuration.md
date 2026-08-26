@@ -127,9 +127,9 @@ set CALENDAR_MCP_CONFIG=C:\MyConfig\my-calendar-config.json
 
 ## Account Configuration
 
-Every account has a required top-level `TenantId` containing its Aura owner UUID. Its `Id` is
+Every account has a required top-level `TenantId` containing its OAuth subject UUID. Its `Id` is
 globally unique and uses `<tenant-uuid-without-dashes>__<local-slug>`; the CLI derives both values
-from `AURA_IDENTITY_ID`. A top-level `TenantId` is not the same field as
+from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 `ProviderConfig.TenantId`, which is the Microsoft Entra directory used by that provider.
 
 ### Microsoft 365 Accounts

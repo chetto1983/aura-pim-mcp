@@ -23,9 +23,8 @@ namespace CalendarMcp.Core.Tools;
 /// only the registration/dispatch layer collapses.
 /// </summary>
 /// <remarks>
-/// Contract: docs/superpowers/specs/2026-08-17-mcp-curated-surface-design.md
-/// (Aura repo) &#167;5a. MCP-05 (D-20): <c>get_calendar_event_details</c>
-/// takes no <c>accountId</c> -- it resolves the account from the opaque
+/// <c>get_calendar_event_details</c> takes no <c>accountId</c> -- it resolves
+/// the account from the opaque
 /// <c>eventId</c> reference <c>get_calendar_events</c> already returns per
 /// event (see <see cref="EventRef"/>).
 /// </remarks>
@@ -235,7 +234,7 @@ public sealed partial class CalendarActionTool
         IDisposable tenantScope;
         try
         {
-            tenantScope = _tenantContext.Bind(TenantIdentity.FromMcpMeta(requestContext.Params.Meta));
+            tenantScope = _tenantContext.Bind(TenantIdentity.FromPrincipal(requestContext.User));
         }
         catch (ArgumentException ex)
         {

@@ -228,7 +228,9 @@ AI Client → HTTP/SSE → Kubernetes Pod (Calendar-MCP) → Persistent Volume
 CALENDAR_MCP_CONFIG=/app/data/appsettings.json
 CALENDAR_MCP_DATA_DIR=/app/data
 CALENDAR_MCP_AUTH_MODE=device-code
-CALENDAR_MCP_ADMIN_TOKEN=<secret>
+CALENDAR_MCP_OAuth__Issuer=https://auth.example
+CALENDAR_MCP_OAuth__MetadataAddress=https://auth.example/.well-known/oauth-authorization-server
+CALENDAR_MCP_OAuth__Resource=https://calendar.example/
 ASPNETCORE_URLS=http://+:8080
 ```
 

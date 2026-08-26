@@ -37,7 +37,7 @@ RUN dotnet publish CalendarMcp.HttpServer/CalendarMcp.HttpServer.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Aura fork: install curl so the HEALTHCHECK below (and Compose's) actually works —
+# Install curl so the HEALTHCHECK below (and Compose's) actually works —
 # the aspnet base ships without curl, so the upstream curl healthcheck was a no-op.
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*

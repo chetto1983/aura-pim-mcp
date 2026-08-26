@@ -115,7 +115,7 @@ public class Program
                 services.AddCalendarMcpCore();
                 
                 // Configure MCP server with stdio transport and register tools
-                // Aura fork: list_accounts, get_emails, get_email_details, search_emails,
+                // list_accounts, get_emails, get_email_details, search_emails,
                 // send_email, list_calendars, get_calendar_events, get_calendar_event_details,
                 // create_event, respond_to_event, update_event, get_contacts, search_contacts,
                 // get_contact_details collapsed into one curated action tool (D-17..D-26); see
@@ -123,7 +123,7 @@ public class Program
                 // advertise the identical curated surface.
                 services.AddMcpServer(CalendarMcpServerOptions.Configure)
                     .WithCalendarActionTool()
-                    // Aura fork: the MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
+                    // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
                     // set in WithCalendarActionTool's factory, beside the schema patch.
                     .WithCalendarView()
                     .WithTools<CalendarMcp.Core.Tools.GetGuideTool>()

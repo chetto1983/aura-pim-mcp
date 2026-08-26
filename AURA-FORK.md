@@ -15,8 +15,8 @@ Branch: `aura/pim-sidecar`. Remotes: `origin` = this fork, `upstream` = MarimerL
    activates when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, which Aura does not by default; bump when
    convenient.)
 
-2. **Removed the Blazor admin UI.** Aura's own frontend drives connect/account management via the
-   token-gated `/admin` REST API. Deleted `src/CalendarMcp.HttpServer/Components/` and
+2. **Removed the Blazor admin UI.** OAuth-protected management clients drive connect/account
+   management via the `/admin` REST API. Deleted `src/CalendarMcp.HttpServer/Components/` and
    `BlazorAdmin/`; stripped the Razor/cookie wiring from `HttpServer/Program.cs` (services +
    pipeline + login endpoints). **Kept** the REST admin API (`Admin/AdminEndpoints`,
    `AccountConfigurationService`, `GoogleOAuthManager`, `DeviceCodeAuthManager`, `AdminAuthMiddleware`),
@@ -50,9 +50,11 @@ Branch: `aura/pim-sidecar`. Remotes: `origin` = this fork, `upstream` = MarimerL
 ## Build / run (sidecar)
 
 ```bash
-docker build -t aura-pim-mcp .
-docker run -d -p 127.0.0.1:8093:8080 -v aura-pim-data:/app/data \
-  -e CALENDAR_MCP_ADMIN_TOKEN=<token> aura-pim-mcp
+docker build -t calendar-mcp .
+docker run -d -p 127.0.0.1:8093:8080 -v calendar-mcp-data:/app/data \
+  -e CALENDAR_MCP_OAuth__Issuer=https://auth.example \
+  -e CALENDAR_MCP_OAuth__MetadataAddress=https://auth.example/.well-known/oauth-authorization-server \
+  -e CALENDAR_MCP_OAuth__Resource=https://calendar.example/ calendar-mcp
 ```
 MCP endpoint `/`, admin REST `/admin`, health `/health` (internal port 8080).
 

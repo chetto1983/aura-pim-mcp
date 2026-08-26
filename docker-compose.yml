@@ -3,7 +3,7 @@
 #
 # First-time setup:
 #   1. Copy your appsettings.json to ./data/appsettings.json
-#   2. Set the CALENDAR_MCP_ADMIN_TOKEN below
+#   2. Set the OAuth issuer and resource below
 #   3. Run: docker compose up -d
 #   5. Authenticate accounts via: POST http://localhost:8080/admin/auth/{accountId}/start
 
@@ -17,8 +17,9 @@ services:
     volumes:
       - calendar-mcp-data:/app/data
     environment:
-      # Required: Admin API authentication token
-      - CALENDAR_MCP_ADMIN_TOKEN=${CALENDAR_MCP_ADMIN_TOKEN:-changeme}
+      - CALENDAR_MCP_OAuth__Issuer=${CALENDAR_MCP_OAUTH_ISSUER:-https://auth.example}
+      - CALENDAR_MCP_OAuth__MetadataAddress=${CALENDAR_MCP_OAUTH_METADATA_ADDRESS:-https://auth.example/.well-known/oauth-authorization-server}
+      - CALENDAR_MCP_OAuth__Resource=${CALENDAR_MCP_OAUTH_RESOURCE:-https://calendar.example/}
       # Optional: OpenTelemetry endpoint for observability
       # - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     restart: unless-stopped

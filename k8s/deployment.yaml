@@ -1,7 +1,7 @@
 # Calendar MCP HTTP Server - Kubernetes Deployment
 # Prerequisites:
-#   1. Create the secret: kubectl apply -f secret.yaml
-#   2. Create the PVC: kubectl apply -f pvc.yaml
+#   1. Create the PVC: kubectl apply -f pvc.yaml
+#   2. Set the OAuth issuer/resource values below
 #   3. Deploy: kubectl apply -f deployment.yaml
 #   4. Access via port-forward: kubectl port-forward svc/calendar-mcp 8080:8080
 apiVersion: apps/v1
@@ -33,11 +33,12 @@ spec:
             - containerPort: 8080
               name: http
           env:
-            - name: CALENDAR_MCP_ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: calendar-mcp-secrets
-                  key: admin-token
+            - name: CALENDAR_MCP_OAuth__Issuer
+              value: "https://auth.example"
+            - name: CALENDAR_MCP_OAuth__MetadataAddress
+              value: "https://auth.example/.well-known/oauth-authorization-server"
+            - name: CALENDAR_MCP_OAuth__Resource
+              value: "https://calendar.example/"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://alloy.loki.svc.cluster.local:4317"
             - name: OTEL_SERVICE_NAME

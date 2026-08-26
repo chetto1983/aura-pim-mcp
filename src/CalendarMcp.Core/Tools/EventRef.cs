@@ -14,8 +14,8 @@ namespace CalendarMcp.Core.Tools;
 /// default account.
 /// </summary>
 /// <remarks>
-/// The encoding is an implementation detail private to this fork: callers
-/// (Aura included) must treat the string as opaque and pass it back
+/// The encoding is an implementation detail private to this server: callers
+/// must treat the string as opaque and pass it back
 /// byte-for-byte, exactly the discipline the design doc's <c>eventId</c>
 /// contract requires. There is no numeric or precision surface in this path
 /// -- it is a string round-trip, nothing more.

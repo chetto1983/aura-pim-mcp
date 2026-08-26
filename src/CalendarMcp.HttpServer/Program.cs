@@ -2,11 +2,16 @@ using System.Text.RegularExpressions;
 using CalendarMcp.Auth;
 using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Configuration;
+using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
 using CalendarMcp.HttpServer.Admin;
 using CalendarMcp.HttpServer.Endpoints;
+using CalendarMcp.HttpServer.Security;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol;
+using ModelContextProtocol.AspNetCore.Authentication;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
 using Scalar.AspNetCore;
@@ -74,6 +79,7 @@ public class Program
 
         // Add environment variables (can override file settings)
         builder.Configuration.AddEnvironmentVariables("CALENDAR_MCP_");
+        var oauth = McpOAuthOptions.FromConfiguration(builder.Configuration);
 
         // Configure logging - always use Serilog, add OTEL if endpoint is available
         builder.Host.UseSerilog();
@@ -108,25 +114,74 @@ public class Program
         // OpenAPI
         builder.Services.AddOpenApi();
 
-        // Aura fork: Blazor admin UI removed — Aura's own frontend drives connect/management
-        // via the token-gated /admin REST API. (AddHttpContextAccessor kept for AdminAuthMiddleware.)
+        // Blazor admin UI was removed; OAuth-protected clients drive connect/management
+        // through the /admin REST API. (AddHttpContextAccessor is used by AdminAuthMiddleware.)
         builder.Services.AddHttpContextAccessor();
+
+        builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultChallengeScheme = McpAuthenticationDefaults.AuthenticationScheme;
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.MapInboundClaims = false;
+            options.MetadataAddress = oauth.MetadataAddress;
+            options.RequireHttpsMetadata = oauth.MetadataAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            options.Events = new JwtBearerEvents
+            {
+                OnAuthenticationFailed = context =>
+                {
+                    Log.Warning(
+                        "MCP bearer authentication failed for issuer {Issuer} and resource {Resource}: {ExceptionType}: {Error}",
+                        oauth.Issuer,
+                        oauth.Resource,
+                        context.Exception.GetType().Name,
+                        context.Exception.Message);
+                    return Task.CompletedTask;
+                }
+            };
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = oauth.Issuer,
+                ValidAudience = oauth.Resource,
+                NameClaimType = TenantIdentity.OAuthClaimName,
+                IssuerSigningKeyResolverUsingConfiguration = (_, _, keyId, _, configuration) =>
+                    EdDsaSigningKeys.Resolve(keyId, configuration),
+                CryptoProviderFactory = new CryptoProviderFactory
+                {
+                    CustomCryptoProvider = new EdDsaCryptoProvider()
+                }
+            };
+        })
+        .AddMcp(options =>
+        {
+            options.ResourceMetadata = new()
+            {
+                AuthorizationServers = { oauth.Issuer },
+                ScopesSupported = [oauth.ToolsScope]
+            };
+        });
+        builder.Services.AddAuthorization();
 
         // Configure MCP server with HTTP/SSE transport and register tools
         builder.Services
             .AddMcpServer(CalendarMcpServerOptions.Configure)
             .WithHttpTransport()
-            // Aura fork: the 14 individually registered tools (list_accounts, get_emails,
+            // The 14 individually registered tools (list_accounts, get_emails,
             // get_email_details, search_emails, send_email, list_calendars,
             // get_calendar_events, get_calendar_event_details, create_event,
             // respond_to_event, update_event, get_contacts, search_contacts,
             // get_contact_details) collapsed into ONE curated, action-multiplexed tool
-            // (D-17..D-26; docs/superpowers/specs/2026-08-17-mcp-curated-surface-design.md
-            // in the Aura repo). The 14 raw tool classes are deleted, not left
+            // (D-17..D-26). The 14 raw tool classes are deleted, not left
             // registered-but-hidden. get_calendar_event_details no longer takes accountId
             // (MCP-05/D-20) -- see CalendarActionTool for the full contract.
             .WithCalendarActionTool()
-            // Aura fork: the MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
+            // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
             // set in WithCalendarActionTool's factory, beside the schema patch.
             .WithCalendarView()
             .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
@@ -161,17 +216,10 @@ public class Program
         forwardedHeadersOptions.KnownProxies.Clear();
         app.UseForwardedHeaders(forwardedHeadersOptions);
 
-        // Everything outside the explicitly public health/docs and the separately
-        // authenticated admin/attachment planes is the remote MCP transport.
-        app.UseWhen(
-            context => !context.Request.Path.StartsWithSegments("/health") &&
-                       !context.Request.Path.StartsWithSegments("/openapi") &&
-                       !context.Request.Path.StartsWithSegments("/scalar") &&
-                       !context.Request.Path.StartsWithSegments("/admin") &&
-                       !context.Request.Path.StartsWithSegments("/attachments"),
-            mcpApp => mcpApp.UseMiddleware<McpServiceAuthMiddleware>());
+        app.UseAuthentication();
+        app.UseAuthorization();
 
-        // Aura fork: token-auth middleware for /admin endpoints (Blazor cookie auth removed).
+        // The admin and attachment endpoints use the same OAuth bearer as the MCP endpoint.
         app.UseWhen(
             context => context.Request.Path.StartsWithSegments("/admin") ||
                        context.Request.Path.StartsWithSegments("/attachments"),
@@ -185,13 +233,13 @@ public class Program
         app.MapScalarApiReference();
 
         // Map MCP protocol endpoints (HTTP/SSE)
-        app.MapMcp();
+        app.MapMcp().RequireAuthorization();
 
         // Map attachment upload endpoint (sibling of /mcp; same network-level
         // protection — Tailscale ACLs / reverse proxy).
         app.MapAttachmentEndpoints();
 
-        // Map admin API endpoints (consumed by Aura's frontend via the Go backend proxy)
+        // Map admin API endpoints for OAuth-protected management clients.
         app.MapAdminEndpoints();
 
         // Health check endpoints

@@ -1,19 +1,16 @@
+using System.Security.Claims;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.HttpServer.Admin;
 using CalendarMcp.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CalendarMcp.Tests.Admin;
 
 [TestClass]
 public sealed class AdminAuthMiddlewareTests
 {
-    private const string Token = "calendar-test-token-long-enough";
-
     [TestMethod]
-    public async Task ValidTokenAndAuraIdentity_BindTenantForRequest()
+    public async Task AuthenticatedSubject_BindsTenantForRequest()
     {
         var tenantContext = new TenantContext();
         string? seenTenant = null;
@@ -22,16 +19,15 @@ public sealed class AdminAuthMiddlewareTests
             seenTenant = tenantContext.RequireTenantId();
             return Task.CompletedTask;
         });
-        var http = Request("/admin/accounts", includeIdentity: true);
 
-        await middleware.InvokeAsync(http, tenantContext);
+        await middleware.InvokeAsync(Request(TestData.TenantA), tenantContext);
 
         Assert.AreEqual(TestData.TenantA, seenTenant);
         Assert.ThrowsExactly<InvalidOperationException>(() => tenantContext.RequireTenantId());
     }
 
     [TestMethod]
-    public async Task MissingIdentity_FailsClosedBeforeHandler()
+    public async Task MissingSubject_FailsBeforeHandler()
     {
         var called = false;
         var middleware = CreateMiddleware(_ =>
@@ -39,29 +35,30 @@ public sealed class AdminAuthMiddlewareTests
             called = true;
             return Task.CompletedTask;
         });
-        var http = Request("/admin/accounts", includeIdentity: false);
 
-        await middleware.InvokeAsync(http, new TenantContext());
-
-        Assert.AreEqual(StatusCodes.Status401Unauthorized, http.Response.StatusCode);
+        var missing = Request(null);
+        await middleware.InvokeAsync(missing, new TenantContext());
+        Assert.AreEqual(StatusCodes.Status401Unauthorized, missing.Response.StatusCode);
         Assert.IsFalse(called);
     }
 
     [TestMethod]
-    public async Task MissingConfiguredToken_FailsClosed()
+    public async Task UnauthenticatedOrWrongScope_FailsClosed()
     {
-        var config = new ConfigurationBuilder().Build();
-        var middleware = new AdminAuthMiddleware(
-            _ => Task.CompletedTask, config, NullLogger<AdminAuthMiddleware>.Instance);
-        var http = Request("/admin/accounts", includeIdentity: true);
+        var middleware = CreateMiddleware(_ => Task.CompletedTask);
+        var anonymous = new DefaultHttpContext();
+        anonymous.Response.Body = new MemoryStream();
+        anonymous.Request.Path = "/admin/accounts";
+        await middleware.InvokeAsync(anonymous, new TenantContext());
+        Assert.AreEqual(StatusCodes.Status401Unauthorized, anonymous.Response.StatusCode);
 
-        await middleware.InvokeAsync(http, new TenantContext());
-
-        Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, http.Response.StatusCode);
+        var wrongScope = Request(TestData.TenantA, "profile:read");
+        await middleware.InvokeAsync(wrongScope, new TenantContext());
+        Assert.AreEqual(StatusCodes.Status403Forbidden, wrongScope.Response.StatusCode);
     }
 
     [TestMethod]
-    public async Task GoogleCallback_RemainsTokenAndTenantExempt()
+    public async Task GoogleCallback_RemainsBearerAndTenantExempt()
     {
         var called = false;
         var middleware = CreateMiddleware(_ =>
@@ -77,53 +74,18 @@ public sealed class AdminAuthMiddlewareTests
         Assert.IsTrue(called);
     }
 
-    [TestMethod]
-    public async Task McpServiceAuth_RequiresConfiguredValidBearer()
-    {
-        var called = false;
-        var config = Configuration();
-        var middleware = new McpServiceAuthMiddleware(
-            _ =>
-            {
-                called = true;
-                return Task.CompletedTask;
-            },
-            config,
-            NullLogger<McpServiceAuthMiddleware>.Instance);
-        var unauthorized = new DefaultHttpContext();
-        unauthorized.Response.Body = new MemoryStream();
+    private static AdminAuthMiddleware CreateMiddleware(RequestDelegate next) =>
+        new(next);
 
-        await middleware.InvokeAsync(unauthorized);
-        Assert.AreEqual(StatusCodes.Status401Unauthorized, unauthorized.Response.StatusCode);
-        Assert.IsFalse(called);
-
-        var authorized = new DefaultHttpContext();
-        authorized.Request.Headers.Authorization = "Bearer " + Token;
-        await middleware.InvokeAsync(authorized);
-        Assert.IsTrue(called);
-    }
-
-    private static AdminAuthMiddleware CreateMiddleware(RequestDelegate next)
-    {
-        return new AdminAuthMiddleware(next, Configuration(), NullLogger<AdminAuthMiddleware>.Instance);
-    }
-
-    private static IConfiguration Configuration() =>
-        new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["CalendarMcp:AdminToken"] = Token
-            })
-            .Build();
-
-    private static DefaultHttpContext Request(string path, bool includeIdentity)
+    private static DefaultHttpContext Request(string? subject, string scope = "mcp:tools")
     {
         var http = new DefaultHttpContext();
         http.Response.Body = new MemoryStream();
-        http.Request.Path = path;
-        http.Request.Headers.Authorization = "Bearer " + Token;
-        if (includeIdentity)
-            http.Request.Headers["X-Aura-Identity"] = TestData.TenantA;
+        http.Request.Path = "/admin/accounts";
+        var claims = new List<Claim> { new("scope", scope) };
+        if (subject is not null)
+            claims.Add(new Claim(TenantIdentity.OAuthClaimName, subject));
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
         return http;
     }
 }

@@ -55,13 +55,13 @@
              "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 
   var PROVIDER_SPINE = {
-    google: "var(--aura-google)",
-    microsoft: "var(--aura-microsoft)",
-    m365: "var(--aura-microsoft)",
-    outlook: "var(--aura-microsoft)",
-    imap: "var(--aura-imap)",
-    ical: "var(--aura-ical)",
-    json: "var(--aura-json)"
+    google: "var(--calendar-google)",
+    microsoft: "var(--calendar-microsoft)",
+    m365: "var(--calendar-microsoft)",
+    outlook: "var(--calendar-microsoft)",
+    imap: "var(--calendar-imap)",
+    ical: "var(--calendar-ical)",
+    json: "var(--calendar-json)"
   };
 
   var state = { items: [], family: null, source: null, selected: null,
@@ -113,7 +113,7 @@
   }
 
   function spineFor(provider) {
-    return PROVIDER_SPINE[String(provider || "").toLowerCase()] || "var(--color-ring-primary, var(--aura-ring))";
+    return PROVIDER_SPINE[String(provider || "").toLowerCase()] || "var(--color-ring-primary, var(--calendar-ring))";
   }
 
   function initials(name) {
@@ -264,7 +264,7 @@
       b.type = "button";
       b.setAttribute("aria-pressed", state.source === s.key ? "true" : "false");
       var dot = el("span", "dot");
-      dot.style.setProperty("--spine", s.provider ? spineFor(s.provider) : "var(--color-text-tertiary, var(--aura-faint))");
+      dot.style.setProperty("--spine", s.provider ? spineFor(s.provider) : "var(--color-text-tertiary, var(--calendar-faint))");
       b.appendChild(dot);
       b.appendChild(el("span", "label", s.label));
       b.appendChild(el("span", "count", s.n));

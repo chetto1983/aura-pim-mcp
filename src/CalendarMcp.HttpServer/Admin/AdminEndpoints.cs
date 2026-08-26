@@ -314,8 +314,8 @@ public static class AdminEndpoints
         var redirectUri = BuildRedirectUri(httpContext.Request, "/admin/auth/google/callback", config.Value);
 
         // Headless: return the Google authorization URL as JSON instead of a 302. The
-        // cockpit (calling this through Aura's token-injecting proxy) opens authUrl in a
-        // browser tab; redirectUri is echoed so the operator can confirm it matches the
+        // management client opens authUrl in a browser tab; redirectUri is echoed so
+        // the operator can confirm it matches the
         // URI registered in the Google OAuth client.
         var authUrl = oauthManager.GetAuthorizationUrl(accountId, clientId, clientSecret, redirectUri);
         return Results.Ok(new { authUrl, redirectUri });
@@ -350,7 +350,7 @@ public static class AdminEndpoints
             var redirectUri = BuildRedirectUri(httpContext.Request, "/admin/auth/google/callback", config.Value);
 
             var accountId = await oauthManager.ExchangeCodeAsync(state, code, redirectUri, cancellationToken);
-            return OAuthResultPage(true, $"Account '{accountId}' is now linked. You can close this window and return to Aura.");
+            return OAuthResultPage(true, $"Account '{accountId}' is now linked. You can close this window.");
         }
         catch (Exception ex)
         {
@@ -360,8 +360,8 @@ public static class AdminEndpoints
 
     /// <summary>
     /// Renders a self-contained HTML result for the Google redirect callback. The Blazor
-    /// admin UI was removed in the Aura fork, so this page only reports the outcome — the
-    /// cockpit polls /admin/accounts/{id}/status to detect the linked state.
+    /// admin UI was removed, so this page only reports the outcome; the management client
+    /// polls /admin/accounts/{id}/status to detect the linked state.
     /// </summary>
     private static IResult OAuthResultPage(bool ok, string message)
     {
@@ -372,7 +372,7 @@ public static class AdminEndpoints
             <!doctype html>
             <html lang="en"><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Aura · {{title}}</title></head>
+            <title>Calendar MCP · {{title}}</title></head>
             <body style="font-family:system-ui,sans-serif;background:#0b0b0c;color:#e5e5e5;display:grid;place-items:center;height:100vh;margin:0">
               <main style="max-width:28rem;text-align:center;padding:2rem">
                 <h1 style="color:{{color}};margin:0 0 .5rem">{{title}}</h1>

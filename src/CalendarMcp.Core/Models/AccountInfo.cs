@@ -6,7 +6,7 @@ namespace CalendarMcp.Core.Models;
 public class AccountInfo
 {
     /// <summary>
-    /// Aura identity that owns this account. Runtime configuration without an
+    /// OAuth subject that owns this account. Runtime configuration without an
     /// owner is rejected rather than treated as deployment-global.
     /// </summary>
     public string TenantId { get; init; } = "";

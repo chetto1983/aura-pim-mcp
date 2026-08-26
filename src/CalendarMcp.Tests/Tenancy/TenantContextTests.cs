@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+using System.Security.Claims;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Tests.Helpers;
 
@@ -8,22 +8,16 @@ namespace CalendarMcp.Tests.Tenancy;
 public sealed class TenantContextTests
 {
     [TestMethod]
-    public void FromMcpMeta_ReadsAndNormalizesAuraIdentity()
+    public void FromPrincipal_ReadsAndNormalizesOAuthSubject()
     {
-        var meta = new JsonObject
-        {
-            ["aura"] = new JsonObject { ["user_identifier"] = TestData.TenantA.ToUpperInvariant() }
-        };
-
-        Assert.AreEqual(TestData.TenantA, TenantIdentity.FromMcpMeta(meta));
+        Assert.AreEqual(TestData.TenantA, TenantIdentity.FromPrincipal(Principal(TestData.TenantA.ToUpperInvariant())));
     }
 
     [TestMethod]
-    public void FromMcpMeta_RejectsMissingOrInvalidIdentity()
+    public void FromPrincipal_RejectsMissingOrInvalidSubject()
     {
-        Assert.ThrowsExactly<ArgumentException>(() => TenantIdentity.FromMcpMeta(null));
-        Assert.ThrowsExactly<ArgumentException>(() => TenantIdentity.FromMcpMeta(
-            new JsonObject { ["aura"] = new JsonObject { ["user_identifier"] = "not-a-uuid" } }));
+        Assert.ThrowsExactly<ArgumentException>(() => TenantIdentity.FromPrincipal(null));
+        Assert.ThrowsExactly<ArgumentException>(() => TenantIdentity.FromPrincipal(Principal("not-a-uuid")));
     }
 
     [TestMethod]
@@ -53,4 +47,7 @@ public sealed class TenantContextTests
         Assert.IsTrue(first.EndsWith("__work", StringComparison.Ordinal));
         Assert.IsTrue(second.EndsWith("__work", StringComparison.Ordinal));
     }
+
+    private static ClaimsPrincipal Principal(string subject) => new(new ClaimsIdentity(
+        [new Claim(TenantIdentity.OAuthClaimName, subject)], "Bearer"));
 }

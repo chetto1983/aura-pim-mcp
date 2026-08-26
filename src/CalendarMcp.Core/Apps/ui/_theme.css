@@ -6,17 +6,14 @@
  * that lets you keep your place in a list while reading out of it.
  *
  * EVERY colour, font, radius and size is read from the MCP Apps host variables
- * (hostContext.styles.variables, applied to the root element by _bridge.js) with an
- * Aura token as the fallback. That order is the whole styling strategy: a
+ * (hostContext.styles.variables, applied to the root element by _bridge.js) with a
+ * local token as the fallback. That order is the whole styling strategy: a
  * spec-compliant host themes this view while knowing nothing about it, and when no
- * host variable arrives the view still looks like Aura rather than like nothing.
+ * host variable arrives the view still has a coherent standalone theme.
  * Hosts may send any subset, so no rule may depend on one arriving.
  *
- * The fallbacks are Aura's own tokens, copied from web/src/styles/theme.css (itself
- * generated from tokens/tokens.json): cool slate surfaces, a deep navy accent, and
- * the ring blue for anything that must catch the eye. Dark is the default because
- * that is the cockpit's default -- Aura's :root:not([data-theme]) resolves to dark --
- * so a frame that opened light would announce itself as somebody else's app.
+ * The fallbacks use cool slate surfaces, a deep navy accent, and a clear focus ring.
+ * Dark is the default; hosts can select light through the standard theme context.
  *
  * No images and no @font-face: a ui:// resource loads under a restrictive CSP (this
  * server declares every domain list empty), so rules are borders and depth is a
@@ -25,27 +22,27 @@
  */
 
 :root {
-  /* Aura dark -- the cockpit default, and the fallback for every variable below. */
-  --aura-bg: #101214;
-  --aura-surface: #191c20;
-  --aura-surface-2: #252a31;
-  --aura-surface-3: #303741;
-  --aura-border: #343c46;
-  --aura-border-strong: #718394;
-  --aura-text: #eef2f6;
-  --aura-muted: #c8d0d8;
-  --aura-faint: #9ba8b5;
-  --aura-accent: #1f3760;
-  --aura-ring: #8ab4f8;
-  --aura-warning: #fdd663;
+  /* Standalone dark fallback for every variable below. */
+  --calendar-bg: #101214;
+  --calendar-surface: #191c20;
+  --calendar-surface-2: #252a31;
+  --calendar-surface-3: #303741;
+  --calendar-border: #343c46;
+  --calendar-border-strong: #718394;
+  --calendar-text: #eef2f6;
+  --calendar-muted: #c8d0d8;
+  --calendar-faint: #9ba8b5;
+  --calendar-accent: #1f3760;
+  --calendar-ring: #8ab4f8;
+  --calendar-warning: #fdd663;
 
-  /* Provider spines, drawn from Aura's semantic ramp rather than invented hues.
+  /* Provider spines use the same semantic ramp as the rest of the view.
      Colour is never the only signal -- the provider is written on the row too. */
-  --aura-google: #aecbfa;
-  --aura-microsoft: #c9b3f5;
-  --aura-imap: #81c995;
-  --aura-ical: #fdd663;
-  --aura-json: #9ba8b5;
+  --calendar-google: #aecbfa;
+  --calendar-microsoft: #c9b3f5;
+  --calendar-imap: #81c995;
+  --calendar-ical: #fdd663;
+  --calendar-json: #9ba8b5;
 
   --safe-top: 0px;
   --safe-right: 0px;
@@ -53,49 +50,49 @@
   --safe-left: 0px;
 }
 
-/* Aura light: when the host says so, and when a host that stamps nothing at all is
+/* Light theme: when the host says so, and when a host that stamps nothing at all is
    read by someone who prefers it. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --aura-bg: #f8fafb;
-  --aura-surface: #ffffff;
-  --aura-surface-2: #f3f6f8;
-  --aura-surface-3: #e8eef2;
-  --aura-border: #dee3e8;
-  --aura-border-strong: #6b7785;
-  --aura-text: #172026;
-  --aura-muted: #3f4b55;
-  --aura-faint: #64717d;
-  --aura-accent: #d7e7ff;
-  --aura-ring: #0b57d0;
-  --aura-warning: #8a4b00;
-  --aura-google: #0b57d0;
-  --aura-microsoft: #6c3fb8;
-  --aura-imap: #137333;
-  --aura-ical: #8a4b00;
-  --aura-json: #64717d;
+  --calendar-bg: #f8fafb;
+  --calendar-surface: #ffffff;
+  --calendar-surface-2: #f3f6f8;
+  --calendar-surface-3: #e8eef2;
+  --calendar-border: #dee3e8;
+  --calendar-border-strong: #6b7785;
+  --calendar-text: #172026;
+  --calendar-muted: #3f4b55;
+  --calendar-faint: #64717d;
+  --calendar-accent: #d7e7ff;
+  --calendar-ring: #0b57d0;
+  --calendar-warning: #8a4b00;
+  --calendar-google: #0b57d0;
+  --calendar-microsoft: #6c3fb8;
+  --calendar-imap: #137333;
+  --calendar-ical: #8a4b00;
+  --calendar-json: #64717d;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --aura-bg: #f8fafb;
-    --aura-surface: #ffffff;
-    --aura-surface-2: #f3f6f8;
-    --aura-surface-3: #e8eef2;
-    --aura-border: #dee3e8;
-    --aura-border-strong: #6b7785;
-    --aura-text: #172026;
-    --aura-muted: #3f4b55;
-    --aura-faint: #64717d;
-    --aura-accent: #d7e7ff;
-    --aura-ring: #0b57d0;
-    --aura-warning: #8a4b00;
-    --aura-google: #0b57d0;
-    --aura-microsoft: #6c3fb8;
-    --aura-imap: #137333;
-    --aura-ical: #8a4b00;
-    --aura-json: #64717d;
+    --calendar-bg: #f8fafb;
+    --calendar-surface: #ffffff;
+    --calendar-surface-2: #f3f6f8;
+    --calendar-surface-3: #e8eef2;
+    --calendar-border: #dee3e8;
+    --calendar-border-strong: #6b7785;
+    --calendar-text: #172026;
+    --calendar-muted: #3f4b55;
+    --calendar-faint: #64717d;
+    --calendar-accent: #d7e7ff;
+    --calendar-ring: #0b57d0;
+    --calendar-warning: #8a4b00;
+    --calendar-google: #0b57d0;
+    --calendar-microsoft: #6c3fb8;
+    --calendar-imap: #137333;
+    --calendar-ical: #8a4b00;
+    --calendar-json: #64717d;
   }
 }
 
@@ -107,8 +104,8 @@ body {
   margin: 0;
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   overflow: hidden; /* each pane scrolls; the document itself never does */
-  background: var(--color-background-primary, var(--aura-bg));
-  color: var(--color-text-primary, var(--aura-text));
+  background: var(--color-background-primary, var(--calendar-bg));
+  color: var(--color-text-primary, var(--calendar-text));
   font-family: var(--font-sans, "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif);
   font-size: var(--text-md, 14px);
   line-height: 1.5;
@@ -122,10 +119,10 @@ body {
   grid-template-columns: 178px minmax(240px, 1fr) minmax(0, 1.35fr);
   height: 100%;
   min-height: 320px;
-  border: var(--border-width-regular, 1px) solid var(--color-border-primary, var(--aura-border));
+  border: var(--border-width-regular, 1px) solid var(--color-border-primary, var(--calendar-border));
   border-radius: var(--border-radius-md, 14px);
   overflow: hidden;
-  background: var(--color-background-secondary, var(--aura-surface));
+  background: var(--color-background-secondary, var(--calendar-surface));
 }
 
 /* With a single origin the rail is a label, not a choice, so it is dropped -- and the
@@ -137,12 +134,12 @@ body {
 .pane { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
 .rail {
-  background: var(--color-background-primary, var(--aura-bg));
-  border-right: 1px solid var(--color-border-primary, var(--aura-border));
+  background: var(--color-background-primary, var(--calendar-bg));
+  border-right: 1px solid var(--color-border-primary, var(--calendar-border));
   padding: 10px 8px;
 }
 
-.list { border-right: 1px solid var(--color-border-primary, var(--aura-border)); }
+.list { border-right: 1px solid var(--color-border-primary, var(--calendar-border)); }
 
 .reader { padding: 18px 20px 26px; }
 
@@ -173,7 +170,7 @@ body {
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   font-weight: var(--font-weight-bold, 700);
 }
 
@@ -192,10 +189,10 @@ body {
   text-align: left;
 }
 
-.source:hover { background: var(--color-background-tertiary, var(--aura-surface-2)); }
+.source:hover { background: var(--color-background-tertiary, var(--calendar-surface-2)); }
 
 .source[aria-pressed="true"] {
-  background: var(--color-background-ghost, var(--aura-accent));
+  background: var(--color-background-ghost, var(--calendar-accent));
   font-weight: var(--font-weight-semibold, 700);
 }
 
@@ -204,7 +201,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--spine, var(--color-ring-primary, var(--aura-ring)));
+  background: var(--spine, var(--color-ring-primary, var(--calendar-ring)));
 }
 
 .source .label {
@@ -233,8 +230,8 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  background: var(--color-background-secondary, var(--aura-surface));
-  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  background: var(--color-background-secondary, var(--calendar-surface));
+  border-bottom: 1px solid var(--color-border-primary, var(--calendar-border));
 }
 
 .listhead h1 {
@@ -246,7 +243,7 @@ body {
 
 .listhead .scope {
   font-size: 11px;
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   font-variant-numeric: tabular-nums;
 }
 
@@ -254,12 +251,12 @@ body {
   position: sticky;
   top: 40px;
   padding: 5px 14px;
-  background: var(--color-background-tertiary, var(--aura-surface-2));
-  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  background: var(--color-background-tertiary, var(--calendar-surface-2));
+  border-bottom: 1px solid var(--color-border-primary, var(--calendar-border));
   font-size: 10.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
 }
 
 .row {
@@ -267,7 +264,7 @@ body {
   width: 100%;
   text-align: left;
   border: none;
-  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  border-bottom: 1px solid var(--color-border-primary, var(--calendar-border));
   border-left: 3px solid transparent;
   background: none;
   color: inherit;
@@ -276,11 +273,11 @@ body {
   cursor: pointer;
 }
 
-.row:hover { background: var(--color-background-tertiary, var(--aura-surface-2)); }
+.row:hover { background: var(--color-background-tertiary, var(--calendar-surface-2)); }
 
 .row[aria-selected="true"] {
-  background: var(--color-background-ghost, var(--aura-accent));
-  border-left-color: var(--spine, var(--color-ring-primary, var(--aura-ring)));
+  background: var(--color-background-ghost, var(--calendar-accent));
+  border-left-color: var(--spine, var(--color-ring-primary, var(--calendar-ring)));
 }
 
 .row .top { display: flex; align-items: baseline; gap: 8px; }
@@ -291,7 +288,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-text-secondary, var(--aura-muted));
+  color: var(--color-text-secondary, var(--calendar-muted));
   font-size: var(--text-sm, 12px);
 }
 
@@ -299,7 +296,7 @@ body {
   flex: none;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
 }
 
 .row .subject {
@@ -313,7 +310,7 @@ body {
 .row .snippet {
   margin-top: 2px;
   font-size: var(--text-sm, 12px);
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -327,7 +324,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-ring-primary, var(--aura-ring));
+  background: var(--color-ring-primary, var(--calendar-ring));
   margin-right: 6px;
   vertical-align: 0.08em;
 }
@@ -338,7 +335,7 @@ body {
   display: none;
   margin: 0 0 12px;
   padding: 4px 10px;
-  border: 1px solid var(--color-border-secondary, var(--aura-border-strong));
+  border: 1px solid var(--color-border-secondary, var(--calendar-border-strong));
   border-radius: var(--border-radius-full, 999px);
   background: none;
   color: inherit;
@@ -364,13 +361,13 @@ body {
   gap: 4px 14px;
   margin: 12px 0 16px;
   padding: 12px 0;
-  border-top: 1px solid var(--color-border-primary, var(--aura-border));
-  border-bottom: 1px solid var(--color-border-primary, var(--aura-border));
+  border-top: 1px solid var(--color-border-primary, var(--calendar-border));
+  border-bottom: 1px solid var(--color-border-primary, var(--calendar-border));
   font-size: 12.5px;
 }
 
 .facts dt {
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -379,18 +376,18 @@ body {
 
 .facts dd { margin: 0; overflow-wrap: anywhere; }
 
-.prose { overflow-wrap: anywhere; color: var(--color-text-secondary, var(--aura-muted)); }
+.prose { overflow-wrap: anywhere; color: var(--color-text-secondary, var(--calendar-muted)); }
 .prose p { margin: 0 0 11px; }
 
 .note {
   padding: 28px 4px;
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   font-style: italic;
   text-align: center;
 }
 
 .busy {
-  color: var(--color-text-tertiary, var(--aura-faint));
+  color: var(--color-text-tertiary, var(--calendar-faint));
   font-size: var(--text-sm, 12px);
   font-style: italic;
 }
@@ -398,8 +395,8 @@ body {
 .warn {
   margin: 12px 0;
   padding: 9px 11px;
-  border-left: 3px solid var(--color-background-warning, var(--aura-warning));
-  background: var(--color-background-tertiary, var(--aura-surface-2));
+  border-left: 3px solid var(--color-background-warning, var(--calendar-warning));
+  background: var(--color-background-tertiary, var(--calendar-surface-2));
   border-radius: 0 var(--border-radius-sm, 8px) var(--border-radius-sm, 8px) 0;
   font-size: 12.5px;
 }
@@ -407,8 +404,8 @@ body {
 .raw {
   margin: 0;
   padding: 12px;
-  background: var(--color-background-primary, var(--aura-bg));
-  border: 1px solid var(--color-border-primary, var(--aura-border));
+  background: var(--color-background-primary, var(--calendar-bg));
+  border: 1px solid var(--color-border-primary, var(--calendar-border));
   border-radius: var(--border-radius-sm, 8px);
   font-family: var(--font-mono, ui-monospace, "Cascadia Mono", Consolas, monospace);
   font-size: 11.5px;
@@ -422,11 +419,11 @@ body {
 
 .chip {
   padding: 2px 9px;
-  border: 1px solid var(--color-border-primary, var(--aura-border));
+  border: 1px solid var(--color-border-primary, var(--calendar-border));
   border-radius: var(--border-radius-full, 999px);
   font-size: 11.5px;
-  color: var(--color-text-secondary, var(--aura-muted));
-  background: var(--color-background-tertiary, var(--aura-surface-2));
+  color: var(--color-text-secondary, var(--calendar-muted));
+  background: var(--color-background-tertiary, var(--calendar-surface-2));
 }
 
 .monogram {
@@ -434,8 +431,8 @@ body {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: var(--color-background-ghost, var(--aura-accent));
-  color: var(--color-text-primary, var(--aura-text));
+  background: var(--color-background-ghost, var(--calendar-accent));
+  color: var(--color-text-primary, var(--calendar-text));
   display: grid;
   place-items: center;
   font-size: 14px;

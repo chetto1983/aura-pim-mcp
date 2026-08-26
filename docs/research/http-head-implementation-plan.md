@@ -353,9 +353,9 @@ fetch('http://localhost:8080/mcp/message', {
 - `POST /admin/config` - Update configuration
 
 **Security Considerations**:
-- Admin API should require authentication token
-- Token provided via `X-Admin-Token` header
-- Token configured via environment variable: `CALENDAR_MCP_ADMIN_TOKEN`
+- Admin API requires a standard OAuth access token
+- The signed token is provided via the `Authorization: Bearer` header
+- Issuer metadata and resource audience are configured through `CALENDAR_MCP_OAuth__*`
 - All admin operations logged for audit
 
 #### Admin Web UI (Optional but Recommended)
@@ -483,9 +483,9 @@ fetch('http://localhost:8080/mcp/message', {
    - Visual feedback (progress bars, status badges)
 
 4. Security
-   - Simple password/token authentication for UI
-   - Environment variable: `CALENDAR_MCP_ADMIN_TOKEN`
-   - Cookie-based session management
+   - OAuth bearer authentication for management clients
+   - Standard authorization-server metadata discovery
+   - Subject-scoped account access
 
 5. Testing
    - UI testing with different scenarios
@@ -731,10 +731,10 @@ External (User's Phone/Laptop):
    - Access via kubectl port-forward or private network only
    - No ingress unless behind VPN
 
-2. **Admin Token**
-   - Simple bearer token for admin API
-   - Configured via Kubernetes secret
-   - Sufficient for single-user scenario
+2. **OAuth Bearer**
+   - Signed access token for the admin API
+   - Issuer metadata and resource audience configured by deployment
+   - Subject claim scopes every account operation
 
 3. **TLS/HTTPS**
    - Not required if accessed via port-forward
@@ -750,7 +750,6 @@ External (User's Phone/Laptop):
    - Never commit secrets to git
    - Use Kubernetes secrets for sensitive config
    - Example secrets:
-     - `CALENDAR_MCP_ADMIN_TOKEN`
      - OAuth client secrets (if needed)
 
 ### Threat Model
@@ -1025,12 +1024,10 @@ Implement comprehensive health checks:
 **Question**: What's the best authentication approach for the admin API/UI?
 
 **Options**:
-- Simple bearer token (proposed)
-- Basic authentication (username + password)
-- OAuth (overkill for single-user)
+- Standard OAuth bearer (implemented)
 - mTLS (too complex)
 
-**Recommendation**: Start with bearer token, make it configurable later.
+**Recommendation**: Use OAuth metadata discovery and validate issuer, audience, lifetime, and scope.
 
 ### 4. Performance in Containerized Environment
 **Question**: How does MCP protocol performance compare between stdio and HTTP/SSE?

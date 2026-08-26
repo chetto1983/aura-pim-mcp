@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
@@ -22,6 +24,10 @@
   <ItemGroup>
     <ProjectReference Include="..\CalendarMcp.Core\CalendarMcp.Core.csproj" />
     <ProjectReference Include="..\CalendarMcp.Auth\CalendarMcp.Auth.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CalendarMcp.Tests" />
   </ItemGroup>
 
 </Project>

@@ -58,7 +58,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAttachmentStore, InMemoryAttachmentStore>();
 
         // Register MCP tools (method-based pattern - just register the classes)
-        // Aura fork: the 14 individually registered tools this curated action tool
+        // The 14 individually registered tools this curated action tool
         // replaces (list_accounts, get_emails, get_email_details, search_emails,
         // send_email, list_calendars, get_calendar_events, get_calendar_event_details,
         // create_event, respond_to_event, update_event, get_contacts, search_contacts,
