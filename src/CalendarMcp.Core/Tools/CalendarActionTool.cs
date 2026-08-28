@@ -242,45 +242,98 @@ public sealed partial class CalendarActionTool
         }
         using (tenantScope)
         {
-            if (!ActionNames.Contains(action, StringComparer.Ordinal))
+            return await DispatchAction(action, new CalendarActionArguments
             {
-                throw UnknownAction(action);
-            }
-
-            return await (action switch
-            {
-                "list_accounts" => ListAccountsAction(),
-                "get_emails" => GetEmailsAction(accountId, count, unreadOnly),
-                "get_email_details" => GetEmailDetailsAction(accountId, emailId),
-                "search_emails" => SearchEmailsAction(query, accountId, count, fromDate, toDate),
-                "list_calendars" => ListCalendarsAction(accountId),
-                "get_calendar_events" => GetCalendarEventsAction(timeZone, startDate, endDate, accountId, calendarId, count),
-                "get_calendar_event_details" => GetCalendarEventDetailsAction(timeZone, calendarId, eventId),
-                "get_contacts" => GetContactsAction(accountId, count),
-                "search_contacts" => SearchContactsAction(query, accountId, count),
-                "get_contact_details" => GetContactDetailsAction(accountId, contactId),
-                "create_event" => CreateEventAction(subject, start, end, accountId, calendarId, location, attendees, body, timeZone),
-                "update_event" => UpdateEventAction(accountId, calendarId, eventId, subject, start, end, location, attendees, timeZone),
-                "respond_to_event" => RespondToEventAction(eventId, response, accountId, calendarId, comment),
-                "send_email" => SendEmailAction(to, subject, body, accountId, bodyFormat, cc, attachments, textBody, htmlBody),
-                "delete_email" => DeleteEmailAction(accountId, emailId),
-                "mark_email_read" => MarkEmailReadAction(accountId, emailId, isRead),
-                "move_email" => MoveEmailAction(accountId, emailId, destination),
-                "delete_event" => DeleteEventAction(eventId, accountId, calendarId),
-                "create_contact" => CreateContactAction(displayName, accountId, givenName, surname, email, phone, jobTitle, companyName, notes),
-                "update_contact" => UpdateContactAction(accountId, contactId, displayName, givenName, surname, email, phone, jobTitle, companyName, notes),
-                "delete_contact" => DeleteContactAction(accountId, contactId),
-                "get_email_attachment" => GetEmailAttachmentAction(accountId, emailId, attachmentId, mode),
-                "get_contextual_email_summary" => GetContextualEmailSummaryAction(topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster),
-                "get_guide" => GetGuideAction(name),
-                "get_unsubscribe_info" => GetUnsubscribeInfoAction(accountId, emailId),
-                "unsubscribe_from_email" => UnsubscribeFromEmailAction(accountId, emailId, method),
-                "bulk_delete_emails" => BulkDeleteEmailsAction(items),
-                "bulk_mark_emails_read" => BulkMarkEmailsReadAction(items, isRead),
-                "bulk_move_emails" => BulkMoveEmailsAction(items, destination),
-                _ => throw UnknownAction(action),
+                AccountId = accountId,
+                CalendarId = calendarId,
+                EventId = eventId,
+                EmailId = emailId,
+                ContactId = contactId,
+                Query = query,
+                Count = count,
+                UnreadOnly = unreadOnly,
+                FromDate = fromDate,
+                ToDate = toDate,
+                To = to,
+                Subject = subject,
+                Body = body,
+                BodyFormat = bodyFormat,
+                Cc = cc,
+                Attachments = attachments,
+                TextBody = textBody,
+                HtmlBody = htmlBody,
+                TimeZone = timeZone,
+                StartDate = startDate,
+                EndDate = endDate,
+                Start = start,
+                End = end,
+                Location = location,
+                Attendees = attendees,
+                Response = response,
+                Comment = comment,
+                IsRead = isRead,
+                Destination = destination,
+                DisplayName = displayName,
+                GivenName = givenName,
+                Surname = surname,
+                Email = email,
+                Phone = phone,
+                JobTitle = jobTitle,
+                CompanyName = companyName,
+                Notes = notes,
+                AttachmentId = attachmentId,
+                Mode = mode,
+                Topics = topics,
+                CountPerAccount = countPerAccount,
+                IncludeBodyPreview = includeBodyPreview,
+                MaxSamplesPerCluster = maxSamplesPerCluster,
+                Name = name,
+                Method = method,
+                Items = items,
             }).ConfigureAwait(false);
         }
+    }
+
+    internal Task<string> DispatchAction(string action, CalendarActionArguments args)
+    {
+        if (!ActionNames.Contains(action, StringComparer.Ordinal))
+        {
+            throw UnknownAction(action);
+        }
+
+        return action switch
+        {
+            "list_accounts" => ListAccountsAction(),
+            "get_emails" => GetEmailsAction(args.AccountId, args.Count, args.UnreadOnly),
+            "get_email_details" => GetEmailDetailsAction(args.AccountId, args.EmailId),
+            "search_emails" => SearchEmailsAction(args.Query, args.AccountId, args.Count, args.FromDate, args.ToDate),
+            "list_calendars" => ListCalendarsAction(args.AccountId),
+            "get_calendar_events" => GetCalendarEventsAction(args.TimeZone, args.StartDate, args.EndDate, args.AccountId, args.CalendarId, args.Count),
+            "get_calendar_event_details" => GetCalendarEventDetailsAction(args.TimeZone, args.CalendarId, args.EventId),
+            "get_contacts" => GetContactsAction(args.AccountId, args.Count),
+            "search_contacts" => SearchContactsAction(args.Query, args.AccountId, args.Count),
+            "get_contact_details" => GetContactDetailsAction(args.AccountId, args.ContactId),
+            "create_event" => CreateEventAction(args.Subject, args.Start, args.End, args.AccountId, args.CalendarId, args.Location, args.Attendees, args.Body, args.TimeZone),
+            "update_event" => UpdateEventAction(args.AccountId, args.CalendarId, args.EventId, args.Subject, args.Start, args.End, args.Location, args.Attendees, args.TimeZone),
+            "respond_to_event" => RespondToEventAction(args.EventId, args.Response, args.AccountId, args.CalendarId, args.Comment),
+            "send_email" => SendEmailAction(args.To, args.Subject, args.Body, args.AccountId, args.BodyFormat, args.Cc, args.Attachments, args.TextBody, args.HtmlBody),
+            "delete_email" => DeleteEmailAction(args.AccountId, args.EmailId),
+            "mark_email_read" => MarkEmailReadAction(args.AccountId, args.EmailId, args.IsRead),
+            "move_email" => MoveEmailAction(args.AccountId, args.EmailId, args.Destination),
+            "delete_event" => DeleteEventAction(args.EventId, args.AccountId, args.CalendarId),
+            "create_contact" => CreateContactAction(args.DisplayName, args.AccountId, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
+            "update_contact" => UpdateContactAction(args.AccountId, args.ContactId, args.DisplayName, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
+            "delete_contact" => DeleteContactAction(args.AccountId, args.ContactId),
+            "get_email_attachment" => GetEmailAttachmentAction(args.AccountId, args.EmailId, args.AttachmentId, args.Mode),
+            "get_contextual_email_summary" => GetContextualEmailSummaryAction(args.Topics, args.CountPerAccount, args.UnreadOnly, args.IncludeBodyPreview, args.MaxSamplesPerCluster),
+            "get_guide" => GetGuideAction(args.Name),
+            "get_unsubscribe_info" => GetUnsubscribeInfoAction(args.AccountId, args.EmailId),
+            "unsubscribe_from_email" => UnsubscribeFromEmailAction(args.AccountId, args.EmailId, args.Method),
+            "bulk_delete_emails" => BulkDeleteEmailsAction(args.Items),
+            "bulk_mark_emails_read" => BulkMarkEmailsReadAction(args.Items, args.IsRead),
+            "bulk_move_emails" => BulkMoveEmailsAction(args.Items, args.Destination),
+            _ => throw UnknownAction(action),
+        };
     }
 
     /// <summary>

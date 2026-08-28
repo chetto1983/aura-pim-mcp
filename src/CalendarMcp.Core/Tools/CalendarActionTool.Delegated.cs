@@ -46,9 +46,12 @@ public sealed partial class CalendarActionTool
 
     private Task<string> CreateContactAction(
         string? displayName, string? accountId, string? givenName, string? surname,
-        string? email, string? phone, string? jobTitle, string? companyName, string? notes) =>
-        Impl<CreateContactTool>().CreateContact(
+        string? email, string? phone, string? jobTitle, string? companyName, string? notes)
+    {
+        ToolGuard.RequireNonEmpty(displayName, nameof(displayName));
+        return Impl<CreateContactTool>().CreateContact(
             displayName!, accountId, givenName, surname, email, phone, jobTitle, companyName, notes);
+    }
 
     private Task<string> UpdateContactAction(
         string? accountId, string? contactId, string? displayName, string? givenName, string? surname,
