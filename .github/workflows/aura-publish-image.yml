@@ -41,7 +41,12 @@ jobs:
         with:
           context: .
           push: true
+          # `latest` is the tag Aura's compose follows, so a merge to main reaches the
+          # deployment without anyone editing a digest. The stale-pin problem this
+          # workflow's own header describes is what a moving tag exists to solve;
+          # `sidecar` stays for anyone already following it.
           tags: |
+            ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:sidecar
             ghcr.io/${{ github.repository }}:${{ github.sha }}
           cache-from: type=gha
