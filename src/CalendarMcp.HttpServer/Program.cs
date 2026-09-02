@@ -80,6 +80,8 @@ public class Program
         // Add environment variables (can override file settings)
         builder.Configuration.AddEnvironmentVariables("CALENDAR_MCP_");
         var oauth = McpOAuthOptions.FromConfiguration(builder.Configuration);
+        var issuerNames = oauth.Issuers.Select(issuer => issuer.Issuer).ToArray();
+        var trustedKeys = new TrustedIssuerKeys(oauth);
 
         // Configure logging - always use Serilog, add OTEL if endpoint is available
         builder.Host.UseSerilog();
@@ -126,18 +128,29 @@ public class Program
         .AddJwtBearer(options =>
         {
             options.MapInboundClaims = false;
-            options.MetadataAddress = oauth.MetadataAddress;
-            options.RequireHttpsMetadata = oauth.MetadataAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            // Discovery still follows the HOME issuer. Any additional trusted issuer
+            // brings its own document through TrustedIssuerKeys, because one handler
+            // discovers exactly one metadata address.
+            options.MetadataAddress = oauth.Home.MetadataAddress;
+            options.RequireHttpsMetadata = oauth.Home.MetadataAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
             options.Events = new JwtBearerEvents
             {
                 OnAuthenticationFailed = context =>
                 {
                     Log.Warning(
-                        "MCP bearer authentication failed for issuer {Issuer} and resource {Resource}: {ExceptionType}: {Error}",
-                        oauth.Issuer,
+                        "MCP bearer authentication failed for issuers {Issuers} and resource {Resource}: {ExceptionType}: {Error}",
+                        issuerNames,
                         oauth.Resource,
                         context.Exception.GetType().Name,
                         context.Exception.Message);
+                    return Task.CompletedTask;
+                },
+                // Which tenant a caller reaches is a property of (issuer, subject)
+                // together. Resolving it once here leaves TenantIdentity.FromPrincipal
+                // and both its callers reading a single `sub` claim, as before.
+                OnTokenValidated = context =>
+                {
+                    context.Principal = McpTenantClaims.Rebind(context.Principal, oauth);
                     return Task.CompletedTask;
                 }
             };
@@ -147,11 +160,14 @@ public class Program
                 ValidateAudience = true,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = oauth.Issuer,
+                ValidIssuers = issuerNames,
                 ValidAudience = oauth.Resource,
                 NameClaimType = TenantIdentity.OAuthClaimName,
-                IssuerSigningKeyResolverUsingConfiguration = (_, _, keyId, _, configuration) =>
-                    EdDsaSigningKeys.Resolve(keyId, configuration),
+                // Keyed on the issuer the token claims, so no issuer's keys can validate
+                // another's token. The claimed issuer is separately checked against
+                // ValidIssuers, so naming an issuer buys nothing on its own.
+                IssuerSigningKeyResolverUsingConfiguration = (_, securityToken, keyId, _, configuration) =>
+                    trustedKeys.Resolve(keyId, securityToken?.Issuer, configuration),
                 CryptoProviderFactory = new CryptoProviderFactory
                 {
                     CustomCryptoProvider = new EdDsaCryptoProvider()
@@ -162,9 +178,14 @@ public class Program
         {
             options.ResourceMetadata = new()
             {
-                AuthorizationServers = { oauth.Issuer },
                 ScopesSupported = [oauth.ToolsScope]
             };
+            // A client discovers where to authenticate from this document, so advertising
+            // only the home issuer would leave every other trusted account unreachable.
+            foreach (var issuer in issuerNames)
+            {
+                options.ResourceMetadata.AuthorizationServers.Add(issuer);
+            }
         });
         builder.Services.AddAuthorization();
 
