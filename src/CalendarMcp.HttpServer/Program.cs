@@ -138,9 +138,9 @@ public class Program
                 OnAuthenticationFailed = context =>
                 {
                     Log.Warning(
-                        "MCP bearer authentication failed for issuers {Issuers} and resource {Resource}: {ExceptionType}: {Error}",
+                        "MCP bearer authentication failed for issuers {Issuers} and audiences {Audiences}: {ExceptionType}: {Error}",
                         issuerNames,
-                        oauth.Resource,
+                        oauth.AcceptedAudiences,
                         context.Exception.GetType().Name,
                         context.Exception.Message);
                     return Task.CompletedTask;
@@ -161,7 +161,10 @@ public class Program
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
                 ValidIssuers = issuerNames,
-                ValidAudience = oauth.Resource,
+                // Plural: one server is reachable under more than one name, and a token is
+                // bound to whichever name its client discovered. ValidAudiences accepts the
+                // token when it carries ANY of them -- see McpOAuthOptions.SplitAudiences.
+                ValidAudiences = oauth.AcceptedAudiences,
                 NameClaimType = TenantIdentity.OAuthClaimName,
                 // Keyed on the issuer the token claims, so no issuer's keys can validate
                 // another's token. The claimed issuer is separately checked against

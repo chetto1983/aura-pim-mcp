@@ -26,8 +26,21 @@ internal sealed record TrustedIssuer(string Issuer, string MetadataAddress)
 internal sealed record McpOAuthOptions(
     IReadOnlyList<TrustedIssuer> Issuers,
     string Resource,
-    string ToolsScope)
+    string ToolsScope,
+    IReadOnlyList<string>? Audiences = null)
 {
+    /// <summary>What OAuth:Resource falls back to, unchanged from before it became a list.</summary>
+    internal const string DefaultResource = "http://localhost:8080/";
+
+    /// <summary>
+    /// Every resource identifier a token may legitimately carry, canonical first. Null or
+    /// empty means "only the canonical one", so an options object built literally — the
+    /// tests, and any caller passing <c>Resource</c> alone — validates exactly what it
+    /// validated before, rather than silently accepting nothing.
+    /// </summary>
+    internal IReadOnlyList<string> AcceptedAudiences =>
+        Audiences is { Count: > 0 } ? Audiences : [Resource];
+
     /// <summary>
     /// The authorization server this deployment owns. Its subjects are tenant GUIDs and
     /// every store already on disk is named after one, so they pass through unchanged.
@@ -41,10 +54,38 @@ internal sealed record McpOAuthOptions(
             configuration["OAuth:MetadataAddress"]);
         var issuers = new List<TrustedIssuer> { home };
         issuers.AddRange(ParseTrustedIssuers(configuration["OAuth:TrustedIssuers"]));
+        var audiences = SplitAudiences(Value(configuration, "OAuth:Resource", DefaultResource));
         return new McpOAuthOptions(
             issuers,
-            Value(configuration, "OAuth:Resource", "http://localhost:8080/"),
-            Value(configuration, "OAuth:ToolsScope", "mcp:tools"));
+            audiences[0],
+            Value(configuration, "OAuth:ToolsScope", "mcp:tools"),
+            audiences);
+    }
+
+    /// <summary>
+    /// Reads OAuth:Resource as a comma-separated list, so one server can answer to the
+    /// several names it is reachable under. The FIRST entry is canonical and is what the
+    /// failure log names; every entry is an accepted token audience.
+    /// <para>
+    /// Measured 2026-09-03: this server advertises a resource derived from the request, so
+    /// a client on the host discovered <c>http://127.0.0.1:8093</c> and — as RFC 8707 and
+    /// the MCP specification require — asked for a token bound to it. Validation then
+    /// compared that against the single configured <c>http://aura-pim-mcp:8080/</c> and
+    /// answered IDX10214 "Audience validation failed" on every request. Dropping the
+    /// container name instead would break the in-container agent, whose self-issued grant
+    /// is bound to exactly that name. Both have to be accepted at once.
+    /// </para>
+    /// <para>
+    /// This is not accepting anything: the specification (revision 2026-07-28, Token
+    /// Handling) says a server MUST only accept tokens valid for its OWN resources, and
+    /// every entry here names this same server.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyList<string> SplitAudiences(string? raw)
+    {
+        var audiences = (raw ?? string.Empty)
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return audiences.Length > 0 ? audiences : [DefaultResource];
     }
 
     /// <summary>
