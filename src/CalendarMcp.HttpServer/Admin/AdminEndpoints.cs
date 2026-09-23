@@ -90,7 +90,8 @@ public static class AdminEndpoints
     private static async Task<IResult> CreateAccount(
         CreateAccountRequest request,
         IAccountConfigurationService configService,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        IConfiguration configuration)
     {
         // Validate ID
         var (idValid, idError) = AccountValidation.ValidateAccountId(request.Id);
@@ -122,6 +123,7 @@ public static class AdminEndpoints
         try
         {
             await configService.AddAccountAsync(account);
+            AccountConfigurationReload.Apply(configuration);
             return Results.Created($"/admin/accounts/{account.Id}/status", new
             {
                 id = account.Id,
@@ -144,7 +146,8 @@ public static class AdminEndpoints
     private static async Task<IResult> UpdateAccount(
         string accountId,
         UpdateAccountRequest request,
-        IAccountConfigurationService configService)
+        IAccountConfigurationService configService,
+        IConfiguration configuration)
     {
         // Look up existing account to get its provider (provider is immutable)
         var existing = await configService.GetAccountFromConfigAsync(accountId);
@@ -171,6 +174,7 @@ public static class AdminEndpoints
         try
         {
             await configService.UpdateAccountAsync(updated);
+            AccountConfigurationReload.Apply(configuration);
             return Results.Ok(new
             {
                 id = updated.Id,
@@ -193,11 +197,13 @@ public static class AdminEndpoints
     private static async Task<IResult> DeleteAccount(
         string accountId,
         IAccountConfigurationService configService,
+        IConfiguration configuration,
         bool logout = false)
     {
         try
         {
             await configService.RemoveAccountAsync(accountId, clearCredentials: logout);
+            AccountConfigurationReload.Apply(configuration);
             return Results.NoContent();
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
