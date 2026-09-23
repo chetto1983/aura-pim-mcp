@@ -289,10 +289,13 @@ public static class AdminEndpoints
     }
 
     /// <summary>
-    /// Start a Google OAuth redirect flow. Redirects the user to Google's consent screen.
+    /// Start a Google OAuth redirect flow. Returns the consent URL plus the relay redirect URI the
+    /// operator registers once in their Google OAuth client. <paramref name="returnBase"/> is the
+    /// origin the operator's browser is on, so Google's answer comes back to that same address.
     /// </summary>
     private static async Task<IResult> StartGoogleOAuth(
         string accountId,
+        string? returnBase,
         HttpContext httpContext,
         IAccountRegistry accountRegistry,
         GoogleOAuthManager oauthManager,
@@ -310,14 +313,20 @@ public static class AdminEndpoints
             return Results.BadRequest(new { error = "Account is missing clientId or clientSecret in configuration." });
         }
 
-        // Build the callback redirect URI from the current request
-        var redirectUri = BuildRedirectUri(httpContext.Request, "/admin/auth/google/callback", config.Value);
+        string installCallbackUrl;
+        try
+        {
+            installCallbackUrl = GoogleOAuthRelay.InstallCallbackUrl(returnBase, config.Value.ExternalBaseUrl, httpContext.Request);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
 
-        // Headless: return the Google authorization URL as JSON instead of a 302. The
-        // management client opens authUrl in a browser tab; redirectUri is echoed so
-        // the operator can confirm it matches the
-        // URI registered in the Google OAuth client.
-        var authUrl = oauthManager.GetAuthorizationUrl(accountId, clientId, clientSecret, redirectUri);
+        // Headless: the management client opens authUrl in a browser tab and shows redirectUri,
+        // the one value the operator must register in the Google OAuth client.
+        var redirectUri = config.Value.GoogleOAuthRelayUrl;
+        var authUrl = oauthManager.GetAuthorizationUrl(accountId, clientId, clientSecret, redirectUri, installCallbackUrl);
         return Results.Ok(new { authUrl, redirectUri });
     }
 
@@ -327,7 +336,6 @@ public static class AdminEndpoints
     private static async Task<IResult> GoogleOAuthCallback(
         HttpContext httpContext,
         GoogleOAuthManager oauthManager,
-        IOptions<CalendarMcpConfiguration> config,
         CancellationToken cancellationToken)
     {
         var query = httpContext.Request.Query;
@@ -347,9 +355,7 @@ public static class AdminEndpoints
 
         try
         {
-            var redirectUri = BuildRedirectUri(httpContext.Request, "/admin/auth/google/callback", config.Value);
-
-            var accountId = await oauthManager.ExchangeCodeAsync(state, code, redirectUri, cancellationToken);
+            var accountId = await oauthManager.ExchangeCodeAsync(state, code, cancellationToken);
             return OAuthResultPage(true, $"Account '{accountId}' is now linked. You can close this window.");
         }
         catch (Exception ex)
@@ -381,24 +387,5 @@ public static class AdminEndpoints
             </body></html>
             """;
         return Results.Content(html, "text/html");
-    }
-
-    /// <summary>
-    /// Build a redirect URI. Priority:
-    /// 1. ExternalBaseUrl from configuration (handles TLS-terminating proxies like Tailscale)
-    /// 2. X-Forwarded-Proto/Host headers (standard reverse proxy)
-    /// 3. Request scheme/host (direct access)
-    /// </summary>
-    private static string BuildRedirectUri(HttpRequest request, string path, CalendarMcpConfiguration config)
-    {
-        if (!string.IsNullOrEmpty(config.ExternalBaseUrl))
-        {
-            return $"{config.ExternalBaseUrl.TrimEnd('/')}{path}";
-        }
-
-        var scheme = request.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? request.Scheme;
-        var host = request.Headers["X-Forwarded-Host"].FirstOrDefault() ?? request.Host.Host;
-
-        return $"{scheme}://{host}{path}";
     }
 }

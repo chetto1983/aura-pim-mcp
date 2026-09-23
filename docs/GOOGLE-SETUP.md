@@ -176,9 +176,14 @@ If your OAuth consent screen is in **"Testing"** publishing status, Google will 
    - **Name**: `Calendar-MCP`
 5. Under **Authorized redirect URIs**, click **"Add URI"** and add the following:
    - `http://localhost:8642/authorize/` — required for CLI authentication
-   - If using the HTTP server admin UI, also add your server's callback URL, e.g.:
-     - `http://localhost:8080/admin/auth/google/callback` (local development)
-     - `https://your-server.example.com:8080/admin/auth/google/callback` (production)
+   - If using the HTTP server admin API, also add the shared relay URI, exactly as written
+     (trailing slash included):
+     - `https://chetto1983.github.io/aura-connect/google/callback/`
+
+     It is the same for every server. Google returns there and the relay page forwards the
+     browser to your server's own `/admin/auth/google/callback`, whatever address it is reached
+     by (a LAN IP included, which Google refuses as a redirect URI of its own). Override it with
+     `CalendarMcp:GoogleOAuthRelayUrl` only if you host the relay yourself.
 6. Click **"Create"**
 
 #### Download Credentials

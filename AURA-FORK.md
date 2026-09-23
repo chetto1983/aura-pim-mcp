@@ -32,6 +32,18 @@ Branch: `aura/pim-sidecar`. Remotes: `origin` = this fork, `upstream` = MarimerL
    `/admin/accounts/{id}/status` to detect the linked state). Device-code (Outlook) was already
    headless JSON.
 
+2c. **Google redirects through a shared relay** (github.com/chetto1983/aura-connect). The
+   registered redirect URI is one fixed page, identical for every install; `state` is
+   `<nonce>.<base64url(install callback)>` and the page forwards the browser to that callback.
+   `StartGoogleOAuth` takes an optional `returnBase` (the origin the operator's browser is on,
+   winning over `ExternalBaseUrl`) and returns the relay URI as `redirectUri`. The exchange
+   replays the redirect URI and a PKCE (S256) verifier stored with the issued state, and refuses
+   any state this server did not issue. Measured 2026-09-23: with a Desktop OAuth client the
+   loopback redirect only reaches a listener on the browser's own machine, so a server-side
+   install cannot receive it. Not measured, from Google's documented redirect URI validation
+   rules: a Web client cannot register a raw (non-loopback) IP, so a LAN-only install has no
+   redirect URI of its own to register.
+
 3. **Trimmed the tool surface from 29 → 14** (registered in `HttpServer/Program.cs`).
    **Kept:** `list_accounts`, `get_emails`, `get_email_details`, `search_emails`, `send_email`,
    `list_calendars`, `get_calendar_events`, `get_calendar_event_details`, `create_event`,

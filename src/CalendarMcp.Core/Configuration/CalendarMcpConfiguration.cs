@@ -18,11 +18,19 @@ public class CalendarMcpConfiguration
     public TelemetryConfiguration Telemetry { get; set; } = new();
 
     /// <summary>
-    /// External base URL for OAuth redirect URIs (e.g. "https://calendar-mcp.tail920062.ts.net").
-    /// When set, this overrides auto-detection from request headers.
-    /// Can also be set via CALENDARMCP__EXTERNALBASEURL environment variable.
+    /// Base URL a browser uses to reach this server (e.g. "https://calendar-mcp.tail920062.ts.net"),
+    /// used to build the Google callback the relay forwards to. A <c>returnBase</c> passed to
+    /// the start endpoint wins over it; when both are absent, request headers decide.
     /// </summary>
     public string? ExternalBaseUrl { get; set; }
+
+    /// <summary>
+    /// The redirect URI registered in the Google OAuth client. It is a shared relay page that
+    /// forwards the browser to the callback named in <c>state</c>, so one fixed URI serves every
+    /// install whatever address it is reached by — a LAN IP included, which Google rejects as a
+    /// redirect URI of its own.
+    /// </summary>
+    public string GoogleOAuthRelayUrl { get; set; } = "https://chetto1983.github.io/aura-connect/google/callback/";
 }
 
 /// <summary>

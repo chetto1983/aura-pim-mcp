@@ -26,39 +26,45 @@ public class GoogleOAuthManager
     }
 
     /// <summary>
-    /// Generate a Google OAuth consent URL and store the state token for later validation.
+    /// Generate a Google OAuth consent URL whose redirect goes through the shared relay
+    /// (<paramref name="redirectUri"/>) back to <paramref name="installCallbackUrl"/>, and remember
+    /// the state and PKCE verifier for the exchange.
     /// </summary>
-    public string GetAuthorizationUrl(string accountId, string clientId, string clientSecret, string redirectUri)
+    public string GetAuthorizationUrl(string accountId, string clientId, string clientSecret, string redirectUri, string installCallbackUrl)
     {
-        var flow = CreateFlow(clientId, clientSecret);
+        using var flow = CreateFlow(clientId, clientSecret);
 
-        var state = Guid.NewGuid().ToString("N");
+        var state = GoogleOAuthRelay.CreateState(installCallbackUrl);
+        var codeVerifier = GoogleOAuthRelay.CreateCodeVerifier();
         _pendingStates[state] = new PendingOAuthState
         {
             AccountId = accountId,
             ClientId = clientId,
             ClientSecret = clientSecret,
+            RedirectUri = redirectUri,
+            CodeVerifier = codeVerifier,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        // Clean up expired states (older than 10 minutes)
         CleanupExpiredStates();
 
         var authUrl = (GoogleAuthorizationCodeRequestUrl)flow.CreateAuthorizationCodeRequest(redirectUri);
         authUrl.State = state;
         authUrl.Scope = string.Join(" ", Scopes);
-        // Request offline access so Google returns a refresh token
+        // Offline access plus a forced consent screen is what makes Google return a refresh token.
         authUrl.AccessType = "offline";
-        // Force consent to ensure Google always returns a refresh token
         authUrl.Prompt = "consent";
+        authUrl.CodeChallenge = GoogleOAuthRelay.CodeChallenge(codeVerifier);
+        authUrl.CodeChallengeMethod = "S256";
 
         return authUrl.Build().AbsoluteUri;
     }
 
     /// <summary>
-    /// Exchange an authorization code for tokens and store them.
+    /// Exchange an authorization code for tokens and store them. The state must be exactly one
+    /// this server issued; its redirect URI and PKCE verifier are replayed from that record.
     /// </summary>
-    public async Task<string> ExchangeCodeAsync(string state, string code, string redirectUri, CancellationToken cancellationToken)
+    public async Task<string> ExchangeCodeAsync(string state, string code, CancellationToken cancellationToken)
     {
         if (!_pendingStates.TryRemove(state, out var pending))
         {
@@ -71,15 +77,21 @@ public class GoogleOAuthManager
             throw new InvalidOperationException("OAuth state has expired. Please try again.");
         }
 
-        var flow = CreateFlow(pending.ClientId, pending.ClientSecret);
+        using var flow = CreateFlow(pending.ClientId, pending.ClientSecret);
 
         _logger.LogInformation("Exchanging authorization code for tokens for account {AccountId}", pending.AccountId);
 
-        var tokenResponse = await flow.ExchangeCodeForTokenAsync(
-            "user",
-            code,
-            redirectUri,
-            cancellationToken);
+        // The flow's own code-exchange overload that takes a code verifier is protected internal
+        // in Google.Apis.Auth 1.76.0, so the token request is built and executed directly.
+        var tokenRequest = new AuthorizationCodeTokenRequest
+        {
+            ClientId = pending.ClientId,
+            ClientSecret = pending.ClientSecret,
+            Code = code,
+            RedirectUri = pending.RedirectUri,
+            CodeVerifier = pending.CodeVerifier,
+        };
+        var tokenResponse = await tokenRequest.ExecuteAsync(flow.HttpClient, flow.TokenServerUrl, cancellationToken, flow.Clock);
 
         // Store the token using FileDataStore at the same path the CLI uses.
         // FileDataStore names files as "{TypeFullName}-{key}", so key "user" produces
@@ -122,6 +134,8 @@ public class GoogleOAuthManager
         public required string AccountId { get; init; }
         public required string ClientId { get; init; }
         public required string ClientSecret { get; init; }
+        public required string RedirectUri { get; init; }
+        public required string CodeVerifier { get; init; }
         public DateTimeOffset CreatedAt { get; init; }
     }
 }
