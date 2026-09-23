@@ -80,9 +80,20 @@ public static class AdminEndpoints
             displayName = account.DisplayName,
             provider = account.Provider,
             enabled = account.Enabled,
+            linked = GoogleLinked(account),
             authFlow = flowStatus.Status != "not_found" ? flowStatus : null
         });
     }
+
+    /// <summary>
+    /// Whether a Google account holds the token its OAuth exchange stored; null for other
+    /// providers, whose link state is either reported through authFlow (device code) or does not
+    /// exist (credential and feed providers). A file check, so polling it never calls Google.
+    /// </summary>
+    internal static bool? GoogleLinked(AccountInfo account) =>
+        string.Equals(account.Provider, "google", StringComparison.OrdinalIgnoreCase)
+            ? File.Exists(ConfigurationPaths.GetGoogleTokenFilePath(account.Id))
+            : null;
 
     /// <summary>
     /// Create a new account in the config file.

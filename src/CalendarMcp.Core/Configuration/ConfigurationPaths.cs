@@ -78,6 +78,18 @@ public static class ConfigurationPaths
     }
 
     /// <summary>
+    /// Gets the token file Google's FileDataStore writes for an account: it names files
+    /// "{TypeFullName}-{key}" and every caller stores under the key "user". Its presence is
+    /// what "linked" means for a Google account.
+    /// </summary>
+    public static string GetGoogleTokenFilePath(string accountId)
+    {
+        return Path.Combine(
+            GetGoogleCredentialsDirectory(accountId),
+            "Google.Apis.Auth.OAuth2.Responses.TokenResponse-user");
+    }
+
+    /// <summary>
     /// Gets the directory used by ASP.NET DataProtection to persist its key ring.
     /// Lives under the data directory so it follows the existing CALENDAR_MCP_CONFIG override
     /// and is preserved by the same volume mount that holds appsettings.json.

@@ -82,7 +82,7 @@ public class GoogleAuthenticationService : IGoogleAuthenticationService
             var credPath = GetCredentialPath(accountId);
             
             // Check if token file exists
-            var tokenFile = Path.Combine(credPath, "Google.Apis.Auth.OAuth2.Responses.TokenResponse-user");
+            var tokenFile = Configuration.ConfigurationPaths.GetGoogleTokenFilePath(accountId);
             if (!File.Exists(tokenFile))
             {
                 _logger.LogDebug("No cached credential found for Google account {AccountId}", accountId);
