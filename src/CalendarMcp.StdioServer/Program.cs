@@ -143,6 +143,8 @@ public class Program
                     // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
                     // set in WithCalendarActionTool's factory, beside the schema patch.
                     .WithCalendarView()
+                    // attachment://{id}: the file behind get_email_attachment's resource_link.
+                    .WithEmailAttachmentResource()
                     .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
                     .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
                     .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>()
