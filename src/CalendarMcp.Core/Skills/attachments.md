@@ -112,7 +112,7 @@ fails.
 |---|---|---|
 | Total decoded payload per outbound message | 25 MB | This server |
 | Per-attachment cap | 3 MB (M365 / Outlook.com), 25 MB (Google) | Upstream provider |
-| Server store per-item | Configurable (admin) | This server |
+| Server store per-item | 25 MiB (fixed in this fork) | This server |
 
 Exceeding the total or per-attachment caps results in `McpException`
 with a descriptive message — surface it to the user; don't retry blindly.
@@ -121,7 +121,7 @@ with a descriptive message — surface it to the user; don't retry blindly.
 
 - **Stash IDs are single-use** for sending; consume them by passing to
   `send_email`. Re-stash if needed.
-- **IDs expire** (server-configurable, default minutes-to-hours). Treat
+- **IDs expire 15 minutes after the attachment is stashed.** Treat
   them as transient — get-and-use within the same conversation turn
   when possible.
 - **The bytes never travel in the tool result.** `get_email_attachment`

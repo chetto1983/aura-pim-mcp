@@ -1,4 +1,7 @@
 using System.Text.Json.Nodes;
+using CalendarMcp.Core.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
@@ -13,9 +16,10 @@ namespace CalendarMcp.Core.Tools;
 /// </summary>
 public sealed partial class CalendarActionTool
 {
-    // Upstream's stash-full error still points at an inline mode the curated tool never
-    // exposes (no `mode` parameter reaches GetEmailAttachmentTool). Strip that sentence
-    // so the model isn't told to retry with an option it cannot use.
+    // The curated tool has no `mode` parameter, so the caller can never choose upstream's
+    // inline mode -- rewrite that sentence into one the caller can act on, built from the
+    // same AttachmentStoreOptions the store itself is configured from (one definition,
+    // IAttachmentStore.cs), instead of pointing at a choice the caller does not have.
     private const string InlineModeHint = " Try inline mode if the file is small.";
 
     private async Task<string> GetEmailAttachmentAction(string? accountId, string? emailId, string? attachmentId)
@@ -26,7 +30,14 @@ public sealed partial class CalendarActionTool
         }
         catch (McpException ex) when (ex.Message.Contains(InlineModeHint, StringComparison.Ordinal))
         {
-            throw new McpException(ex.Message.Replace(InlineModeHint, "", StringComparison.Ordinal), ex);
+            var options = _services.GetRequiredService<IOptions<AttachmentStoreOptions>>().Value;
+            var capMiB = options.MaxBytesPerAttachment / (1024 * 1024);
+            var ttlMinutes = (int)options.Ttl.TotalMinutes;
+            var actionable =
+                $" A file larger than the {capMiB} MiB per-attachment limit cannot be fetched; " +
+                $"otherwise the server's attachment store is full until earlier attachments expire " +
+                $"(within {ttlMinutes} minutes), so retry then.";
+            throw new McpException(ex.Message.Replace(InlineModeHint, actionable, StringComparison.Ordinal), ex);
         }
     }
 

@@ -57,9 +57,9 @@ public sealed class CalendarActionToolAttachmentTests
     public async Task GetEmailAttachment_StashRefused_ErrorDoesNotMentionInlineMode()
     {
         var tenantContext = new TenantContext();
+        var options = new AttachmentStoreOptions { MaxBytesPerAttachment = 4 };
         var store = new InMemoryAttachmentStore(
-            Options.Create(new AttachmentStoreOptions { MaxBytesPerAttachment = 4 }),
-            NullLogger<InMemoryAttachmentStore>.Instance, tenantContext);
+            Options.Create(options), NullLogger<InMemoryAttachmentStore>.Instance, tenantContext);
         var registry = new IAccountRegistryCreateExpectations();
         registry.Setups.GetAccountAsync("acc-1")
             .ReturnValue(Task.FromResult<AccountInfo?>(TestData.CreateAccount(id: "acc-1", provider: "microsoft365")));
@@ -74,6 +74,10 @@ public sealed class CalendarActionToolAttachmentTests
         {
             services.AddSingleton(registry.Instance());
             services.AddSingleton(factory.Instance());
+            // The store below is built from `options` directly (bypassing DI, as the other
+            // tests in this file do); this registers the same instance as IOptions so the
+            // curated tool's error text reads the cap and TTL it actually enforced.
+            services.AddSingleton<IOptions<AttachmentStoreOptions>>(Options.Create(options));
         });
         var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
         {
@@ -87,6 +91,10 @@ public sealed class CalendarActionToolAttachmentTests
         var text = result.Content.OfType<TextContentBlock>().Single().Text;
         StringAssert.Contains(text, "Could not stash the attachment");
         Assert.IsFalse(text.Contains("inline", StringComparison.OrdinalIgnoreCase), text);
+        var expectedCapMiB = options.MaxBytesPerAttachment / (1024 * 1024);
+        var expectedTtlMinutes = (int)options.Ttl.TotalMinutes;
+        StringAssert.Contains(text, $"{expectedCapMiB} MiB per-attachment limit");
+        StringAssert.Contains(text, $"within {expectedTtlMinutes} minutes");
     }
 
     [TestMethod]
