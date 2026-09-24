@@ -48,7 +48,8 @@ public sealed class EmailAttachmentResource(IAttachmentStore store, ITenantConte
     /// knows more than the header, and a client choosing how to open the file needs the better one.
     /// </summary>
     internal static string MimeTypeFor(string name, string? contentType) =>
-        string.IsNullOrWhiteSpace(contentType) || contentType == "application/octet-stream"
+        string.IsNullOrWhiteSpace(contentType) ||
+        string.Equals(contentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)
             ? MimeKit.MimeTypes.GetMimeType(name)
             : contentType;
 }

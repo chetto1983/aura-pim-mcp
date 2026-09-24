@@ -93,6 +93,7 @@ public sealed class EmailAttachmentResourceTests
     [TestMethod]
     [DataRow("report.pdf", null, "application/pdf")]
     [DataRow("report.pdf", "application/octet-stream", "application/pdf")]
+    [DataRow("report.pdf", "APPLICATION/OCTET-STREAM", "application/pdf")]
     [DataRow("report.pdf", "", "application/pdf")]
     [DataRow("photo.bin", "image/png", "image/png")]
     [DataRow("no-extension", null, "application/octet-stream")]

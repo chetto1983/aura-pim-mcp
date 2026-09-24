@@ -145,8 +145,9 @@ public class Program
                     return Task.CompletedTask;
                 },
                 // Which tenant a caller reaches is a property of (issuer, subject)
-                // together. Resolving it once here leaves TenantIdentity.FromPrincipal
-                // and both its callers reading a single `sub` claim, as before.
+                // together. Resolving it once here leaves TenantIdentity.FromPrincipal and
+                // its three callers -- the curated tool, the attachment resource and
+                // AdminAuthMiddleware -- reading a single `sub` claim, as before.
                 OnTokenValidated = context =>
                 {
                     context.Principal = McpTenantClaims.Rebind(context.Principal, oauth);

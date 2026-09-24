@@ -50,9 +50,10 @@ public static class ServiceCollectionExtensions
         // Register account registry
         services.AddSingleton<IAccountRegistry, AccountRegistry>();
 
-        // Attachment store (in-memory; eviction sweeper is registered by the
-        // HTTP server only — stdio mode never uploads, so lazy expiry on
-        // consume is sufficient there).
+        // Attachment store (in-memory; eviction sweeper is registered by the HTTP
+        // server only -- stdio mode has no sweeper, but every get_email_attachment
+        // read now stashes there too, so memory stays bounded by MaxTotalBytes
+        // rather than by an upload-only sweeper).
         services.AddOptions<AttachmentStoreOptions>();
         services.AddSingleton<IAttachmentStore, InMemoryAttachmentStore>();
 
