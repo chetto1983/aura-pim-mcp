@@ -96,6 +96,8 @@ public sealed class CalendarActionToolTests
 
     [TestMethod]
     [DataRow("""{"events":[{"eventId":"x","accountId":"acct"}]}""")]
+    [DataRow("""{"events":[{"id":"raw-1","accountId":"acct","eventId":"upstream-own"}]}""")]
+    [DataRow("""{"events":[{"id":42,"accountId":"acct"}]}""")]
     [DataRow("""{"items":[]}""")]
     public void WithEventRefs_FailsLoudlyWhenUpstreamShapeChanges(string upstream)
     {
@@ -129,10 +131,10 @@ public sealed class CalendarActionToolTests
             new CalendarActionArguments { AccountId = "account", EmailId = "email" },
         "get_calendar_event_details" =>
             new CalendarActionArguments { TimeZone = "UTC", EventId = "event" },
-        "update_event" =>
-            new CalendarActionArguments { AccountId = "account", EventId = "event" },
-        "respond_to_event" =>
-            new CalendarActionArguments { EventId = "event" },
+        "update_event" or "respond_to_event" =>
+            new CalendarActionArguments { EventId = EventRef.Encode("account", "event") },
+        "bulk_mark_emails_read" =>
+            new CalendarActionArguments { IsRead = true },
         "update_contact" or "delete_contact" =>
             new CalendarActionArguments { AccountId = "account" },
         "get_email_attachment" =>

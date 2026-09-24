@@ -5,8 +5,9 @@ using ModelContextProtocol;
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// Every action except the two EventRef adapters (CalendarActionTool.Calendar.cs), exposed by
-/// FORWARDING to the upstream implementation class that already carries it.
+/// Every action except the calendar-event ones (CalendarActionTool.Calendar.cs, which address
+/// events by EventRef), exposed by FORWARDING to the upstream implementation class that already
+/// carries it.
 /// </summary>
 /// <remarks>
 /// The first curation round (D-21/46-05) moved fourteen tool bodies into this facade and deleted
@@ -21,10 +22,11 @@ namespace CalendarMcp.Core.Tools;
 /// <c>GetGuideTool</c> only a logger -- so a dependency added upstream needs no edit here.
 /// </para>
 /// <para>
-/// Argument validation is NOT repeated, with one exception: a parameter upstream declares
-/// non-nullable is required by its own tool schema, while every parameter of the multiplexed
-/// schema is optional. Those few are checked here before they are unwrapped; everything else is
-/// the implementation's to validate.
+/// Argument validation is NOT repeated, with one exception: a value-type parameter upstream
+/// declares non-nullable (<c>isRead</c>, an event's <c>start</c>/<c>end</c>) is required by its
+/// own tool schema, while every parameter of the multiplexed schema is optional. Unwrapping it
+/// would invent a value, so it is checked here; required strings, lists and arrays are passed
+/// through as-is because the implementation already rejects them when missing.
 /// </para>
 /// </remarks>
 public sealed partial class CalendarActionTool
@@ -57,44 +59,14 @@ public sealed partial class CalendarActionTool
     private Task<string> DeleteEmailAction(string? accountId, string? emailId) =>
         Impl<DeleteEmailTool>().DeleteEmail(accountId!, emailId!);
 
-    private Task<string> MarkEmailReadAction(string? accountId, string? emailId, bool? isRead)
-    {
-        ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
-        ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
-        if (isRead is null)
-            throw new McpException("mark_email_read requires 'isRead' (true to mark read, false to mark unread).");
-        return Impl<MarkEmailAsReadTool>().MarkEmailAsRead(accountId!, emailId!, isRead.Value);
-    }
+    private Task<string> MarkEmailReadAction(string? accountId, string? emailId, bool? isRead) =>
+        Impl<MarkEmailAsReadTool>().MarkEmailAsRead(accountId!, emailId!, RequireIsRead(isRead, "mark_email_read"));
 
     private Task<string> MoveEmailAction(string? accountId, string? emailId, string? destination) =>
         Impl<MoveEmailTool>().MoveEmail(accountId!, emailId!, destination!);
 
     private Task<string> ListCalendarsAction(string? accountId) =>
         Impl<ListCalendarsTool>().ListCalendars(accountId);
-
-    private Task<string> CreateEventAction(
-        string? subject, DateTime? start, DateTime? end, string? accountId, string? calendarId,
-        string? location, List<string>? attendees, string? body, string? timeZone, bool? isAllDay)
-    {
-        if (string.IsNullOrEmpty(subject))
-            throw new McpException("subject is required.");
-        if (start is null)
-            throw new McpException("start is required.");
-        if (end is null)
-            throw new McpException("end is required.");
-        return Impl<CreateEventTool>().CreateEvent(
-            subject, start.Value, end.Value, accountId, calendarId, location, attendees, body, timeZone, isAllDay ?? false);
-    }
-
-    private Task<string> UpdateEventAction(
-        string? accountId, string? calendarId, string? eventId, string? subject, DateTime? start, DateTime? end,
-        string? location, List<string>? attendees, string? timeZone, bool? isAllDay) =>
-        Impl<UpdateEventTool>().UpdateEvent(
-            accountId!, calendarId!, eventId!, subject, start, end, location, attendees, timeZone, isAllDay);
-
-    private Task<string> RespondToEventAction(
-        string? eventId, string? response, string? accountId, string? calendarId, string? comment) =>
-        Impl<RespondToEventTool>().RespondToEvent(eventId!, response!, accountId, calendarId, comment);
 
     private Task<string> GetContactsAction(string? accountId, int? count) =>
         Impl<GetContactsTool>().GetContacts(accountId, count ?? 50);
@@ -104,9 +76,6 @@ public sealed partial class CalendarActionTool
 
     private Task<string> GetContactDetailsAction(string? accountId, string? contactId) =>
         Impl<GetContactDetailsTool>().GetContactDetails(accountId!, contactId!);
-
-    private Task<string> DeleteEventAction(string? eventId, string? accountId, string? calendarId) =>
-        Impl<DeleteEventTool>().DeleteEvent(eventId!, accountId, calendarId);
 
     private Task<string> CreateContactAction(
         string? displayName, string? accountId, string? givenName, string? surname,
@@ -147,11 +116,14 @@ public sealed partial class CalendarActionTool
         Impl<UnsubscribeFromEmailTool>().UnsubscribeFromEmail(accountId!, emailId!, method ?? "auto");
 
     private Task<string> BulkDeleteEmailsAction(BulkEmailItem[]? items) =>
-        Impl<BulkDeleteEmailsTool>().BulkDeleteEmails(items ?? []);
+        Impl<BulkDeleteEmailsTool>().BulkDeleteEmails(items!);
 
     private Task<string> BulkMarkEmailsReadAction(BulkEmailItem[]? items, bool? isRead) =>
-        Impl<BulkMarkEmailsAsReadTool>().BulkMarkEmailsAsRead(items ?? [], isRead ?? true);
+        Impl<BulkMarkEmailsAsReadTool>().BulkMarkEmailsAsRead(items!, RequireIsRead(isRead, "bulk_mark_emails_read"));
 
     private Task<string> BulkMoveEmailsAction(BulkEmailItem[]? items, string? destination) =>
-        Impl<BulkMoveEmailsTool>().BulkMoveEmails(items ?? [], destination!);
+        Impl<BulkMoveEmailsTool>().BulkMoveEmails(items!, destination!);
+
+    private static bool RequireIsRead(bool? isRead, string action) =>
+        isRead ?? throw new McpException($"{action} requires 'isRead' (true to mark read, false to mark unread).");
 }
