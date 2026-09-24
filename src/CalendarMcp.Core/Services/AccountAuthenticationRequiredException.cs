@@ -26,7 +26,7 @@ public sealed class AccountAuthenticationRequiredException : McpException
     private static string BuildMessage(string accountId, string? detail)
     {
         var message = $"Account '{accountId}' requires re-authentication (no valid cached credential). " +
-                      $"Run 'calendar-mcp-cli reauth {accountId}' or re-authenticate it from the admin UI.";
+                      $"Run 'calendar-mcp-cli reauth {accountId}' or reconnect it from the client that manages this server's accounts.";
         return string.IsNullOrEmpty(detail) ? message : $"{message} {detail}";
     }
 

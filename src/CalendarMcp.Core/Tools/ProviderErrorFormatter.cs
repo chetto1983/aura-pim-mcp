@@ -31,7 +31,7 @@ internal static partial class ProviderErrorFormatter
 
     private const string ReauthMessage =
         "The provider rejected this account's stored credential. Re-authenticate it with " +
-        "'calendar-mcp-cli reauth <accountId>' or from the admin UI.";
+        "'calendar-mcp-cli reauth <accountId>' or reconnect it from the client that manages this server's accounts.";
 
     /// <summary>
     /// Describes <paramref name="ex"/> or, failing that, the first recognized exception in its

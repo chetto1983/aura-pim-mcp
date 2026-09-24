@@ -86,7 +86,7 @@ account that could not be read gets an entry in the `warnings` array
 
 ```json
 "warnings": [
-  { "accountId": "work", "error": "Account 'work' requires re-authentication (no valid cached credential). Run 'calendar-mcp-cli reauth work' or re-authenticate it from the admin UI." }
+  { "accountId": "work", "error": "Account 'work' requires re-authentication (no valid cached credential). Run 'calendar-mcp-cli reauth work' or reconnect it from the client that manages this server's accounts." }
 ]
 ```
 

@@ -121,6 +121,6 @@ the result.
 
 ## Disabled accounts
 
-Accounts can be marked disabled via the admin UI. `list_accounts`
+Accounts can be marked disabled through the admin API. `list_accounts`
 returns only enabled accounts. If a previously-known `accountId` stops
 working, re-call `list_accounts` to refresh.

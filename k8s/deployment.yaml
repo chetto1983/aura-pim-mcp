@@ -31,7 +31,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: calendar-mcp
-          image: docker.io/rockylhotka/calendar-mcp-http:1.8.3
+          image: ghcr.io/chetto1983/aura-pim-mcp:latest
           ports:
             - containerPort: 8080
               name: http
