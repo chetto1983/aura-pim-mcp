@@ -98,6 +98,45 @@ public sealed class CalendarActionToolAttachmentTests
     }
 
     [TestMethod]
+    public async Task GetEmailAttachment_AtTheCap_LinksAndReadsBack()
+    {
+        var tenantContext = new TenantContext();
+        var options = new AttachmentStoreOptions();
+        var store = new InMemoryAttachmentStore(
+            Options.Create(options), NullLogger<InMemoryAttachmentStore>.Instance, tenantContext);
+        var bytes = new byte[options.MaxBytesPerAttachment];
+        Random.Shared.NextBytes(bytes);
+        var registry = new IAccountRegistryCreateExpectations();
+        registry.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(TestData.CreateAccount(id: "acc-1", provider: "microsoft365")));
+        var provider = new IProviderServiceCreateExpectations();
+        provider.Setups.GetEmailAttachmentContentAsync("acc-1", "email-1", "part-0", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<EmailAttachmentContent?>(
+                new EmailAttachmentContent { Name = "big.bin", ContentType = null, Bytes = bytes }));
+        var factory = new IProviderServiceFactoryCreateExpectations();
+        factory.Setups.GetProvider("microsoft365").ReturnValue(provider.Instance());
+
+        await using var session = await InProcessMcpSession.StartAsync(tenantContext, store, TestData.TenantA, services =>
+        {
+            services.AddSingleton(registry.Instance());
+            services.AddSingleton(factory.Instance());
+        });
+        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
+        {
+            ["action"] = "get_email_attachment",
+            ["accountId"] = "acc-1",
+            ["emailId"] = "email-1",
+            ["attachmentId"] = "part-0",
+        });
+
+        Assert.AreNotEqual(true, result.IsError, string.Join(" | ", result.Content.OfType<TextContentBlock>().Select(t => t.Text)));
+        var link = result.Content.OfType<ResourceLinkBlock>().Single();
+        Assert.AreEqual((long)options.MaxBytesPerAttachment, link.Size);
+        var read = await session.Client.ReadResourceAsync(link.Uri);
+        CollectionAssert.AreEqual(bytes, ((BlobResourceContents)read.Contents.Single()).DecodedData.ToArray());
+    }
+
+    [TestMethod]
     public void WithAttachmentLink_KeepsTheStashJsonAsText()
     {
         const string stash = """{"attachmentId":"abc","name":"a.png","contentType":"image/png","size":3,"expiresAt":"2026-09-24T10:00:00Z"}""";

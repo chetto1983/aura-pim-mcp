@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -70,6 +71,40 @@ public sealed class EmailAttachmentResourceTests
     }
 
     [TestMethod]
+    public async Task ResourcesRead_TwiceReturnsTheSameBytes()
+    {
+        var tenantContext = new TenantContext();
+        var store = NewStore(tenantContext);
+        byte[] bytes = [1, 2, 3, 4];
+        var stored = Stash(store, tenantContext, TestData.TenantA, "invoice.pdf", "application/pdf", bytes);
+
+        await using var session = await InProcessMcpSession.StartAsync(tenantContext, store, TestData.TenantA);
+        var first = await session.Client.ReadResourceAsync(EmailAttachmentResource.UriFor(stored.Id));
+        var second = await session.Client.ReadResourceAsync(EmailAttachmentResource.UriFor(stored.Id));
+
+        CollectionAssert.AreEqual(bytes, ((BlobResourceContents)first.Contents.Single()).DecodedData.ToArray());
+        CollectionAssert.AreEqual(bytes, ((BlobResourceContents)second.Contents.Single()).DecodedData.ToArray());
+    }
+
+    [TestMethod]
+    public async Task ResourcesRead_RefusesAPrincipalWithoutATenant()
+    {
+        var tenantContext = new TenantContext();
+        var store = NewStore(tenantContext);
+        var stored = Stash(store, tenantContext, TestData.TenantA, "invoice.pdf", "application/pdf", [1, 2, 3]);
+
+        await using var session = await InProcessMcpSession.StartAsync(
+            tenantContext, store, TestData.TenantA, principalOverride: new ClaimsPrincipal(new ClaimsIdentity()));
+        var error = await Assert.ThrowsAsync<McpException>(
+            () => session.Client.ReadResourceAsync(EmailAttachmentResource.UriFor(stored.Id)).AsTask());
+
+        // The client wraps the server's message ("Request failed (remote): ...") and
+        // ArgumentException.Message appends "(Parameter 'value')" -- measured, not guessed --
+        // so this checks the verbatim sentence TenantIdentity.Normalize throws is still in there.
+        StringAssert.Contains(error.Message, "OAuth subject must be a non-empty UUID.");
+    }
+
+    [TestMethod]
     public async Task ResourcesRead_AcceptsALinkParsedAsSystemUri()
     {
         var tenantContext = new TenantContext();
@@ -97,6 +132,9 @@ public sealed class EmailAttachmentResourceTests
     [DataRow("report.pdf", "", "application/pdf")]
     [DataRow("photo.bin", "image/png", "image/png")]
     [DataRow("no-extension", null, "application/octet-stream")]
+    [DataRow("REPORT.PDF", null, "application/pdf")]
+    [DataRow("dir/report.pdf", "application/octet-stream", "application/pdf")]
+    [DataRow("relazione è.pdf", null, "application/pdf")]
     public void MimeTypeFor_PrefersASpecificContentTypeThenTheName(string name, string? contentType, string expected)
     {
         Assert.AreEqual(expected, EmailAttachmentResource.MimeTypeFor(name, contentType));

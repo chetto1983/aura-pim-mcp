@@ -1,4 +1,5 @@
 using System.IO.Pipelines;
+using System.Security.Claims;
 using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
@@ -38,9 +39,13 @@ internal sealed class InProcessMcpSession : IAsyncDisposable
     public McpClient Client { get; }
 
     public static async Task<InProcessMcpSession> StartAsync(
-        ITenantContext tenantContext, IAttachmentStore store, string tenant, Action<IServiceCollection>? configure = null)
+        ITenantContext tenantContext, IAttachmentStore store, string tenant,
+        Action<IServiceCollection>? configure = null, ClaimsPrincipal? principalOverride = null)
     {
-        var principal = TenantIdentity.LocalPrincipal(tenant);
+        // The override lets a test present a principal the local-tenant helper cannot build,
+        // e.g. one with no `sub` claim, to exercise the tenant-binding failure path the way a
+        // real bearer or message filter would produce it.
+        var principal = principalOverride ?? TenantIdentity.LocalPrincipal(tenant);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(tenantContext);
