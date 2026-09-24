@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using CalendarMcp.Auth;
-using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -198,15 +197,7 @@ public class Program
             .WithHttpTransport()
             // Upstream's 29 tools are served as ONE curated, action-multiplexed tool (D-17..D-26).
             // The upstream tool classes stay, unregistered: every action forwards to one of them.
-            .WithCalendarActionTool()
-            // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
-            // set in WithCalendarActionTool's factory, beside the schema patch.
-            .WithCalendarView()
-            // attachment://stash/{id}: the file behind get_email_attachment's resource_link.
-            .WithEmailAttachmentResource()
-            .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
-            .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
-            .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>()
+            .WithCalendarMcpSurface()
             .WithRequestFilters(filters => filters.AddCallToolFilter(
                 (next) => async (request, cancellationToken) =>
                 {

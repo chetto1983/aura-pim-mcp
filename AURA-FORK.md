@@ -26,7 +26,8 @@ file says the fork does not have, this file wins.
    `McpTools` authorization policy on `/` and inline by `AdminAuthMiddleware` on `/admin` +
    `/attachments`. The bearer's subject is the **tenant**: accounts, the attachment store and
    the admin API are all scoped to it (`ITenantContext`), bound by `AdminAuthMiddleware` for
-   `/admin` + `/attachments` and by the tool for MCP calls.
+   `/admin` + `/attachments`, and by the curated tool and the attachment resource for MCP
+   calls (`resources/read` on `attachment://stash/{id}` binds it too).
    Upstream's API-key scheme, admin OIDC sign-in, admin users/claim codes, rate limiting and
    `CalendarMcp:Mcp:RequireApiKey` are **not** taken (1.8.3 sync dropped
    `Security/McpApiKeyAuthentication`, `FileMcpKeyStore`, `AdminUserStore`,
@@ -59,11 +60,13 @@ file says the fork does not have, this file wins.
      issue. Measured 2026-09-23: with a Desktop OAuth client the loopback redirect only reaches a
      listener on the browser's own machine, so a server-side install cannot receive it.
 
-4. **One curated tool instead of 29.** Both servers register only `WithCalendarActionTool()`:
-   a single `calendar` tool with an `action` discriminator over all 29 upstream operations,
-   plus the MCP Apps view (`WithCalendarView()`). Every action **forwards** to the upstream
-   implementation class, constructed per call through `ActivatorUtilities` (no tool class is
-   registered in DI), so upstream fixes reach it without a copy.
+4. **One curated tool instead of 29.** Both servers register `WithCalendarMcpSurface()`: the
+   curated `calendar` tool (`action` discriminator over all 29 upstream operations), the MCP
+   Apps view (`WithCalendarView()`), the `attachment://stash/{id}` resource
+   (`WithEmailAttachmentResource()`) and the three prompt classes -- one extension so a
+   `Program.cs` merge conflict cannot silently drop one of them. Every action **forwards** to
+   the upstream implementation class, constructed per call through `ActivatorUtilities` (no
+   tool class is registered in DI), so upstream fixes reach it without a copy.
 
    - **Events are addressed by an opaque reference** (`CalendarActionTool.Calendar.cs`).
      `get_calendar_events` and `create_event` return `eventId = EventRef(accountId, id)`;
@@ -77,12 +80,13 @@ file says the fork does not have, this file wins.
      the forwarder rejects its absence instead of inventing a value. Required strings, lists
      and arrays pass through: upstream already rejects them when missing.
    - **Attachments come back as a resource link.** `get_email_attachment` always stashes and
-     returns the stash JSON plus a `resource_link` to `attachment://stash/<attachmentId>`, served by
-     `EmailAttachmentResource` (tenant from the request principal, non-consuming `TryRead`,
-     MIME from the file name when the provider says `application/octet-stream`). The curated
-     schema has no `mode`; upstream's tool class keeps its inline mode, unreachable here. The
-     per-attachment store cap is 25 MiB. The curated forwarder also drops upstream's "Try inline
-     mode if the file is small." from the store-full error.
+     returns the stash JSON plus a `resource_link` to `attachment://stash/<attachmentId>`,
+     served by `EmailAttachmentResource` (tenant from the request principal, non-consuming
+     `TryRead`, MIME from the file name when the provider gives none or says
+     `application/octet-stream`). The curated schema has no `mode`; upstream's tool class
+     keeps its inline mode, unreachable here. The per-attachment store cap is 25 MiB, fixed;
+     the curated forwarder rewrites upstream's store-full error with the cap and the store's
+     15-minute TTL instead of upstream's "Try inline mode if the file is small." hint.
 
 5. **Health and docs endpoints.** `/health/ready` resolves the account registry rather than
    querying it: accounts are tenant-scoped and an anonymous probe has no tenant.
@@ -117,9 +121,11 @@ Resolution rules, in the order the 1.8.3 sync needed them:
   If it added a non-nullable value-type parameter, add the forwarder check (change 4).
 - Tests upstream adds for a tool class: keep them. They exercise the code the fork forwards to.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.
-- `Program.cs` (both servers): the fork's auth pipeline and tool registration; take upstream's
-  endpoint hardening. Check that non-conflicting hunks did not pull in registrations for
-  dropped types or tool classes, and that `MapAttachmentEndpoints()` survived.
+- `Program.cs` (both servers): the fork's auth pipeline and the `.WithCalendarMcpSurface()`
+  call must survive -- it is the tool, the view, the attachment resource and the prompts in
+  one line, so a conflict resolved by re-adding only `WithCalendarActionTool()` would
+  silently drop the rest. Take upstream's endpoint hardening, and check that
+  `MapAttachmentEndpoints()` survived too.
 - Model-facing messages upstream adds that mention its admin UI: reword (change 6).
 - `ImapProviderService` is split into partials (`.cs`, `.Folders.cs`, `.Support.cs`) to stay
   under 600 lines; upstream edits to the tail of their single file land in `.Support.cs` by hand.

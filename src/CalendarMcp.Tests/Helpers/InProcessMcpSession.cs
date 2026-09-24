@@ -1,4 +1,5 @@
 using System.IO.Pipelines;
+using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -12,10 +13,11 @@ using ModelContextProtocol.Server;
 namespace CalendarMcp.Tests.Helpers;
 
 /// <summary>
-/// A real MCP client and server over in-memory pipes, registered the way both hosts register
-/// the curated tool and the attachment resource. The request principal is set by an incoming
-/// message filter -- exactly how the stdio server supplies it -- so a test exercises the same
-/// tenant path a host does instead of calling the resource method directly.
+/// A real MCP client and server over in-memory pipes, registered through the same
+/// <c>WithCalendarMcpSurface()</c> extension both hosts call, so the harness registers exactly
+/// what they register. The request principal is set by an incoming message filter -- exactly how
+/// the stdio server supplies it -- so a test exercises the same tenant path a host does instead
+/// of calling the resource method directly.
 /// </summary>
 internal sealed class InProcessMcpSession : IAsyncDisposable
 {
@@ -43,6 +45,14 @@ internal sealed class InProcessMcpSession : IAsyncDisposable
         services.AddLogging();
         services.AddSingleton(tenantContext);
         services.AddSingleton(store);
+        // WithCalendarMcpSurface's three WithPrompts<...> calls construct their prompt class
+        // through ActivatorUtilities when a prompt is actually invoked, so these registrations
+        // are not load-bearing for the tests today -- but AddCalendarMcpCore registers the same
+        // three singletons for both hosts, and "registers exactly what both hosts register" means
+        // matching that DI graph, not only what today's tests happen to touch.
+        services.AddSingleton<CalendarPrompts>();
+        services.AddSingleton<EmailPrompts>();
+        services.AddSingleton<ContactPrompts>();
         configure?.Invoke(services);
         services.AddMcpServer()
             .WithMessageFilters(filters => filters.AddIncomingFilter(next => (context, cancellationToken) =>
@@ -50,8 +60,7 @@ internal sealed class InProcessMcpSession : IAsyncDisposable
                 context.User = principal;
                 return next(context, cancellationToken);
             }))
-            .WithCalendarActionTool()
-            .WithEmailAttachmentResource();
+            .WithCalendarMcpSurface();
         var provider = services.BuildServiceProvider();
 
         var clientToServer = new Pipe();

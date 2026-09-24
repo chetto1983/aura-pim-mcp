@@ -417,4 +417,25 @@ public static class CalendarActionToolServiceExtensions
 
         return builder;
     }
+
+    /// <summary>
+    /// Registers this fork's whole calendar-mcp surface: the curated <c>calendar</c> tool, its
+    /// MCP Apps view, the <c>attachment://stash/{id}</c> resource, and the three prompt classes.
+    /// Both hosts (<c>StdioServer/Program.cs</c>, <c>HttpServer/Program.cs</c>) and the test
+    /// harness (<c>InProcessMcpSession</c>) call this one extension instead of the six calls
+    /// individually, so all three build the same registration chain -- a chain a future upstream
+    /// sync's <c>Program.cs</c> merge conflict cannot silently narrow the way six separate calls
+    /// could, and one the test suite actually exercises.
+    /// </summary>
+    public static IMcpServerBuilder WithCalendarMcpSurface(this IMcpServerBuilder builder) =>
+        builder
+            .WithCalendarActionTool()
+            // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
+            // set in WithCalendarActionTool's factory, beside the schema patch.
+            .WithCalendarView()
+            // attachment://stash/{id}: the file behind get_email_attachment's resource_link.
+            .WithEmailAttachmentResource()
+            .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
+            .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
+            .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>();
 }
