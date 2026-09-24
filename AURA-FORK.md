@@ -124,7 +124,9 @@ Resolution rules, in the order the 1.8.3 sync needed them:
 - `Program.cs` (both servers): the fork's auth pipeline and the `.WithCalendarMcpSurface()`
   call must survive -- it is the tool, the view, the attachment resource and the prompts in
   one line, so a conflict resolved by re-adding only `WithCalendarActionTool()` would
-  silently drop the rest. Take upstream's endpoint hardening, and check that
+  silently drop the rest. Take upstream's endpoint hardening. Check that non-conflicting
+  hunks did not pull in registrations for dropped types or tool classes (the tests call the
+  extension, not `Program.cs`, so only the stdio smoke would see a second tool), and that
   `MapAttachmentEndpoints()` survived too.
 - Model-facing messages upstream adds that mention its admin UI: reword (change 6).
 - `ImapProviderService` is split into partials (`.cs`, `.Folders.cs`, `.Support.cs`) to stay
