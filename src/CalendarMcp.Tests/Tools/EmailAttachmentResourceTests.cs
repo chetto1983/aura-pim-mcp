@@ -70,6 +70,27 @@ public sealed class EmailAttachmentResourceTests
     }
 
     [TestMethod]
+    public async Task ResourcesRead_AcceptsALinkParsedAsSystemUri()
+    {
+        var tenantContext = new TenantContext();
+        var store = NewStore(tenantContext);
+        byte[] bytes = [1, 2, 3];
+
+        // The store mints a 22-char base64url id; an all-lowercase draw is astronomically
+        // unlikely (~5e-5), but the bound keeps this test from ever hanging on bad luck.
+        StoredAttachment? stored = null;
+        for (var attempt = 0; attempt < 50 && stored?.Id.Any(char.IsUpper) != true; attempt++)
+            stored = Stash(store, tenantContext, TestData.TenantA, "invoice.pdf", "application/pdf", bytes);
+        Assert.IsTrue(stored?.Id.Any(char.IsUpper) == true, "expected a mixed-case id within 50 stashes.");
+
+        await using var session = await InProcessMcpSession.StartAsync(tenantContext, store, TestData.TenantA);
+        var result = await session.Client.ReadResourceAsync(new Uri(EmailAttachmentResource.UriFor(stored!.Id)));
+
+        var blob = (BlobResourceContents)result.Contents.Single();
+        CollectionAssert.AreEqual(bytes, blob.DecodedData.ToArray());
+    }
+
+    [TestMethod]
     [DataRow("report.pdf", null, "application/pdf")]
     [DataRow("report.pdf", "application/octet-stream", "application/pdf")]
     [DataRow("report.pdf", "", "application/pdf")]

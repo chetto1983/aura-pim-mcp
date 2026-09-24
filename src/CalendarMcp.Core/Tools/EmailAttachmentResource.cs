@@ -9,7 +9,7 @@ using ModelContextProtocol.Server;
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// <c>attachment://{attachmentId}</c>: the bytes get_email_attachment stashed, read back by the
+/// <c>attachment://stash/{attachmentId}</c>: the bytes get_email_attachment stashed, read back by the
 /// client its result linked them to. The tenant comes from the request principal -- the bearer's
 /// <c>sub</c> over HTTP, the local tenant the stdio filter sets -- so an id minted for one tenant
 /// reads as unknown to every other, exactly as it already does for send_email.
@@ -20,9 +20,9 @@ namespace CalendarMcp.Core.Tools;
 /// </remarks>
 public sealed class EmailAttachmentResource(IAttachmentStore store, ITenantContext tenantContext, ClaimsPrincipal? user)
 {
-    public const string UriTemplate = "attachment://{attachmentId}";
+    public const string UriTemplate = "attachment://stash/{attachmentId}";
 
-    public static string UriFor(string attachmentId) => "attachment://" + attachmentId;
+    public static string UriFor(string attachmentId) => "attachment://stash/" + attachmentId;
 
     public BlobResourceContents Read(string attachmentId)
     {
