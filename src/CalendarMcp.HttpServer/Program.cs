@@ -190,20 +190,14 @@ public class Program
                 options.ResourceMetadata.AuthorizationServers.Add(issuer);
             }
         });
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorizationBuilder().AddMcpToolsPolicy(oauth.ToolsScope);
 
         // Configure MCP server with HTTP/SSE transport and register tools
         builder.Services
             .AddMcpServer(CalendarMcpServerOptions.Configure)
             .WithHttpTransport()
-            // The 14 individually registered tools (list_accounts, get_emails,
-            // get_email_details, search_emails, send_email, list_calendars,
-            // get_calendar_events, get_calendar_event_details, create_event,
-            // respond_to_event, update_event, get_contacts, search_contacts,
-            // get_contact_details) collapsed into ONE curated, action-multiplexed tool
-            // (D-17..D-26). The 14 raw tool classes are deleted, not left
-            // registered-but-hidden. get_calendar_event_details no longer takes accountId
-            // (MCP-05/D-20) -- see CalendarActionTool for the full contract.
+            // Upstream's 29 tools are served as ONE curated, action-multiplexed tool (D-17..D-26).
+            // The upstream tool classes stay, unregistered: every action forwards to one of them.
             .WithCalendarActionTool()
             // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
             // set in WithCalendarActionTool's factory, beside the schema patch.
@@ -243,13 +237,13 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
-        // The admin and attachment endpoints use the same OAuth bearer as the MCP endpoint.
+        // The admin and attachment endpoints use the same OAuth bearer and scope as the MCP endpoint.
         app.UseWhen(
             context => context.Request.Path.StartsWithSegments("/admin") ||
                        context.Request.Path.StartsWithSegments("/attachments"),
             adminApp =>
             {
-                adminApp.UseMiddleware<AdminAuthMiddleware>();
+                adminApp.UseMiddleware<AdminAuthMiddleware>(oauth.ToolsScope);
             });
 
         // OpenAPI + Scalar. Development only: both are anonymous and together they publish the
@@ -262,7 +256,7 @@ public class Program
         }
 
         // Map MCP protocol endpoints (HTTP/SSE)
-        app.MapMcp().RequireAuthorization();
+        app.MapMcp().RequireAuthorization(McpToolsScope.PolicyName);
 
         // Attachment endpoints; the UseWhen above gives them the MCP bearer and tenant binding.
         app.MapAttachmentEndpoints();

@@ -74,8 +74,22 @@ public sealed class AdminAuthMiddlewareTests
         Assert.IsTrue(called);
     }
 
+    [TestMethod]
+    public async Task ConfiguredScope_IsTheOneRequired()
+    {
+        var middleware = new AdminAuthMiddleware(_ => Task.CompletedTask, "calendar:admin");
+
+        var defaultScope = Request(TestData.TenantA);
+        await middleware.InvokeAsync(defaultScope, new TenantContext());
+        Assert.AreEqual(StatusCodes.Status403Forbidden, defaultScope.Response.StatusCode);
+
+        var configured = Request(TestData.TenantA, "openid calendar:admin");
+        await middleware.InvokeAsync(configured, new TenantContext());
+        Assert.AreEqual(StatusCodes.Status200OK, configured.Response.StatusCode);
+    }
+
     private static AdminAuthMiddleware CreateMiddleware(RequestDelegate next) =>
-        new(next);
+        new(next, "mcp:tools");
 
     private static DefaultHttpContext Request(string? subject, string scope = "mcp:tools")
     {
