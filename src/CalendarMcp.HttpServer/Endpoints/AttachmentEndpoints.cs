@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Services;
+using Microsoft.Extensions.Options;
 
 namespace CalendarMcp.HttpServer.Endpoints;
 
@@ -71,6 +72,7 @@ public static class AttachmentEndpoints
     private static async Task<IResult> UploadAsync(
         HttpRequest request,
         IAttachmentStore store,
+        IOptions<AttachmentStoreOptions> options,
         ILogger<InMemoryAttachmentStore> logger,
         CancellationToken cancellationToken)
     {
@@ -117,11 +119,12 @@ public static class AttachmentEndpoints
             // We can't tell which without more API surface; report the more
             // common one (per-attachment) when the file is itself oversized.
             logger.LogWarning("Attachment upload rejected: name={Name}, size={Size}", file.FileName, bytes.Length);
-            if (bytes.Length > 10 * 1024 * 1024)
+            var cap = options.Value.MaxBytesPerAttachment;
+            if (bytes.Length > cap)
             {
                 return Results.Problem(
                     title: "Attachment too large",
-                    detail: "Each upload must be 10 MB or less.",
+                    detail: $"Each upload must be {cap / (1024 * 1024)} MiB or less.",
                     statusCode: StatusCodes.Status413PayloadTooLarge);
             }
             return Results.Problem(
