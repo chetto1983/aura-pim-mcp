@@ -1,6 +1,6 @@
-# Calendar MCP — Overview
+# Adjutant — Overview
 
-Calendar MCP gives a single MCP interface to email, calendar, and contacts
+Adjutant gives a single MCP interface to email, calendar, and contacts
 across multiple personal-information providers. The same tools work against
 every configured account; capabilities vary per provider.
 
@@ -74,6 +74,45 @@ than reconstructing the steps yourself.
 
 Tool names are snake_case (the C# MCP SDK auto-converts from the
 PascalCase method names in the source).
+
+## Accounts that fail to read: `warnings`
+
+Read tools that query one or more accounts (`get_emails`, `search_emails`,
+`list_calendars`, `get_calendar_events`, `get_contacts`, `search_contacts`,
+`get_contextual_email_summary`) never let a failed account masquerade as an
+empty one. Results from healthy accounts are still returned, and each
+account that could not be read gets an entry in the `warnings` array
+(`null` when everything succeeded):
+
+```json
+"warnings": [
+  { "accountId": "work", "error": "Account 'work' requires re-authentication (no valid cached credential). Run 'calendar-mcp-cli reauth work' or re-authenticate it from the admin UI." }
+]
+```
+
+Always check `warnings` before telling the user an account has "no
+emails" or "no events". A re-authentication warning needs the user to act:
+relay the instruction rather than retrying. Provider errors (e.g. `HTTP 403`,
+which often means the account was consented without the needed scope) and
+network errors are reported the same way. Single-item tools
+(`get_email_details`, etc.) return the same re-authentication message as
+their error.
+
+## Tool errors
+
+When a provider call fails, the error reads `Failed to <action>: <detail>`.
+The detail is the provider's own diagnosis, sanitized: the Microsoft Graph
+error code and message (e.g. `ErrorItemNotFound`), the Google API reason,
+the IMAP/SMTP server's response, or a provider message such as a missing
+folder. Use it to tell a bad ID or folder from an auth or scope problem. The
+same text appears in bulk tools' per-item `error` fields.
+
+- **Transient** failures (throttling, HTTP 5xx, network errors) end with a
+  retry hint. For throttling, wait before retrying.
+- Anything else won't succeed if you retry the same call. Fix the input
+  instead, or relay the problem to the user.
+- A bare `Failed to <action>.` with no detail means the cause is logged on
+  the server only.
 
 ## Where to go next
 

@@ -1,6 +1,6 @@
 # CalendarMcp.Core Class Library
 
-This is the core class library for the Calendar MCP server implementation, containing all business logic, models, services, and MCP tool implementations.
+This is the core class library for the Adjutant server implementation, containing all business logic, models, services, and MCP tool implementations.
 
 ## Structure
 
@@ -97,7 +97,7 @@ builder.ConfigureServices((context, services) =>
     services.Configure<CalendarMcpConfiguration>(
         context.Configuration.GetSection("CalendarMcp"));
     
-    // Add all Calendar MCP services
+    // Add all Adjutant services
     services.AddCalendarMcpCore();
     
     // Configure MCP server
@@ -139,7 +139,7 @@ Based on the multi-head architecture pattern:
 
 ## Dependencies
 
-- ModelContextProtocol 0.4.1-preview.1
+- ModelContextProtocol 2.2.0
 - Microsoft.Graph 5.68.0
 - Microsoft.Identity.Client 4.66.2
 - Google.Apis.Gmail.v1 1.69.0.3742

@@ -3,7 +3,7 @@ using CalendarMcp.Core.Models;
 namespace CalendarMcp.Core.Configuration;
 
 /// <summary>
-/// Root configuration for Calendar MCP
+/// Root configuration for Adjutant
 /// </summary>
 public class CalendarMcpConfiguration
 {
@@ -21,6 +21,9 @@ public class CalendarMcpConfiguration
     /// Base URL a browser uses to reach this server (e.g. "https://calendar-mcp.tail920062.ts.net"),
     /// used to build the Google callback the relay forwards to. A <c>returnBase</c> passed to
     /// the start endpoint wins over it; when both are absent, request headers decide.
+    /// The environment-variable form is CALENDAR_MCP_CalendarMcp__ExternalBaseUrl: configuration
+    /// is loaded with AddEnvironmentVariables("CALENDAR_MCP_"), so the prefix is stripped and the
+    /// remainder still has to name the CalendarMcp section.
     /// </summary>
     public string? ExternalBaseUrl { get; set; }
 

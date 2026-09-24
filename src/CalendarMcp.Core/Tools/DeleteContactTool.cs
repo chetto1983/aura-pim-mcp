@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -26,7 +27,8 @@ public sealed class DeleteContactTool(
 
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(contactId, nameof(contactId));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.ContactsWrite);
 
         try
         {
@@ -50,7 +52,7 @@ public sealed class DeleteContactTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in delete_contact tool");
-            throw new McpException("Failed to delete contact.", ex);
+            throw ToolGuard.Failure("delete contact", ex);
         }
     }
 }

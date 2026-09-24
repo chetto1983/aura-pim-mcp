@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -26,7 +27,8 @@ public sealed class GetUnsubscribeInfoTool(
 
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.EmailRead);
 
         try
         {
@@ -64,7 +66,7 @@ public sealed class GetUnsubscribeInfoTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in get_unsubscribe_info tool");
-            throw new McpException("Failed to get unsubscribe info.", ex);
+            throw ToolGuard.Failure("get unsubscribe info", ex);
         }
     }
 

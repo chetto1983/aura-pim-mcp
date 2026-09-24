@@ -9,7 +9,7 @@ Calendar-MCP exposes tools through the Model Context Protocol (MCP) that AI assi
 ### Account Management
 
 #### `list_accounts`
-Get list of all configured accounts across all providers.
+Get list of all configured accounts across all providers, with what each one allows.
 
 **Parameters**: None
 
@@ -18,15 +18,62 @@ Get list of all configured accounts across all providers.
 {
   "accounts": [
     {
-      "id": "work-account",
-      "displayName": "Work Account",
+      "accountId": "work-account",
       "provider": "microsoft365",
+      "displayName": "Work Account",
       "domains": ["example.com"],
-      "enabled": true
+      "capabilities": [
+        { "name": "calendar", "readOnly": false },
+        { "name": "email", "readOnly": true }
+      ],
+      "permissions": {
+        "emailRead": true,
+        "emailSend": false,
+        "calendarRead": true,
+        "calendarWrite": true,
+        "contactsRead": false,
+        "contactsWrite": false
+      }
     }
   ]
 }
 ```
+
+`permissions` are *effective* — the operator's grants intersected with what the provider can
+actually do. A `false` value means every tool needing it will refuse this account, so choose an
+account whose permissions cover the operation. See [Account permissions](#account-permissions).
+
+### Account permissions
+
+Each account carries six independent grants. Tools map onto them as follows:
+
+| Permission | Tools it gates |
+|---|---|
+| `emailRead` | `get_emails`, `search_emails`, `get_email_details`, `get_email_attachment`, `get_contextual_email_summary`, `get_unsubscribe_info`, `delete_email`, `move_email`, `mark_email_as_read`, `bulk_delete_emails`, `bulk_move_emails`, `bulk_mark_emails_as_read` |
+| `emailSend` | `send_email`, `unsubscribe_from_email` |
+| `calendarRead` | `list_calendars`, `get_calendar_events`, `get_calendar_event_details` |
+| `calendarWrite` | `create_event`, `update_event`, `delete_event`, `respond_to_event` |
+| `contactsRead` | `get_contacts`, `search_contacts`, `get_contact_details` |
+| `contactsWrite` | `create_contact`, `update_contact`, `delete_contact` |
+
+Mailbox management (delete, move, mark read) sits under `emailRead` rather than `emailSend`:
+`emailSend` is strictly about putting new mail into the world on the account's behalf.
+
+Two behaviours differ by how the account was chosen:
+
+- **Named explicitly** (`accountId` passed) — a missing permission is an error naming what the
+  account *does* permit, so the caller can pick a different one. `get_calendar_events` is the
+  exception: it returns an empty result with a warning, matching how it already handles
+  email-only accounts.
+- **Fan-out** (`accountId` omitted) — accounts lacking the permission are silently skipped; the
+  caller asked for "all accounts", and a scoped-out account isn't part of that set. If nothing
+  qualifies, the tool errors with `No accounts permit ...`.
+
+Smart routing (`send_email`, `create_event`, `create_contact`, `delete_event`,
+`respond_to_event`) only ever selects accounts that permit the operation.
+
+`bulk_*` tools check per item, so one scoped-out account fails only its own entries rather than
+the whole batch.
 
 ### Email Operations
 
@@ -806,6 +853,34 @@ Common error codes:
 - `RATE_LIMIT`: API rate limit exceeded
 - `NETWORK_ERROR`: Network connectivity issue
 - `INVALID_PARAMETER`: Invalid parameter value
+
+### Per-account failures in read tools
+
+Read tools that query accounts (`get_emails`, `search_emails`, `list_calendars`,
+`get_calendar_events`, `get_contacts`, `search_contacts`, `get_contextual_email_summary`)
+return whatever the healthy accounts produced and list each account that failed in a
+`warnings` array (`null` when none failed), so a failure is never indistinguishable from an
+account with no data:
+
+```json
+{
+  "emails": [ ... ],
+  "warnings": [
+    { "accountId": "work", "error": "Account 'work' requires re-authentication (no valid cached credential). Run 'calendar-mcp-cli reauth work' or re-authenticate it from the admin UI." }
+  ]
+}
+```
+
+The `error` text distinguishes the cases a user can act on:
+
+- **Re-authentication required**: no cached credential, or the refresh token expired or was revoked.
+- **Provider API error**: e.g. `Microsoft Graph returned HTTP 403 (ErrorAccessDenied)`. A 401/403
+  usually means the account was consented without the scope the operation needs.
+- **Network error**: the provider could not be reached.
+
+Single-item tools (`get_email_details`, `get_calendar_event_details`, `get_contact_details`,
+`get_email_attachment`, …) and write tools return the re-authentication message as their tool
+error. A genuine "not found" (HTTP 404) is still reported as not found.
 
 ## Transport
 

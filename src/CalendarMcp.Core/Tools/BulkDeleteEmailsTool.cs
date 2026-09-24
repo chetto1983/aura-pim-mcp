@@ -54,6 +54,13 @@ public sealed class BulkDeleteEmailsTool(
                         return new BulkResultItem(item.EmailId, item.AccountId, false, $"Account '{item.AccountId}' not found");
                     }
 
+                    // Per-item rather than up-front, so one scoped-out account doesn't fail the batch.
+                    if (!AccountCapabilities.IsAllowed(account, AccountPermission.EmailRead))
+                    {
+                        return new BulkResultItem(item.EmailId, item.AccountId, false,
+                            $"Account '{item.AccountId}' does not permit {AccountPermissions.Describe(AccountPermission.EmailRead)}");
+                    }
+
                     var provider = providerFactory.GetProvider(account.Provider);
                     await provider.DeleteEmailAsync(item.AccountId, item.EmailId, CancellationToken.None);
                     return new BulkResultItem(item.EmailId, item.AccountId, true, null);
@@ -61,7 +68,7 @@ public sealed class BulkDeleteEmailsTool(
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error deleting email {EmailId} in account {AccountId}", item.EmailId, item.AccountId);
-                    return new BulkResultItem(item.EmailId, item.AccountId, false, "Failed to delete email.");
+                    return new BulkResultItem(item.EmailId, item.AccountId, false, ToolGuard.DescribeItemFailure("delete email", ex));
                 }
                 finally
                 {
@@ -88,7 +95,7 @@ public sealed class BulkDeleteEmailsTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in bulk_delete_emails tool");
-            throw new McpException("Failed to bulk delete emails.", ex);
+            throw ToolGuard.Failure("bulk delete emails", ex);
         }
     }
 

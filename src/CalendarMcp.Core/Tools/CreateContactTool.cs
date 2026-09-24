@@ -35,14 +35,19 @@ public sealed class CreateContactTool(
         Models.AccountInfo account;
         if (!string.IsNullOrEmpty(accountId))
         {
-            account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+            account = await ToolGuard.RequireAccountAsync(
+                accountRegistry, accountId, Models.AccountPermission.ContactsWrite);
         }
         else
         {
+            // Fall back to the first account that actually permits the write, so a
+            // scoped-out account at the head of the list doesn't hijack the operation.
             var accounts = await accountRegistry.GetAllAccountsAsync();
-            var first = accounts.FirstOrDefault();
+            var candidates = ToolGuard.FilterByPermission(
+                accounts, Models.AccountPermission.ContactsWrite, logger, "create_contact");
+            var first = candidates.FirstOrDefault();
             if (first == null)
-                throw new McpException("No enabled account available to create contact");
+                throw new McpException("No enabled account permits create contact");
             account = first;
         }
 
@@ -75,7 +80,7 @@ public sealed class CreateContactTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in create_contact tool");
-            throw new McpException("Failed to create contact.", ex);
+            throw ToolGuard.Failure("create contact", ex);
         }
     }
 

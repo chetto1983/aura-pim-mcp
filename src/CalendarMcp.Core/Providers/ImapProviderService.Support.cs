@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Utilities;
 using MailKit;
 using MailKit.Net.Imap;
@@ -27,13 +28,13 @@ public partial class ImapProviderService
     public Task<string> CreateEventAsync(
         string accountId, string? calendarId, string subject, DateTime start, DateTime end,
         string? location = null, List<string>? attendees = null, string? body = null,
-        string? timeZone = null, CancellationToken cancellationToken = default) =>
+        string? timeZone = null, bool isAllDay = false, CancellationToken cancellationToken = default) =>
         throw Unsupported("calendar operations");
 
     public Task UpdateEventAsync(
         string accountId, string calendarId, string eventId, string? subject = null,
         DateTime? start = null, DateTime? end = null, string? location = null,
-        List<string>? attendees = null, string? timeZone = null,
+        List<string>? attendees = null, string? timeZone = null, bool? isAllDay = null,
         CancellationToken cancellationToken = default) =>
         throw Unsupported("calendar operations");
 
@@ -164,18 +165,18 @@ public partial class ImapProviderService
     private static void EnsureUidValidity(IMailFolder folder, uint expected, string accountId, string folderName)
     {
         if (folder.UidValidity == expected) return;
-        throw new InvalidOperationException(
+        throw new ProviderOperationException(
             $"Email ID is no longer valid: folder '{folderName}' on account '{accountId}' " +
             $"has UIDVALIDITY {folder.UidValidity}, but the ID was created with {expected}. " +
             "Re-list the folder to get current IDs.");
     }
 
-    private sealed record ImapAccountConfig(
+    internal sealed record ImapAccountConfig(
         string AccountId,
         string ImapHost, int ImapPort,
         string SmtpHost, int SmtpPort,
         string Username, string Password,
-        string InboxFolder, string SentFolder, string TrashFolder);
+        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder);
 
     public async ValueTask DisposeAsync()
     {

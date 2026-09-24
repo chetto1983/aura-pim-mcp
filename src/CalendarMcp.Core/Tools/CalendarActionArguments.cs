@@ -16,6 +16,7 @@ internal sealed class CalendarActionArguments
     public string? Query { get; init; }
     public int? Count { get; init; }
     public bool? UnreadOnly { get; init; }
+    public string? Folder { get; init; }
     public DateTime? FromDate { get; init; }
     public DateTime? ToDate { get; init; }
     public List<string>? To { get; init; }
@@ -31,6 +32,7 @@ internal sealed class CalendarActionArguments
     public DateTime? EndDate { get; init; }
     public DateTime? Start { get; init; }
     public DateTime? End { get; init; }
+    public bool? IsAllDay { get; init; }
     public string? Location { get; init; }
     public List<string>? Attendees { get; init; }
     public string? Response { get; init; }

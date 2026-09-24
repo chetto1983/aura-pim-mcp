@@ -1,8 +1,10 @@
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
 using Microsoft.Graph.Me.SendMail;
 using GraphContact = Microsoft.Graph.Models.Contact;
 
@@ -32,20 +34,20 @@ public class M365ProviderService : IM365ProviderService
     /// <summary>
     /// Get access token for an account
     /// </summary>
-    private async Task<string?> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
         {
             _logger.LogError("Account {AccountId} not found in registry", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' not found in registry");
         }
 
         if (!account.ProviderConfig.TryGetValue("tenantId", out var tenantId) ||
             !account.ProviderConfig.TryGetValue("clientId", out var clientId))
         {
             _logger.LogError("Account {AccountId} missing tenantId or clientId in configuration", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' is missing tenantId or clientId in its configuration");
         }
 
         // Use the scopes this account was actually consented for, if recorded; otherwise
@@ -77,6 +79,7 @@ public class M365ProviderService : IM365ProviderService
         if (token == null)
         {
             _logger.LogWarning("No cached token available for account {AccountId}. Run CLI to authenticate.", accountId);
+            throw new AccountAuthenticationRequiredException(accountId);
         }
 
         return token;
@@ -86,20 +89,17 @@ public class M365ProviderService : IM365ProviderService
         string accountId, 
         int count = 20, 
         bool unreadOnly = false, 
+        string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<EmailMessage>();
-        }
 
         try
         {
             var authProvider = new BearerTokenAuthenticationProvider(token);
             var graphClient = new GraphServiceClient(authProvider);
 
-            var messages = await graphClient.Me.MailFolders["inbox"].Messages.GetAsync(config =>
+            var messages = await graphClient.Me.MailFolders[MailFolderAliases.ToGraphDestinationId(folder ?? "inbox")].Messages.GetAsync(config =>
             {
                 config.QueryParameters.Top = count;
                 config.QueryParameters.Orderby = ["receivedDateTime desc"];
@@ -127,7 +127,7 @@ public class M365ProviderService : IM365ProviderService
                         Cc = message.CcRecipients?.Select(r => r.EmailAddress?.Address ?? string.Empty).ToList() ?? [],
                         Body = message.BodyPreview ?? string.Empty,
                         BodyFormat = "text",
-                        ReceivedDateTime = message.ReceivedDateTime?.DateTime ?? DateTime.MinValue,
+                        ReceivedDateTime = message.ReceivedDateTime?.UtcDateTime ?? DateTime.MinValue,
                         IsRead = message.IsRead ?? false,
                         HasAttachments = message.HasAttachments ?? false
                     });
@@ -140,7 +140,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching emails from M365 account {AccountId}", accountId);
-            return Enumerable.Empty<EmailMessage>();
+            throw;
         }
     }
 
@@ -150,13 +150,10 @@ public class M365ProviderService : IM365ProviderService
         int count = 20, 
         DateTime? fromDate = null, 
         DateTime? toDate = null, 
+        string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<EmailMessage>();
-        }
 
         try
         {
@@ -174,25 +171,34 @@ public class M365ProviderService : IM365ProviderService
             _logger.LogDebug("Searching M365 emails with query: {Query}, fromDate: {FromDate}, toDate: {ToDate}", 
                 searchQuery, fromDate, toDate);
 
-            var messages = await graphClient.Me.Messages.GetAsync(config =>
-            {
-                // $orderby is not supported with $search — sort client-side instead
-                // Request more results if we need to filter by date client-side
-                config.QueryParameters.Top = (fromDate.HasValue || toDate.HasValue) ? count * 3 : count;
-                config.QueryParameters.Select = ["id", "subject", "from", "toRecipients", "ccRecipients", "receivedDateTime", "isRead", "hasAttachments", "bodyPreview"];
+            // $orderby is not supported with $search — sort client-side instead. Request more
+            // results when dates are filtered client-side.
+            var top = (fromDate.HasValue || toDate.HasValue) ? count * 3 : count;
+            string[] select = ["id", "subject", "from", "toRecipients", "ccRecipients", "receivedDateTime", "isRead", "hasAttachments", "bodyPreview"];
+            var search = GraphSearchQueryBuilder.Build(searchQuery);
 
-                // Use $search for text search across subject, body, sender
-                // Note: $filter and $orderby cannot be combined with $search on messages
-                // Date filtering will be done client-side if needed
-                config.QueryParameters.Search = $"\"{searchQuery}\"";
-            }, cancellationToken);
+            // Without a folder, search the whole mailbox. Mailbox-wide $search doesn't return
+            // messages in Deleted Items, so pass a folder (e.g. "trash") to search there.
+            var messages = folder is null
+                ? await graphClient.Me.Messages.GetAsync(config =>
+                {
+                    config.QueryParameters.Top = top;
+                    config.QueryParameters.Select = select;
+                    config.QueryParameters.Search = search;
+                }, cancellationToken)
+                : await graphClient.Me.MailFolders[MailFolderAliases.ToGraphDestinationId(folder)].Messages.GetAsync(config =>
+                {
+                    config.QueryParameters.Top = top;
+                    config.QueryParameters.Select = select;
+                    config.QueryParameters.Search = search;
+                }, cancellationToken);
 
             var result = new List<EmailMessage>();
             if (messages?.Value != null)
             {
                 foreach (var message in messages.Value)
                 {
-                    var receivedDate = message.ReceivedDateTime?.DateTime ?? DateTime.MinValue;
+                    var receivedDate = message.ReceivedDateTime?.UtcDateTime ?? DateTime.MinValue;
                     
                     // Apply client-side date filtering if specified
                     if (fromDate.HasValue && receivedDate < fromDate.Value)
@@ -229,7 +235,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching emails from M365 account {AccountId} with query '{Query}'", accountId, query);
-            return Enumerable.Empty<EmailMessage>();
+            throw;
         }
     }
 
@@ -239,10 +245,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -290,7 +292,7 @@ public class M365ProviderService : IM365ProviderService
                 Cc = message.CcRecipients?.Select(r => r.EmailAddress?.Address ?? string.Empty).ToList() ?? [],
                 Body = message.Body?.Content ?? string.Empty,
                 BodyFormat = message.Body?.ContentType == BodyType.Html ? "html" : "text",
-                ReceivedDateTime = message.ReceivedDateTime?.DateTime ?? DateTime.MinValue,
+                ReceivedDateTime = message.ReceivedDateTime?.UtcDateTime ?? DateTime.MinValue,
                 IsRead = message.IsRead ?? false,
                 HasAttachments = message.HasAttachments ?? false,
                 Attachments = attachments,
@@ -300,10 +302,15 @@ public class M365ProviderService : IM365ProviderService
             _logger.LogInformation("Retrieved email details for {EmailId} from M365 account {AccountId}", emailId, accountId);
             return result;
         }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting email details for {EmailId} from M365 account {AccountId}", emailId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -343,10 +350,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -369,11 +372,16 @@ public class M365ProviderService : IM365ProviderService
                 Bytes = file.ContentBytes,
             };
         }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching attachment {AttachmentId} on {EmailId} from M365 account {AccountId}",
                 attachmentId, emailId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -390,10 +398,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot send email: No authentication token for account {accountId}");
-        }
 
         if (bodyFormat.Equals("multipart", StringComparison.OrdinalIgnoreCase))
         {
@@ -472,10 +476,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot delete email: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -500,10 +500,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot mark email as read: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -528,17 +524,13 @@ public class M365ProviderService : IM365ProviderService
         }
     }
 
-    public async Task MoveEmailAsync(
+    public async Task<string?> MoveEmailAsync(
         string accountId,
         string emailId,
         string destinationFolder,
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot move email: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -547,14 +539,19 @@ public class M365ProviderService : IM365ProviderService
 
             // Microsoft Graph supports moving messages by updating the parentFolderId
             // or using the Move endpoint. We'll use the Move endpoint which is more explicit.
-            // Common folders: "inbox", "archive", "deleteditems", "drafts", "sentitems", "junkemail"
-            await graphClient.Me.Messages[emailId].Move.PostAsync(new Microsoft.Graph.Me.Messages.Item.Move.MovePostRequestBody
+            // Aliases such as "trash"/"spam" are mapped to Graph's well-known folder names
+            // ("deleteditems"/"junkemail"); anything else is treated as a folder ID.
+            var destinationId = MailFolderAliases.ToGraphDestinationId(destinationFolder);
+            var moved = await graphClient.Me.Messages[emailId].Move.PostAsync(new Microsoft.Graph.Me.Messages.Item.Move.MovePostRequestBody
             {
-                DestinationId = destinationFolder
+                DestinationId = destinationId
             }, cancellationToken: cancellationToken);
             
             _logger.LogInformation("Moved email {EmailId} to folder '{Folder}' for M365 account {AccountId}", 
-                emailId, destinationFolder, accountId);
+                emailId, destinationId, accountId);
+
+            // Graph gives the message a new ID in its new folder.
+            return moved?.Id;
         }
         catch (Exception ex)
         {
@@ -569,10 +566,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<CalendarInfo>();
-        }
 
         try
         {
@@ -608,7 +601,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error listing calendars from M365 account {AccountId}", accountId);
-            return Enumerable.Empty<CalendarInfo>();
+            throw;
         }
     }
 
@@ -621,10 +614,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<CalendarEvent>();
-        }
 
         try
         {
@@ -676,8 +665,10 @@ public class M365ProviderService : IM365ProviderService
                         AccountId = accountId,
                         CalendarId = calendarId ?? "primary",
                         Subject = evt.Subject ?? string.Empty,
-                        Start = ParseM365DateTime(evt.Start),
-                        End = ParseM365DateTime(evt.End),
+                        Start = ParseM365DateTime(evt.Start, evt.IsAllDay == true),
+                        End = ParseM365DateTime(evt.End, evt.IsAllDay == true),
+                        StartDate = evt.IsAllDay == true ? TimeZoneHelper.ParseFloatingDate(evt.Start?.DateTime) : null,
+                        EndDate = evt.IsAllDay == true ? TimeZoneHelper.ParseFloatingDate(evt.End?.DateTime) : null,
                         Location = evt.Location?.DisplayName ?? string.Empty,
                         Body = evt.Body?.Content ?? string.Empty,
                         Organizer = evt.Organizer?.EmailAddress?.Address ?? string.Empty,
@@ -694,7 +685,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting calendar events from M365 account {AccountId}", accountId);
-            return Enumerable.Empty<CalendarEvent>();
+            throw;
         }
     }
 
@@ -705,10 +696,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -752,8 +739,10 @@ public class M365ProviderService : IM365ProviderService
                 AccountId = accountId,
                 CalendarId = calendarId ?? "primary",
                 Subject = evt.Subject ?? string.Empty,
-                Start = ParseM365DateTime(evt.Start),
-                End = ParseM365DateTime(evt.End),
+                Start = ParseM365DateTime(evt.Start, evt.IsAllDay == true),
+                End = ParseM365DateTime(evt.End, evt.IsAllDay == true),
+                StartDate = evt.IsAllDay == true ? TimeZoneHelper.ParseFloatingDate(evt.Start?.DateTime) : null,
+                EndDate = evt.IsAllDay == true ? TimeZoneHelper.ParseFloatingDate(evt.End?.DateTime) : null,
                 Location = evt.Location?.DisplayName ?? string.Empty,
                 Body = evt.Body?.Content ?? string.Empty,
                 BodyFormat = evt.Body?.ContentType == BodyType.Html ? "html" : "text",
@@ -789,15 +778,25 @@ public class M365ProviderService : IM365ProviderService
             _logger.LogInformation("Retrieved event details for {EventId} from M365 account {AccountId}", eventId, accountId);
             return result;
         }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting calendar event details for {EventId} from M365 account {AccountId}", eventId, accountId);
-            return null;
+            throw;
         }
     }
 
-    private static DateTimeOffset ParseM365DateTime(DateTimeTimeZone? dtz)
+    internal static DateTimeOffset ParseM365DateTime(DateTimeTimeZone? dtz, bool isAllDay = false)
     {
+        // All-day events are floating dates reported as midnight in some zone (UTC unless a
+        // Prefer: outlook.timezone header is sent). Keep the date as written, anchored to UTC midnight.
+        if (isAllDay && TimeZoneHelper.ParseFloatingDate(dtz?.DateTime) is { } date)
+            return TimeZoneHelper.UtcMidnight(date);
+
         if (dtz?.DateTime == null || !DateTime.TryParse(dtz.DateTime, out var dt))
             return DateTimeOffset.MinValue;
         try
@@ -946,13 +945,10 @@ public class M365ProviderService : IM365ProviderService
         List<string>? attendees = null,
         string? body = null,
         string? timeZone = null,
+        bool isAllDay = false,
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot create event: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -962,16 +958,9 @@ public class M365ProviderService : IM365ProviderService
             var newEvent = new Event
             {
                 Subject = subject,
-                Start = new DateTimeTimeZone
-                {
-                    DateTime = start.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                },
-                End = new DateTimeTimeZone
-                {
-                    DateTime = end.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                }
+                IsAllDay = isAllDay,
+                Start = EventTimeBuilder.ToGraph(start, timeZone, isAllDay),
+                End = EventTimeBuilder.ToGraph(end, timeZone, isAllDay)
             };
 
             if (!string.IsNullOrEmpty(location))
@@ -1036,13 +1025,10 @@ public class M365ProviderService : IM365ProviderService
         string? location = null,
         List<string>? attendees = null,
         string? timeZone = null,
+        bool? isAllDay = null,
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot update event: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -1056,22 +1042,19 @@ public class M365ProviderService : IM365ProviderService
                 eventUpdate.Subject = subject;
             }
 
+            if (isAllDay.HasValue)
+            {
+                eventUpdate.IsAllDay = isAllDay.Value;
+            }
+
             if (start.HasValue)
             {
-                eventUpdate.Start = new DateTimeTimeZone
-                {
-                    DateTime = start.Value.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                };
+                eventUpdate.Start = EventTimeBuilder.ToGraph(start.Value, timeZone, isAllDay == true);
             }
 
             if (end.HasValue)
             {
-                eventUpdate.End = new DateTimeTimeZone
-                {
-                    DateTime = end.Value.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                };
+                eventUpdate.End = EventTimeBuilder.ToGraph(end.Value, timeZone, isAllDay == true);
             }
 
             if (!string.IsNullOrEmpty(location))
@@ -1114,10 +1097,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot delete event: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -1144,10 +1123,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot respond to event: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -1214,10 +1189,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<Models.Contact>();
-        }
 
         try
         {
@@ -1246,7 +1217,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching contacts from M365 account {AccountId}", accountId);
-            return Enumerable.Empty<Models.Contact>();
+            throw;
         }
     }
 
@@ -1257,10 +1228,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return Enumerable.Empty<Models.Contact>();
-        }
 
         try
         {
@@ -1291,7 +1258,7 @@ public class M365ProviderService : IM365ProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching contacts from M365 account {AccountId} with query '{Query}'", accountId, query);
-            return Enumerable.Empty<Models.Contact>();
+            throw;
         }
     }
 
@@ -1301,10 +1268,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -1322,10 +1285,15 @@ public class M365ProviderService : IM365ProviderService
             _logger.LogInformation("Retrieved contact details for {ContactId} from M365 account {AccountId}", contactId, accountId);
             return result;
         }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting contact details for {ContactId} from M365 account {AccountId}", contactId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -1342,10 +1310,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot create contact: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -1407,10 +1371,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot update contact: No authentication token for account {accountId}");
-        }
 
         try
         {
@@ -1463,10 +1423,6 @@ public class M365ProviderService : IM365ProviderService
         CancellationToken cancellationToken = default)
     {
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
-        if (token == null)
-        {
-            throw new InvalidOperationException($"Cannot delete contact: No authentication token for account {accountId}");
-        }
 
         try
         {

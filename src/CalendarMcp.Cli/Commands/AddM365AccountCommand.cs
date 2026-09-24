@@ -28,7 +28,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
 
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        AnsiConsole.Write(new FigletText("Calendar MCP")
+        AnsiConsole.Write(new FigletText("Adjutant")
             .Centered()
             .Color(Color.Blue));
 
@@ -166,6 +166,8 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
                 { "Scopes", string.Join(",", scopes) }
             };
 
+            var permissions = PermissionPrompt.Prompt("microsoft365", providerConfig);
+
             var newAccount = new Dictionary<string, object>
             {
                 { "Id", accountId },
@@ -175,7 +177,8 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
                 { "Enabled", true },
                 { "Priority", priority },
                 { "Domains", domainList },
-                { "ProviderConfig", providerConfig }
+                { "ProviderConfig", providerConfig },
+                { "Permissions", PermissionPrompt.ToConfigNode(permissions) }
             };
 
             if (existingIndex >= 0)
@@ -210,6 +213,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
             table.AddRow("Account ID", accountId);
             table.AddRow("Display Name", displayName);
             table.AddRow("Provider", "microsoft365");
+            table.AddRow("Permissions", PermissionPrompt.Describe(permissions, "microsoft365", providerConfig));
             table.AddRow("Tenant ID", tenantId);
             table.AddRow("Client ID", clientId);
             table.AddRow("Domains", string.Join(", ", domainList));
@@ -220,7 +224,7 @@ public class AddM365AccountCommand : AsyncCommand<AddM365AccountCommand.Settings
             AnsiConsole.WriteLine();
 
             AnsiConsole.MarkupLine("[green]Account added successfully![/]");
-            AnsiConsole.MarkupLine("[dim]You can now use this account with the Calendar MCP server.[/]");
+            AnsiConsole.MarkupLine("[dim]You can now use this account with the Adjutant server.[/]");
 
             return 0;
         }

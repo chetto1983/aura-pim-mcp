@@ -42,7 +42,7 @@ public class Program
                 .CreateLogger();
         }
         
-        Log.Information("Calendar MCP Server starting. Config directory: {ConfigDir}", configDir);
+        Log.Information("Adjutant Server starting. Config directory: {ConfigDir}", configDir);
 
         try
         {
@@ -107,11 +107,11 @@ public class Program
 
             builder.ConfigureServices((context, services) =>
             {
-                // Configure Calendar MCP settings
+                // Configure Adjutant settings
                 services.Configure<CalendarMcpConfiguration>(
                     context.Configuration.GetSection("CalendarMcp"));
                 
-                // Add Calendar MCP core services (providers, tools, account registry)
+                // Add Adjutant core services (providers, tools, account registry)
                 services.AddCalendarMcpCore();
                 
                 // Configure MCP server with stdio transport and register tools

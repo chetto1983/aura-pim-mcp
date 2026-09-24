@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -27,7 +28,8 @@ public sealed class MarkEmailAsReadTool(
 
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.EmailRead);
 
         try
         {
@@ -54,7 +56,7 @@ public sealed class MarkEmailAsReadTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in mark_email_as_read tool");
-            throw new McpException("Failed to mark email as read.", ex);
+            throw ToolGuard.Failure("mark email as read", ex);
         }
     }
 }

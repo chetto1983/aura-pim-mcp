@@ -28,7 +28,7 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
 
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        AnsiConsole.Write(new FigletText("Calendar MCP")
+        AnsiConsole.Write(new FigletText("Adjutant")
             .Centered()
             .Color(Color.Blue));
 
@@ -367,6 +367,8 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
             // Check if account already exists
             var existingIndex = accounts.FindIndex(a => CliTenant.HasAccountId(a, accountId));
 
+            var permissions = PermissionPrompt.Prompt("json", providerConfig);
+
             var newAccount = new Dictionary<string, object>
             {
                 { "id", accountId },
@@ -376,7 +378,8 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
                 { "enabled", true },
                 { "priority", priority },
                 { "domains", new List<string>() },
-                { "providerConfig", providerConfig }
+                { "providerConfig", providerConfig },
+                { "permissions", PermissionPrompt.ToConfigNode(permissions) }
             };
 
             if (existingIndex >= 0)
@@ -411,6 +414,7 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
             table.AddRow("Account ID", accountId);
             table.AddRow("Display Name", displayName);
             table.AddRow("Provider", "json");
+            table.AddRow("Permissions", PermissionPrompt.Describe(permissions, "json", providerConfig));
             table.AddRow("Source", source);
 
             if (source == "local")
@@ -446,7 +450,7 @@ public class AddJsonAccountCommand : AsyncCommand<AddJsonAccountCommand.Settings
             AnsiConsole.WriteLine();
 
             AnsiConsole.MarkupLine("[green]Account added successfully![/]");
-            AnsiConsole.MarkupLine("[dim]You can now use this account with the Calendar MCP server.[/]");
+            AnsiConsole.MarkupLine("[dim]You can now use this account with the Adjutant server.[/]");
 
             return 0;
         }

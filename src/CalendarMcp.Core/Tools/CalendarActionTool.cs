@@ -15,12 +15,12 @@ using ModelContextProtocol.Server;
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// Curated, action-multiplexed MCP tool replacing the 14 individually
-/// registered calendar/mail/contacts tools this fork used to advertise.
+/// Curated, action-multiplexed MCP tool replacing the 29 individually
+/// registered calendar/mail/contacts tools upstream advertises.
 /// One model-facing tool, one <c>action</c> discriminator; each action
-/// dispatches to the exact same provider call the corresponding raw tool
-/// class used before the merge -- the implementation layer is unchanged,
-/// only the registration/dispatch layer collapses.
+/// forwards to the upstream implementation class that defines it
+/// (CalendarActionTool.Delegated.cs) -- only the registration/dispatch
+/// layer collapses.
 /// </summary>
 /// <remarks>
 /// <c>get_calendar_event_details</c> takes no <c>accountId</c> -- it resolves
@@ -30,32 +30,17 @@ namespace CalendarMcp.Core.Tools;
 /// </remarks>
 public sealed partial class CalendarActionTool
 {
-    private readonly IAccountRegistry _accountRegistry;
-    private readonly IProviderServiceFactory _providerFactory;
-    private readonly IAttachmentStore _attachmentStore;
-    private readonly ILogger<CalendarActionTool> _logger;
     private readonly ITenantContext _tenantContext;
 
-    // The twelve actions in CalendarActionTool.Delegated.cs forward to implementation
-    // classes whose constructors this facade must not restate: UnsubscribeFromEmailTool
-    // wants an UnsubscribeExecutor, GetGuideTool wants only a logger, and hand-wiring
-    // each one made this file wrong twice before the compiler caught it. Holding the
-    // provider lets ActivatorUtilities resolve whatever each class asks for, so a
-    // dependency added upstream needs no edit here.
+    // The implementation classes the actions forward to have non-uniform constructors:
+    // UnsubscribeFromEmailTool wants an UnsubscribeExecutor, GetGuideTool only a logger,
+    // and hand-wiring each one made this file wrong twice before the compiler caught it.
+    // Holding the provider lets ActivatorUtilities resolve whatever each class asks for,
+    // so a dependency added upstream needs no edit here.
     private readonly IServiceProvider _services;
 
-    public CalendarActionTool(
-        IAccountRegistry accountRegistry,
-        IProviderServiceFactory providerFactory,
-        IAttachmentStore attachmentStore,
-        ILogger<CalendarActionTool> logger,
-        IServiceProvider services,
-        ITenantContext tenantContext)
+    public CalendarActionTool(IServiceProvider services, ITenantContext tenantContext)
     {
-        _accountRegistry = accountRegistry;
-        _providerFactory = providerFactory;
-        _attachmentStore = attachmentStore;
-        _logger = logger;
         _services = services;
         _tenantContext = tenantContext;
     }
@@ -103,15 +88,15 @@ public sealed partial class CalendarActionTool
     private const string ToolDescription = """
         Unified access to email, calendar, and contacts across Microsoft 365, Google Workspace/Gmail, Outlook.com, and IMAP/SMTP mailboxes. Exactly one action per call, selected via the required `action` argument:
         - list_accounts: list configured accounts. No arguments.
-        - get_emails: recent emails, newest first. accountId optional; count, unreadOnly optional.
+        - get_emails: recent emails, newest first. accountId, count, unreadOnly, folder optional.
         - get_email_details: full email body and attachments. Requires accountId, emailId.
-        - search_emails: full-text email search. Requires query. accountId, count, fromDate, toDate optional.
+        - search_emails: full-text email search. Requires query. accountId, count, fromDate, toDate, folder optional.
         - send_email: send an email, optional attachments. Requires to, subject. accountId, body, bodyFormat, cc, attachments, textBody, htmlBody optional.
         - list_calendars: list calendars. accountId optional.
-        - get_calendar_events: events in a date range. Requires timeZone. accountId, calendarId, startDate, endDate, count optional. Each returned event's eventId is an opaque reference -- pass it unchanged to get_calendar_event_details.
+        - get_calendar_events: events on a range of local days in timeZone. Requires timeZone. accountId, calendarId, startDate, endDate, count optional. Each returned event's eventId is an opaque reference -- pass it unchanged to get_calendar_event_details.
         - get_calendar_event_details: full event detail. Requires timeZone, calendarId, and eventId from get_calendar_events. No accountId -- the account is resolved from eventId.
-        - create_event: create an event. Requires subject, start, end. accountId, calendarId, location, attendees, body, timeZone optional.
-        - update_event: update an event. Requires accountId, calendarId, eventId. subject, start, end, location, attendees, timeZone optional.
+        - create_event: create an event. Requires subject, start, end. accountId, calendarId, location, attendees, body, timeZone, isAllDay optional.
+        - update_event: update an event. Requires accountId, calendarId, eventId. subject, start, end, location, attendees, timeZone, isAllDay optional.
         - respond_to_event: accept, tentative, or decline an invite. Requires eventId, response. accountId, calendarId, comment optional.
         - get_contacts: list contacts. accountId, count optional.
         - search_contacts: search contacts. Requires query. accountId, count optional.
@@ -154,6 +139,8 @@ public sealed partial class CalendarActionTool
         int? count = null,
         [Description("get_emails only. If true, only return unread emails. Default false.")]
         bool? unreadOnly = null,
+        [Description("get_emails/search_emails. Folder to read instead of the default view: 'inbox', 'archive', 'trash', 'spam', 'drafts', 'sentitems' (aliases 'deleteditems'='trash', 'junkemail'='spam'), or a folder ID (Microsoft), label ID (Google) or folder name (IMAP). Use this to find a message after move_email.")]
+        string? folder = null,
         [Description("search_emails only. Only return emails received on or after this date (ISO 8601, e.g. '2026-02-01').")]
         DateTime? fromDate = null,
         [Description("search_emails only. Only return emails received on or before this date (ISO 8601, e.g. '2026-02-28').")]
@@ -176,14 +163,16 @@ public sealed partial class CalendarActionTool
         string? htmlBody = null,
         [Description("IANA timezone name (e.g. 'America/Chicago', 'Europe/London'). Required for get_calendar_events and get_calendar_event_details; used to create/update events at the correct local time on create_event/update_event.")]
         string? timeZone = null,
-        [Description("get_calendar_events only. Start of the date range (ISO 8601, e.g. '2026-02-20'). Defaults to today.")]
+        [Description("get_calendar_events only. First local date of the range in timeZone (ISO 8601 date, e.g. '2026-02-20'); any time of day is ignored. Defaults to today in timeZone.")]
         DateTime? startDate = null,
-        [Description("get_calendar_events only. End of the date range, inclusive (ISO 8601). Defaults to 7 days after startDate.")]
+        [Description("get_calendar_events only. Last local date of the range in timeZone, inclusive (ISO 8601 date); any time of day is ignored. Defaults to 6 days after startDate (a 7-day range).")]
         DateTime? endDate = null,
-        [Description("create_event/update_event. Event start date and time (ISO 8601). Required for create_event.")]
+        [Description("create_event/update_event. Event start date and time (ISO 8601); for an all-day event, a date (yyyy-MM-dd). Required for create_event.")]
         DateTime? start = null,
-        [Description("create_event/update_event. Event end date and time (ISO 8601). Required for create_event.")]
+        [Description("create_event/update_event. Event end date and time (ISO 8601); for an all-day event, the exclusive end date (a one-day event on 2026-10-01 ends 2026-10-02). Required for create_event.")]
         DateTime? end = null,
+        [Description("create_event/update_event. True for an all-day event: start/end are dates, end exclusive, and any time of day is ignored. update_event: requires both start and end; false makes the event timed; omit to leave it unchanged.")]
+        bool? isAllDay = null,
         [Description("create_event/update_event. Event location.")]
         string? location = null,
         [Description("create_event/update_event. List of attendee email addresses.")]
@@ -252,6 +241,7 @@ public sealed partial class CalendarActionTool
                 Query = query,
                 Count = count,
                 UnreadOnly = unreadOnly,
+                Folder = folder,
                 FromDate = fromDate,
                 ToDate = toDate,
                 To = to,
@@ -267,6 +257,7 @@ public sealed partial class CalendarActionTool
                 EndDate = endDate,
                 Start = start,
                 End = end,
+                IsAllDay = isAllDay,
                 Location = location,
                 Attendees = attendees,
                 Response = response,
@@ -304,17 +295,17 @@ public sealed partial class CalendarActionTool
         return action switch
         {
             "list_accounts" => ListAccountsAction(),
-            "get_emails" => GetEmailsAction(args.AccountId, args.Count, args.UnreadOnly),
+            "get_emails" => GetEmailsAction(args.AccountId, args.Count, args.UnreadOnly, args.Folder),
             "get_email_details" => GetEmailDetailsAction(args.AccountId, args.EmailId),
-            "search_emails" => SearchEmailsAction(args.Query, args.AccountId, args.Count, args.FromDate, args.ToDate),
+            "search_emails" => SearchEmailsAction(args.Query, args.AccountId, args.Count, args.FromDate, args.ToDate, args.Folder),
             "list_calendars" => ListCalendarsAction(args.AccountId),
             "get_calendar_events" => GetCalendarEventsAction(args.TimeZone, args.StartDate, args.EndDate, args.AccountId, args.CalendarId, args.Count),
             "get_calendar_event_details" => GetCalendarEventDetailsAction(args.TimeZone, args.CalendarId, args.EventId),
             "get_contacts" => GetContactsAction(args.AccountId, args.Count),
             "search_contacts" => SearchContactsAction(args.Query, args.AccountId, args.Count),
             "get_contact_details" => GetContactDetailsAction(args.AccountId, args.ContactId),
-            "create_event" => CreateEventAction(args.Subject, args.Start, args.End, args.AccountId, args.CalendarId, args.Location, args.Attendees, args.Body, args.TimeZone),
-            "update_event" => UpdateEventAction(args.AccountId, args.CalendarId, args.EventId, args.Subject, args.Start, args.End, args.Location, args.Attendees, args.TimeZone),
+            "create_event" => CreateEventAction(args.Subject, args.Start, args.End, args.AccountId, args.CalendarId, args.Location, args.Attendees, args.Body, args.TimeZone, args.IsAllDay),
+            "update_event" => UpdateEventAction(args.AccountId, args.CalendarId, args.EventId, args.Subject, args.Start, args.End, args.Location, args.Attendees, args.TimeZone, args.IsAllDay),
             "respond_to_event" => RespondToEventAction(args.EventId, args.Response, args.AccountId, args.CalendarId, args.Comment),
             "send_email" => SendEmailAction(args.To, args.Subject, args.Body, args.AccountId, args.BodyFormat, args.Cc, args.Attachments, args.TextBody, args.HtmlBody),
             "delete_email" => DeleteEmailAction(args.AccountId, args.EmailId),

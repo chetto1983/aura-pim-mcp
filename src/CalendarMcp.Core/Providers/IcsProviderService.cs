@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Utilities;
 using Ical.Net;
 using Ical.Net.DataTypes;
 using Microsoft.Extensions.Logging;
@@ -39,19 +40,19 @@ public class IcsProviderService : IIcsProviderService
 
     #region ICS Fetching & Caching
 
-    private async Task<Calendar?> GetCalendarDataAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<Calendar> GetCalendarDataAsync(string accountId, CancellationToken cancellationToken)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
         {
             _logger.LogError("Account {AccountId} not found in registry", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' not found in registry");
         }
 
         if (!account.ProviderConfig.TryGetValue("icsUrl", out var icsUrl))
         {
             _logger.LogError("Account {AccountId} missing icsUrl in ProviderConfig", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' is missing icsUrl in its configuration");
         }
 
         var cacheTtl = GetCacheTtl(account);
@@ -91,7 +92,8 @@ public class IcsProviderService : IIcsProviderService
                 return stale.Calendar;
             }
 
-            return null;
+            // No cache to fall back on: surface the failure rather than an empty calendar.
+            throw;
         }
     }
 
@@ -138,11 +140,11 @@ public class IcsProviderService : IIcsProviderService
         CancellationToken cancellationToken = default)
     {
         var calendar = await GetCalendarDataAsync(accountId, cancellationToken);
-        if (calendar == null)
-            return Enumerable.Empty<CalendarEvent>();
 
         var start = startDate ?? DateTime.UtcNow.Date;
         var end = endDate ?? start.AddDays(7);
+        var windowStart = new DateTimeOffset(DateTime.SpecifyKind(start, DateTimeKind.Utc));
+        var windowEnd = new DateTimeOffset(DateTime.SpecifyKind(end, DateTimeKind.Utc));
 
         var events = new List<CalendarEvent>();
 
@@ -154,23 +156,35 @@ public class IcsProviderService : IIcsProviderService
 
             if (evt.RecurrenceRules?.Count > 0 || evt.RecurrenceDates?.Count > 0)
             {
-                // Expand recurring events
+                // Expand recurring events. Ical.Net 4.3.1 selects occurrences by wall-clock time
+                // in the event's own zone and ignores the bounds' zone, which can be off by up
+                // to 14h, so expand with a day of slack and filter on the UTC instants below.
                 var occurrences = evt.GetOccurrences(
-                    new CalDateTime(start),
-                    new CalDateTime(end));
+                    new CalDateTime(start.AddDays(-1), "UTC"),
+                    new CalDateTime(end.AddDays(1), "UTC"));
 
                 foreach (var occurrence in occurrences)
                 {
                     var mapped = MapToCalendarEvent(evt, accountId, occurrence);
-                    if (mapped != null)
+                    if (mapped != null && mapped.Start < windowEnd && mapped.End > windowStart)
                         events.Add(mapped);
                 }
             }
             else
             {
                 // Single event - check if it falls in range
-                var evtStart = evt.DtStart?.AsUtc ?? DateTime.MinValue;
-                var evtEnd = evt.DtEnd?.AsUtc ?? evtStart;
+                DateTime evtStart, evtEnd;
+                if (evt.IsAllDay)
+                {
+                    var (allDayStart, allDayEnd) = GetAllDayDates(evt, null);
+                    evtStart = allDayStart.ToDateTime(TimeOnly.MinValue);
+                    evtEnd = allDayEnd.ToDateTime(TimeOnly.MinValue);
+                }
+                else
+                {
+                    evtStart = evt.DtStart?.AsUtc ?? DateTime.MinValue;
+                    evtEnd = evt.DtEnd?.AsUtc ?? evtStart;
+                }
 
                 if (evtStart < end && evtEnd > start)
                 {
@@ -233,8 +247,6 @@ public class IcsProviderService : IIcsProviderService
         CancellationToken cancellationToken = default)
     {
         var calendar = await GetCalendarDataAsync(accountId, cancellationToken);
-        if (calendar == null)
-            return null;
 
         var evt = calendar.Events.FirstOrDefault(e => e.Uid == eventId);
         if (evt == null)
@@ -248,13 +260,13 @@ public class IcsProviderService : IIcsProviderService
     #region Email Operations (Not Supported)
 
     public Task<IEnumerable<EmailMessage>> GetEmailsAsync(
-        string accountId, int count = 20, bool unreadOnly = false,
+        string accountId, int count = 20, bool unreadOnly = false, string? folder = null,
         CancellationToken cancellationToken = default)
         => Task.FromResult(Enumerable.Empty<EmailMessage>());
 
     public Task<IEnumerable<EmailMessage>> SearchEmailsAsync(
         string accountId, string query, int count = 20,
-        DateTime? fromDate = null, DateTime? toDate = null,
+        DateTime? fromDate = null, DateTime? toDate = null, string? folder = null,
         CancellationToken cancellationToken = default)
         => Task.FromResult(Enumerable.Empty<EmailMessage>());
 
@@ -287,7 +299,7 @@ public class IcsProviderService : IIcsProviderService
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("ICS provider does not support marking emails as read.");
 
-    public Task MoveEmailAsync(
+    public Task<string?> MoveEmailAsync(
         string accountId, string emailId, string destinationFolder,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("ICS provider does not support moving emails.");
@@ -300,14 +312,14 @@ public class IcsProviderService : IIcsProviderService
         string accountId, string? calendarId, string subject,
         DateTime start, DateTime end, string? location = null,
         List<string>? attendees = null, string? body = null,
-        string? timeZone = null, CancellationToken cancellationToken = default)
+        string? timeZone = null, bool isAllDay = false, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("ICS provider is read-only.");
 
     public Task UpdateEventAsync(
         string accountId, string calendarId, string eventId,
         string? subject = null, DateTime? start = null, DateTime? end = null,
         string? location = null, List<string>? attendees = null,
-        string? timeZone = null, CancellationToken cancellationToken = default)
+        string? timeZone = null, bool? isAllDay = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("ICS provider is read-only.");
 
     public Task DeleteEventAsync(
@@ -364,12 +376,44 @@ public class IcsProviderService : IIcsProviderService
 
     #region ICS-to-CalendarEvent Mapping
 
+    /// <summary>
+    /// Returns the floating start date and exclusive end date of an all-day event (or one of its
+    /// occurrences). A missing DTEND means a one-day event (RFC 5545 §3.6.1).
+    /// </summary>
+    private static (DateOnly Start, DateOnly End) GetAllDayDates(IcsCalendarEvent icsEvent, Occurrence? occurrence)
+    {
+        var baseStart = icsEvent.DtStart != null ? DateOnly.FromDateTime(icsEvent.DtStart.Value) : DateOnly.MinValue;
+        var lengthDays = icsEvent.DtEnd != null
+            ? Math.Max(1, DateOnly.FromDateTime(icsEvent.DtEnd.Value).DayNumber - baseStart.DayNumber)
+            : 1;
+
+        if (occurrence == null)
+            return (baseStart, baseStart.AddDays(lengthDays));
+
+        var start = DateOnly.FromDateTime(occurrence.Period.StartTime.Value);
+        var end = occurrence.Period.EndTime != null
+            ? DateOnly.FromDateTime(occurrence.Period.EndTime.Value)
+            : start.AddDays(lengthDays);
+        return (start, end > start ? end : start.AddDays(lengthDays));
+    }
+
     private CalendarEvent? MapToCalendarEvent(
         IcsCalendarEvent icsEvent, string accountId, Occurrence? occurrence = null)
     {
         DateTimeOffset evtStart, evtEnd;
+        DateOnly? startDate = null, endDate = null;
 
-        if (occurrence != null)
+        if (icsEvent.IsAllDay)
+        {
+            // All-day (VALUE=DATE) events are floating dates: keep the date as written rather
+            // than anchoring it to an instant, which would shift it in zones behind UTC.
+            var (s, e) = GetAllDayDates(icsEvent, occurrence);
+            startDate = s;
+            endDate = e;
+            evtStart = TimeZoneHelper.UtcMidnight(s);
+            evtEnd = TimeZoneHelper.UtcMidnight(e);
+        }
+        else if (occurrence != null)
         {
             evtStart = new DateTimeOffset(occurrence.Period.StartTime.AsUtc, TimeSpan.Zero);
             var occEnd = occurrence.Period.EndTime?.AsUtc
@@ -490,6 +534,8 @@ public class IcsProviderService : IIcsProviderService
             Subject = icsEvent.Summary ?? string.Empty,
             Start = evtStart,
             End = evtEnd,
+            StartDate = startDate,
+            EndDate = endDate,
             Location = icsEvent.Location ?? string.Empty,
             Body = icsEvent.Description ?? string.Empty,
             BodyFormat = "text",

@@ -23,7 +23,7 @@ public sealed class BulkMoveEmailsTool(
     [McpServerTool, Description("Move multiple emails to a folder or apply labels in a single batch operation. More efficient than calling move_email repeatedly.")]
     public async Task<string> BulkMoveEmails(
         [Description("Array of emails to move, each with 'accountId' and 'emailId'. Maximum 50 items. Obtain values from get_emails or search_emails.")] BulkEmailItem[] items,
-        [Description("Destination for all emails: 'archive', 'inbox', 'trash', 'spam', 'drafts' (Microsoft only), 'sentitems' (Microsoft only), or a custom label/folder ID (Google only). Aliases: 'deleteditems'='trash', 'junkemail'='spam'.")] string destination)
+        [Description("Destination for all emails: 'archive', 'inbox', 'trash', 'spam', 'drafts' (Microsoft, IMAP), 'sentitems' (Microsoft, IMAP), or a custom folder ID (Microsoft), label ID (Google) or folder name (IMAP). Aliases: 'deleteditems'='trash', 'junkemail'='spam'.")] string destination)
     {
         logger.LogInformation("Bulk moving emails to {Destination}", destination);
 
@@ -57,14 +57,21 @@ public sealed class BulkMoveEmailsTool(
                         return new BulkResultItem(item.EmailId, item.AccountId, false, $"Account '{item.AccountId}' not found");
                     }
 
+                    // Per-item rather than up-front, so one scoped-out account doesn't fail the batch.
+                    if (!AccountCapabilities.IsAllowed(account, AccountPermission.EmailRead))
+                    {
+                        return new BulkResultItem(item.EmailId, item.AccountId, false,
+                            $"Account '{item.AccountId}' does not permit {AccountPermissions.Describe(AccountPermission.EmailRead)}");
+                    }
+
                     var provider = providerFactory.GetProvider(account.Provider);
-                    await provider.MoveEmailAsync(item.AccountId, item.EmailId, destination, CancellationToken.None);
-                    return new BulkResultItem(item.EmailId, item.AccountId, true, null);
+                    var newEmailId = await provider.MoveEmailAsync(item.AccountId, item.EmailId, destination, CancellationToken.None);
+                    return new BulkResultItem(item.EmailId, item.AccountId, true, null, newEmailId);
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error moving email {EmailId} in account {AccountId}", item.EmailId, item.AccountId);
-                    return new BulkResultItem(item.EmailId, item.AccountId, false, "Failed to move email.");
+                    return new BulkResultItem(item.EmailId, item.AccountId, false, ToolGuard.DescribeItemFailure("move email", ex));
                 }
                 finally
                 {
@@ -84,15 +91,13 @@ public sealed class BulkMoveEmailsTool(
                 succeeded,
                 failed,
                 destination,
-                results = results.Select(r => r.Success
-                    ? new { r.EmailId, r.AccountId, r.Success, error = (string?)null }
-                    : new { r.EmailId, r.AccountId, r.Success, error = r.Error })
+                results = results.Select(r => new { r.EmailId, r.AccountId, r.Success, r.NewEmailId, error = r.Error })
             }, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in bulk_move_emails tool");
-            throw new McpException("Failed to bulk move emails.", ex);
+            throw ToolGuard.Failure("bulk move emails", ex);
         }
     }
 
@@ -108,5 +113,7 @@ public sealed class BulkMoveEmailsTool(
         return result;
     }
 
-    private sealed record BulkResultItem(string EmailId, string AccountId, bool Success, string? Error);
+    /// <param name="NewEmailId">The message's ID after the move (null when unknown or on failure).</param>
+    private sealed record BulkResultItem(
+        string EmailId, string AccountId, bool Success, string? Error, string? NewEmailId = null);
 }

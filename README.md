@@ -1,5 +1,10 @@
 # Calendar & Email MCP Server
 
+> **Aura fork (`aura-pim-mcp`).** This README is upstream's. In this fork the MCP, attachment
+> and admin endpoints take an OAuth bearer issued by Aura, not an API key; there is no Blazor
+> admin UI; and the 29 tools are served as one curated `calendar` tool. See
+> [AURA-FORK.md](AURA-FORK.md) for every difference.
+
 A Model Context Protocol (MCP) server that gives AI assistants access to email, calendar, and contact data across multiple accounts — Microsoft 365, Outlook.com, Google Workspace, IMAP/SMTP mailboxes, ICS feeds, and JSON calendar files.
 
 ## Overview
@@ -17,11 +22,31 @@ Calendar-MCP aggregates email, calendar, and contact information from multiple p
 | ICS Calendar Feeds | -- | Read-only | -- | None (public URLs) |
 | JSON Calendar Files | -- | Read-only | -- | None (local files) |
 
+### Per-Account Permissions
+
+Each account carries its own independent grants, so you can hand an assistant exactly as much
+access as a task needs — read one mailbox but never send from it, interact with a calendar but
+never touch email, and so on. Two Gmail accounts can be scoped completely differently.
+
+| Permission | Grants |
+|---|---|
+| `emailRead` | Read and manage mail: get, search, details, attachments, delete, move, mark read |
+| `emailSend` | Send mail, including mailto unsubscribes |
+| `calendarRead` | List calendars and read events |
+| `calendarWrite` | Create, update, delete, and respond to events |
+| `contactsRead` | Read and search contacts |
+| `contactsWrite` | Create, update, and delete contacts |
+
+Everything is granted by default, and grants are intersected with what the provider can actually
+do — granting `calendarRead` on an IMAP account still yields no calendar. Set them when adding
+an account via the CLI, in the admin web UI, or directly in `appsettings.json`. See
+[Account Permissions](docs/configuration.md#account-permissions).
+
 ### MCP Tools
 
 The server exposes these tools to AI assistants:
 
-- **list_accounts** — List all configured accounts
+- **list_accounts** — List all configured accounts, with each one's capabilities and permissions
 - **get_emails** / **search_emails** — Read and search email across accounts
 - **get_email_details** — Get full email content
 - **get_contextual_email_summary** — AI-powered topic clustering and persona analysis
@@ -90,7 +115,7 @@ Account setup guides:
 {
   "mcpServers": {
     "calendar-mcp": {
-      "command": "C:\\Program Files\\Calendar MCP\\CalendarMcp.StdioServer.exe",
+      "command": "C:\\Program Files\\Adjutant\\CalendarMcp.StdioServer.exe",
       "args": [],
       "env": {}
     }
@@ -99,6 +124,9 @@ Account setup guides:
 ```
 
 See the [Claude Desktop Setup Guide](docs/CLAUDE-DESKTOP-SETUP.md) for all platforms and troubleshooting.
+
+Connecting to the **HTTP server** instead of a local subprocess requires an API key header — see
+[Connecting a client](docs/configuration.md#connecting-a-client).
 
 ## Deployment Options
 
@@ -132,7 +160,17 @@ docker run -p 8080:8080 \
   -v calendar-mcp-data:/app/data calendar-mcp-http
 ```
 
-See the HTTP transport documentation for Kubernetes and other container orchestration setups.
+The MCP endpoint requires an API key. On first start the server generates one and prints it to
+the log — copy it from there, as it is hashed at rest and never shown again. Clients send it as
+`Authorization: Bearer <key>` or `X-Api-Key: <key>`; to supply your own key instead, set
+`CALENDAR_MCP_MCP_KEY`.
+
+- [MCP endpoint API keys](docs/configuration.md#mcp-endpoint-api-keys-http-server) — settings, key rotation, and disabling enforcement
+- [Connecting a client](docs/configuration.md#connecting-a-client) — Claude Code, VS Code, and `mcp-remote` examples
+- [Transport security](docs/security.md#transport-security-http-server) — what protects each endpoint
+
+Manifests for Kubernetes are in [`k8s/`](k8s/), and a Compose file is at
+[`docker-compose.yml`](docker-compose.yml).
 
 ## Building from Source
 

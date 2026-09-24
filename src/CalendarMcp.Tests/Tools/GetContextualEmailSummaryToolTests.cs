@@ -39,7 +39,7 @@ public class GetContextualEmailSummaryToolTests
             .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
 
         var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>([]));
 
         var factExp = new IProviderServiceFactoryCreateExpectations();
@@ -81,7 +81,7 @@ public class GetContextualEmailSummaryToolTests
             .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
 
         var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>(emails));
 
         var factExp = new IProviderServiceFactoryCreateExpectations();
@@ -101,5 +101,75 @@ public class GetContextualEmailSummaryToolTests
         regExp.Verify();
         factExp.Verify();
         provExp.Verify();
+    }
+
+    [TestMethod]
+    public async Task GetContextualEmailSummary_FailedAccount_ReportedInWarnings()
+    {
+        var okAccount = TestData.CreateAccount(id: "acc-ok", provider: "microsoft365", domains: ["work.com"]);
+        var staleAccount = TestData.CreateAccount(id: "acc-stale", provider: "google");
+        var emails = new List<EmailMessage>
+        {
+            new()
+            {
+                Id = "e1", AccountId = "acc-ok", Subject = "Meeting tomorrow",
+                From = "boss@work.com", ReceivedDateTime = DateTime.UtcNow
+            }
+        };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAllAccountsAsync()
+            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([okAccount, staleAccount]));
+
+        var okProvExp = new IProviderServiceCreateExpectations();
+        okProvExp.Setups.GetEmailsAsync("acc-ok", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>(emails));
+
+        var staleProvExp = new IProviderServiceCreateExpectations();
+        staleProvExp.Setups.GetEmailsAsync("acc-stale", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromException<IEnumerable<EmailMessage>>(new AccountAuthenticationRequiredException("acc-stale")));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(okProvExp.Instance());
+        factExp.Setups.GetProvider("google").ReturnValue(staleProvExp.Instance());
+
+        var tool = new GetContextualEmailSummaryTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetContextualEmailSummaryTool>.Instance);
+
+        var doc = JsonDocument.Parse(await tool.GetContextualEmailSummary());
+
+        Assert.AreEqual(1, doc.RootElement.GetProperty("TotalEmails").GetInt32());
+        var warnings = doc.RootElement.GetProperty("Warnings");
+        Assert.AreEqual(1, warnings.GetArrayLength());
+        Assert.AreEqual("acc-stale", warnings[0].GetProperty("AccountId").GetString());
+        StringAssert.Contains(warnings[0].GetProperty("Error").GetString(), "requires re-authentication");
+    }
+
+    [TestMethod]
+    public async Task GetContextualEmailSummary_NoEmailsBecauseAccountFailed_ReportsWarning()
+    {
+        // "No emails found" must not hide that the only account couldn't be read at all.
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAllAccountsAsync()
+            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromException<IEnumerable<EmailMessage>>(new AccountAuthenticationRequiredException("acc-1")));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        var tool = new GetContextualEmailSummaryTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetContextualEmailSummaryTool>.Instance);
+
+        var doc = JsonDocument.Parse(await tool.GetContextualEmailSummary());
+
+        Assert.AreEqual("No emails found matching criteria", doc.RootElement.GetProperty("message").GetString());
+        var warnings = doc.RootElement.GetProperty("warnings");
+        Assert.AreEqual(1, warnings.GetArrayLength());
+        Assert.AreEqual("acc-1", warnings[0].GetProperty("AccountId").GetString());
     }
 }

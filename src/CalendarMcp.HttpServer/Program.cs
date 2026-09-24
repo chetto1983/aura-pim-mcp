@@ -49,7 +49,7 @@ public class Program
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
-        Log.Information("Calendar MCP HTTP Server starting. Config directory: {ConfigDir}", configDir);
+        Log.Information("Adjutant HTTP Server starting. Config directory: {ConfigDir}", configDir);
 
         var builder = WebApplication.CreateBuilder(args);
 
@@ -97,11 +97,11 @@ public class Program
             });
         }
 
-        // Configure Calendar MCP settings
+        // Configure Adjutant settings
         builder.Services.Configure<CalendarMcpConfiguration>(
             builder.Configuration.GetSection("CalendarMcp"));
 
-        // Add Calendar MCP core services (providers, tools, account registry)
+        // Add Adjutant core services (providers, tools, account registry)
         builder.Services.AddCalendarMcpCore();
 
         // Register admin services
@@ -252,15 +252,19 @@ public class Program
                 adminApp.UseMiddleware<AdminAuthMiddleware>();
             });
 
-        // OpenAPI + Scalar
-        app.MapOpenApi();
-        app.MapScalarApiReference();
+        // OpenAPI + Scalar. Development only: both are anonymous and together they publish the
+        // entire admin API surface -- every route, parameter and schema -- which is a map of the
+        // server for anyone who asks once the origin is public.
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+            app.MapScalarApiReference();
+        }
 
         // Map MCP protocol endpoints (HTTP/SSE)
         app.MapMcp().RequireAuthorization();
 
-        // Map attachment upload endpoint (sibling of /mcp; same network-level
-        // protection — Tailscale ACLs / reverse proxy).
+        // Attachment endpoints; the UseWhen above gives them the MCP bearer and tenant binding.
         app.MapAttachmentEndpoints();
 
         // Map admin API endpoints for OAuth-protected management clients.
@@ -273,11 +277,14 @@ public class Program
 
         foreach (var url in app.Urls)
         {
-            Log.Information("Calendar MCP HTTP Server listening on {Url}", url);
+            Log.Information("Adjutant HTTP Server listening on {Url}", url);
         }
         Log.Information("  MCP endpoint:  /");
         Log.Information("  Admin API:     /admin");
-        Log.Information("  API Docs:      /scalar/v1");
+        if (app.Environment.IsDevelopment())
+        {
+            Log.Information("  API Docs:      /scalar/v1");
+        }
         Log.Information("  Health:        /health");
 
         app.WaitForShutdown();

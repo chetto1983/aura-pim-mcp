@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
@@ -74,20 +75,35 @@ public sealed class CalendarActionToolTests
         }
     }
 
-    private static CalendarActionTool CreateTool(IServiceProvider services)
+    [TestMethod]
+    public void WithEventRefs_ReplacesProviderIdWithDecodableReference()
     {
-        var registry = services.GetRequiredService<IAccountRegistry>();
-        var providerFactory = services.GetRequiredService<IProviderServiceFactory>();
-        var attachmentStore = services.GetRequiredService<IAttachmentStore>();
-        var tenantContext = services.GetRequiredService<ITenantContext>();
-        return new CalendarActionTool(
-            registry,
-            providerFactory,
-            attachmentStore,
-            NullLogger<CalendarActionTool>.Instance,
-            services,
-            tenantContext);
+        const string upstream = """
+            {"timezone":"UTC","events":[{"id":"raw-1","accountId":"acct","subject":"Standup","start_date":null}]}
+            """;
+
+        var rewritten = JsonNode.Parse(CalendarActionTool.WithEventRefs(upstream))!;
+        var evt = rewritten["events"]![0]!.AsObject();
+
+        Assert.IsFalse(evt.ContainsKey("id"), "The raw provider id must not reach the caller.");
+        Assert.AreEqual("acct", evt["accountId"]!.GetValue<string>());
+        Assert.AreEqual("Standup", evt["subject"]!.GetValue<string>());
+        Assert.IsTrue(evt.ContainsKey("start_date"), "Fields upstream adds must pass through untouched.");
+        Assert.IsTrue(EventRef.TryDecode(evt["eventId"]!.GetValue<string>(), out var accountId, out var eventId));
+        Assert.AreEqual("acct", accountId);
+        Assert.AreEqual("raw-1", eventId);
     }
+
+    [TestMethod]
+    [DataRow("""{"events":[{"eventId":"x","accountId":"acct"}]}""")]
+    [DataRow("""{"items":[]}""")]
+    public void WithEventRefs_FailsLoudlyWhenUpstreamShapeChanges(string upstream)
+    {
+        Assert.ThrowsExactly<InvalidOperationException>(() => CalendarActionTool.WithEventRefs(upstream));
+    }
+
+    private static CalendarActionTool CreateTool(IServiceProvider services) =>
+        new(services, services.GetRequiredService<ITenantContext>());
 
     private static ServiceProvider CreateServices()
     {
@@ -149,7 +165,7 @@ public sealed class CalendarActionToolTests
         "delete_contact" => Expected.Error("contactId is required"),
         "get_email_attachment" => Expected.Error("attachmentId is required"),
         "get_contextual_email_summary" => Expected.Error("No accounts configured"),
-        "get_guide" => Expected.Result("# Calendar MCP"),
+        "get_guide" => Expected.Result("Available Guides"),
         "get_unsubscribe_info" => Expected.Error("emailId is required"),
         "unsubscribe_from_email" => Expected.Error("emailId is required"),
         "bulk_delete_emails" => Expected.Error("items array must not be empty"),

@@ -271,7 +271,8 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
     "password": "ENC:CfDJ8...",
     "inboxFolder": "INBOX",
     "sentFolder": "[Gmail]/Sent Mail",
-    "trashFolder": "[Gmail]/Trash"
+    "trashFolder": "[Gmail]/Trash",
+    "junkFolder": "[Gmail]/Spam"
   }
 }
 ```
@@ -287,12 +288,55 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 | `inboxFolder`  | `INBOX`              |
 | `sentFolder`   | `[Gmail]/Sent Mail`  |
 | `trashFolder`  | `[Gmail]/Trash`      |
+| `junkFolder`   | `[Gmail]/Spam`       |
 
 **Password storage**: `password` is encrypted at rest via ASP.NET DataProtection — values written by the admin UI or CLI are stored with an `ENC:` prefix and the keystore lives under the data directory (see `docs/security.md`). Plaintext values without the prefix are still readable, so manually-edited entries continue to work.
 
 **Capabilities**: Email-only (read/write). Calendar and contact tools fail with a clear `NotSupportedException` for IMAP accounts; pick a different account for those operations.
 
 For setup walkthrough including Gmail app passwords, see `docs/IMAP-SETUP.md`.
+
+## Account Permissions
+
+Every account carries an optional `Permissions` block controlling which actions may touch it.
+This is **per account, not per provider type**: two Gmail accounts have entirely independent
+blocks, so one can be read-only while the other has full access.
+
+```json
+"Permissions": {
+  "emailRead": true,
+  "emailSend": false,
+  "calendarRead": false,
+  "calendarWrite": false,
+  "contactsRead": false,
+  "contactsWrite": false
+}
+```
+
+| Flag | Grants |
+|---|---|
+| `emailRead` | Read and manage mail: get, search, details, attachments, delete, move, mark read |
+| `emailSend` | Send mail, including mailto unsubscribes |
+| `calendarRead` | List calendars and read events |
+| `calendarWrite` | Create, update, delete, and respond to events |
+| `contactsRead` | Read and search contacts |
+| `contactsWrite` | Create, update, and delete contacts |
+
+Notes:
+
+- **Defaults to everything.** Omit the block, or any flag inside it, and that capability is
+  granted. Configs written before this feature existed keep working unchanged, and an account
+  created through `POST /admin/accounts` without `permissions` gets every grant.
+- **Intersected with the provider.** A grant can't conjure a capability the provider lacks:
+  `calendarRead` on an IMAP account is still denied, and `calendarWrite` on a read-only ICS feed
+  is still denied. `list_accounts` reports the *effective* result.
+- **Mailbox management sits under `emailRead`**, not `emailSend`. `emailSend` is strictly about
+  putting new mail into the world on the account's behalf.
+- Both `PascalCase` and `camelCase` flag names are accepted on read.
+
+Set them with the `add-*-account` CLI commands, or through the admin REST API: `permissions` on
+`POST /admin/accounts` and `PUT /admin/accounts/{id}` (omitted on an update, the existing grants
+stay). `GET /admin/accounts` returns each account's `granted` and `effective` permissions.
 
 ## Router Configuration
 
