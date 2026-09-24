@@ -137,7 +137,7 @@ public static class AdminEndpoints
             return Results.BadRequest(new { error = provError });
 
         // Validate provider config
-        var (cfgValid, cfgError) = AccountValidation.ValidateProviderConfig(request.Provider, request.ProviderConfig);
+        var (cfgValid, cfgError) = TenantProviderConfig.Validate(request.Provider, request.ProviderConfig);
         if (!cfgValid)
             return Results.BadRequest(new { error = cfgError });
 
@@ -190,7 +190,7 @@ public static class AdminEndpoints
             return Results.NotFound(new { error = $"Account '{accountId}' not found." });
 
         // Validate provider config against the existing provider
-        var (cfgValid, cfgError) = AccountValidation.ValidateProviderConfig(existing.Provider, request.ProviderConfig);
+        var (cfgValid, cfgError) = TenantProviderConfig.Validate(existing.Provider, request.ProviderConfig);
         if (!cfgValid)
             return Results.BadRequest(new { error = cfgError });
 
