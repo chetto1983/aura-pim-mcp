@@ -29,7 +29,7 @@ public sealed class GetGuideTool(ILogger<GetGuideTool> logger)
         ["email"] = "All email tools and common patterns: list, search, read details, send, organize, bulk operations.",
         ["calendar"] = "Calendar tools and patterns: list, create, update, respond. Timezone handling is mandatory.",
         ["contacts"] = "Contact tools: list, search, view, create, update, delete across providers that support contacts.",
-        ["attachments"] = "Non-obvious attachment flow: stash vs inline modes, upload/forward patterns, size limits.",
+        ["attachments"] = "Non-obvious attachment flow: stash IDs and resource links, upload/forward patterns, size limits.",
         ["scenarios"] = "End-to-end workflows wiring tools together: triage, scheduling, forwarding, bulk cleanup.",
         ["providers"] = "Per-provider behavior: Microsoft 365, Google, Outlook.com, IMAP/SMTP, ICS, JSON.",
     };

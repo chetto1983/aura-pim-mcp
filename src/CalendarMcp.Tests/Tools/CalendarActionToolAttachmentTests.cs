@@ -54,6 +54,42 @@ public sealed class CalendarActionToolAttachmentTests
     }
 
     [TestMethod]
+    public async Task GetEmailAttachment_StashRefused_ErrorDoesNotMentionInlineMode()
+    {
+        var tenantContext = new TenantContext();
+        var store = new InMemoryAttachmentStore(
+            Options.Create(new AttachmentStoreOptions { MaxBytesPerAttachment = 4 }),
+            NullLogger<InMemoryAttachmentStore>.Instance, tenantContext);
+        var registry = new IAccountRegistryCreateExpectations();
+        registry.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(TestData.CreateAccount(id: "acc-1", provider: "microsoft365")));
+        var provider = new IProviderServiceCreateExpectations();
+        provider.Setups.GetEmailAttachmentContentAsync("acc-1", "email-1", "part-0", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<EmailAttachmentContent?>(
+                new EmailAttachmentContent { Name = "report.pdf", ContentType = null, Bytes = "%PDF-1.7"u8.ToArray() }));
+        var factory = new IProviderServiceFactoryCreateExpectations();
+        factory.Setups.GetProvider("microsoft365").ReturnValue(provider.Instance());
+
+        await using var session = await InProcessMcpSession.StartAsync(tenantContext, store, TestData.TenantA, services =>
+        {
+            services.AddSingleton(registry.Instance());
+            services.AddSingleton(factory.Instance());
+        });
+        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
+        {
+            ["action"] = "get_email_attachment",
+            ["accountId"] = "acc-1",
+            ["emailId"] = "email-1",
+            ["attachmentId"] = "part-0",
+        });
+
+        Assert.AreEqual(true, result.IsError);
+        var text = result.Content.OfType<TextContentBlock>().Single().Text;
+        StringAssert.Contains(text, "Could not stash the attachment");
+        Assert.IsFalse(text.Contains("inline", StringComparison.OrdinalIgnoreCase), text);
+    }
+
+    [TestMethod]
     public void WithAttachmentLink_KeepsTheStashJsonAsText()
     {
         const string stash = """{"attachmentId":"abc","name":"a.png","contentType":"image/png","size":3,"expiresAt":"2026-09-24T10:00:00Z"}""";

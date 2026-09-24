@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 
 namespace CalendarMcp.Core.Tools;
@@ -12,8 +13,22 @@ namespace CalendarMcp.Core.Tools;
 /// </summary>
 public sealed partial class CalendarActionTool
 {
-    private Task<string> GetEmailAttachmentAction(string? accountId, string? emailId, string? attachmentId) =>
-        Impl<GetEmailAttachmentTool>().GetEmailAttachment(accountId!, emailId!, attachmentId!, "stash");
+    // Upstream's stash-full error still points at an inline mode the curated tool never
+    // exposes (no `mode` parameter reaches GetEmailAttachmentTool). Strip that sentence
+    // so the model isn't told to retry with an option it cannot use.
+    private const string InlineModeHint = " Try inline mode if the file is small.";
+
+    private async Task<string> GetEmailAttachmentAction(string? accountId, string? emailId, string? attachmentId)
+    {
+        try
+        {
+            return await Impl<GetEmailAttachmentTool>().GetEmailAttachment(accountId!, emailId!, attachmentId!, "stash");
+        }
+        catch (McpException ex) when (ex.Message.Contains(InlineModeHint, StringComparison.Ordinal))
+        {
+            throw new McpException(ex.Message.Replace(InlineModeHint, "", StringComparison.Ordinal), ex);
+        }
+    }
 
     /// <summary>
     /// The stash JSON as text plus a resource link to it. Fails loudly if upstream renames a

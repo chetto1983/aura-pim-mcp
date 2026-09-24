@@ -67,7 +67,7 @@ attachment has `attachmentId` — feed that to `get_email_attachment`.
 - `accountId` is *optional but you should usually pass it.* When omitted,
   smart routing picks based on first recipient's domain (see `accounts`).
 - `attachments`: see `attachments` guide. Pass either `{attachmentId: "..."}`
-  (from the upload endpoint or `get_email_attachment` stash mode) or
+  (from the upload endpoint or `get_email_attachment`) or
   `{name: "...", base64Content: "..."}` for very small files.
 
 ### `delete_email(accountId, emailId)`

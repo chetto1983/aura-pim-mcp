@@ -87,7 +87,7 @@ public sealed class EmailPrompts
                - Each attachment carries a provider-side attachmentId — this is NOT the ID you pass to send_email.
 
             2. For each attachment in the response:
-               Call get_email_attachment with accountId="{{accountId}}", emailId="{{emailId}}", attachmentId=<provider-side ID>, mode="stash".
+               Call get_email_attachment with accountId="{{accountId}}", emailId="{{emailId}}", attachmentId=<provider-side ID>.
                - This returns a server-stash attachmentId (different namespace from the provider's).
                - Stash IDs are single-use; they're consumed by the send below.
 

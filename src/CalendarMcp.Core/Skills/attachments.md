@@ -112,7 +112,6 @@ fails.
 |---|---|---|
 | Total decoded payload per outbound message | 25 MB | This server |
 | Per-attachment cap | 3 MB (M365 / Outlook.com), 25 MB (Google) | Upstream provider |
-| Inline mode (`get_email_attachment mode="inline"`) | 1 MB | This server |
 | Server store per-item | Configurable (admin) | This server |
 
 Exceeding the total or per-attachment caps results in `McpException`
@@ -125,8 +124,9 @@ with a descriptive message — surface it to the user; don't retry blindly.
 - **IDs expire** (server-configurable, default minutes-to-hours). Treat
   them as transient — get-and-use within the same conversation turn
   when possible.
-- **Don't put bytes in tool responses unnecessarily.** Prefer `stash`
-  over `inline` whenever you don't need to inspect the content.
+- **The bytes never travel in the tool result.** `get_email_attachment`
+  always stashes; a client that needs the content reads the resource
+  link with `resources/read`. Forwarding needs only the `attachmentId`.
 - **No filename-only attachments.** Every entry must have either
   `attachmentId` (with optional `name` override) or `base64Content`
   with `name`.
