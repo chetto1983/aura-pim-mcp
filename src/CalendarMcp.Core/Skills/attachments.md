@@ -47,16 +47,13 @@ remains usable until it expires; re-call `send_email`.
 
 The stdio transport does not have an HTTP upload endpoint, so on stdio
 you can only send via inline `base64Content` (small files), or by first
-calling `get_email_attachment` in `stash` mode to get an ID for forwarding.
+calling `get_email_attachment` to get an ID for forwarding.
 
 ## Inbound (reading/forwarding a file)
 
-`get_email_attachment(accountId, emailId, attachmentId, mode="stash")`
-fetches an attachment from a received email. Two modes:
-
-### `mode="stash"` (default)
-
-Downloads the file into the server's attachment store and returns:
+`get_email_attachment(accountId, emailId, attachmentId)` fetches an
+attachment from a received email into the server's attachment store and
+returns two things:
 
 ```json
 {
@@ -68,17 +65,10 @@ Downloads the file into the server's attachment store and returns:
 }
 ```
 
-The bytes never round-trip through the agent. Hand the returned
-`attachmentId` directly to `send_email` to forward, or (HTTP server
-only) fetch the raw bytes via `GET /attachments/{id}` for non-MCP
-consumers.
-
-### `mode="inline"`
-
-Returns the bytes as `base64Content` in the response, capped at
-**1 MB**. Use only when the agent itself needs to read the file
-content (e.g., to OCR an image, parse a small PDF). Files larger than
-1 MB are refused with an error directing you to `stash` mode.
+plus a resource link, `attachment://stash/xyz...`. A client that needs the
+file's content reads that link with `resources/read`; the bytes never
+pass through the model. Hand the `attachmentId` to `send_email` to
+forward the file. Reading the link does not use up the ID.
 
 ## Forwarding flow (the most common pattern)
 
@@ -92,7 +82,7 @@ get_email_details(accountId, emailId)
   → response.attachments[]   // each has provider-side attachmentId
 
 For each attachment to forward:
-  get_email_attachment(accountId, emailId, attachmentId, mode="stash")
+  get_email_attachment(accountId, emailId, attachmentId)
   → response.attachmentId     // server-stash ID (different from provider's)
 
 send_email(

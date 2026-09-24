@@ -108,7 +108,7 @@ public sealed partial class CalendarActionTool
         - create_contact: create a contact. Requires displayName. accountId, givenName, surname, email, phone, jobTitle, companyName, notes optional.
         - update_contact: update a contact. Requires accountId, contactId. Any of displayName, givenName, surname, email, phone, jobTitle, companyName, notes.
         - delete_contact: delete a contact. Requires accountId, contactId.
-        - get_email_attachment: fetch one attachment. Requires accountId, emailId, attachmentId. mode 'stash' (default) or 'inline'.
+        - get_email_attachment: fetch one attachment as a resource link (attachment://) plus an attachmentId for send_email. Requires accountId, emailId, attachmentId.
         - get_contextual_email_summary: cluster recent mail into topics. topics, countPerAccount, unreadOnly, includeBodyPreview, maxSamplesPerCluster optional.
         - get_guide: read an in-depth topical guide. Omit name (or pass 'index') for the list.
         - get_unsubscribe_info: report how a mailing can be unsubscribed from. Requires accountId, emailId.
@@ -119,7 +119,7 @@ public sealed partial class CalendarActionTool
         """;
 
     [McpServerTool, Description(ToolDescription)]
-    public async Task<string> Calendar(
+    public async Task<CallToolResult> Calendar(
         RequestContext<CallToolRequestParams> requestContext,
         [Description("Required. The operation to perform -- see the tool description for each action's required and optional fields.")]
         string action,
@@ -203,8 +203,6 @@ public sealed partial class CalendarActionTool
         string? notes = null,
         [Description("get_email_attachment only. Required. Attachment id from get_email_details.")]
         string? attachmentId = null,
-        [Description("get_email_attachment only. 'stash' (default) writes the attachment to the attachment store and returns a handle; 'inline' returns base64 content.")]
-        string? mode = null,
         [Description("get_contextual_email_summary only. Comma-separated topics to cluster around; omit to let the summary choose.")]
         string? topics = null,
         [Description("get_contextual_email_summary only. How many emails to scan per account. Default 50.")]
@@ -231,7 +229,7 @@ public sealed partial class CalendarActionTool
         }
         using (tenantScope)
         {
-            return await DispatchAction(action, new CalendarActionArguments
+            var text = await DispatchAction(action, new CalendarActionArguments
             {
                 AccountId = accountId,
                 CalendarId = calendarId,
@@ -273,7 +271,6 @@ public sealed partial class CalendarActionTool
                 CompanyName = companyName,
                 Notes = notes,
                 AttachmentId = attachmentId,
-                Mode = mode,
                 Topics = topics,
                 CountPerAccount = countPerAccount,
                 IncludeBodyPreview = includeBodyPreview,
@@ -282,6 +279,7 @@ public sealed partial class CalendarActionTool
                 Method = method,
                 Items = items,
             }).ConfigureAwait(false);
+            return action == "get_email_attachment" ? WithAttachmentLink(text) : TextResult(text);
         }
     }
 
@@ -315,7 +313,7 @@ public sealed partial class CalendarActionTool
             "create_contact" => CreateContactAction(args.DisplayName, args.AccountId, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
             "update_contact" => UpdateContactAction(args.AccountId, args.ContactId, args.DisplayName, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
             "delete_contact" => DeleteContactAction(args.AccountId, args.ContactId),
-            "get_email_attachment" => GetEmailAttachmentAction(args.AccountId, args.EmailId, args.AttachmentId, args.Mode),
+            "get_email_attachment" => GetEmailAttachmentAction(args.AccountId, args.EmailId, args.AttachmentId),
             "get_contextual_email_summary" => GetContextualEmailSummaryAction(args.Topics, args.CountPerAccount, args.UnreadOnly, args.IncludeBodyPreview, args.MaxSamplesPerCluster),
             "get_guide" => GetGuideAction(args.Name),
             "get_unsubscribe_info" => GetUnsubscribeInfoAction(args.AccountId, args.EmailId),

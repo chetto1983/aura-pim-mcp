@@ -48,7 +48,6 @@ internal sealed class CalendarActionArguments
     public string? CompanyName { get; init; }
     public string? Notes { get; init; }
     public string? AttachmentId { get; init; }
-    public string? Mode { get; init; }
     public string? Topics { get; init; }
     public int? CountPerAccount { get; init; }
     public bool? IncludeBodyPreview { get; init; }

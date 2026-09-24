@@ -95,10 +95,6 @@ public sealed partial class CalendarActionTool
     private Task<string> DeleteContactAction(string? accountId, string? contactId) =>
         Impl<DeleteContactTool>().DeleteContact(accountId!, contactId!);
 
-    private Task<string> GetEmailAttachmentAction(
-        string? accountId, string? emailId, string? attachmentId, string? mode) =>
-        Impl<GetEmailAttachmentTool>().GetEmailAttachment(accountId!, emailId!, attachmentId!, mode ?? "stash");
-
     private Task<string> GetContextualEmailSummaryAction(
         string? topics, int? countPerAccount, bool? unreadOnly, bool? includeBodyPreview, int? maxSamplesPerCluster) =>
         Impl<GetContextualEmailSummaryTool>().GetContextualEmailSummary(
