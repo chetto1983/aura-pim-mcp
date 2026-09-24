@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using CalendarMcp.Auth;
-using CalendarMcp.Core.Apps;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -49,7 +48,7 @@ public class Program
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
 
-        Log.Information("Calendar MCP HTTP Server starting. Config directory: {ConfigDir}", configDir);
+        Log.Information("Adjutant HTTP Server starting. Config directory: {ConfigDir}", configDir);
 
         var builder = WebApplication.CreateBuilder(args);
 
@@ -97,11 +96,11 @@ public class Program
             });
         }
 
-        // Configure Calendar MCP settings
+        // Configure Adjutant settings
         builder.Services.Configure<CalendarMcpConfiguration>(
             builder.Configuration.GetSection("CalendarMcp"));
 
-        // Add Calendar MCP core services (providers, tools, account registry)
+        // Add Adjutant core services (providers, tools, account registry)
         builder.Services.AddCalendarMcpCore();
 
         // Register admin services
@@ -146,8 +145,9 @@ public class Program
                     return Task.CompletedTask;
                 },
                 // Which tenant a caller reaches is a property of (issuer, subject)
-                // together. Resolving it once here leaves TenantIdentity.FromPrincipal
-                // and both its callers reading a single `sub` claim, as before.
+                // together. Resolving it once here leaves TenantIdentity.FromPrincipal and
+                // its three callers -- the curated tool, the attachment resource and
+                // AdminAuthMiddleware -- reading a single `sub` claim, as before.
                 OnTokenValidated = context =>
                 {
                     context.Principal = McpTenantClaims.Rebind(context.Principal, oauth);
@@ -190,27 +190,15 @@ public class Program
                 options.ResourceMetadata.AuthorizationServers.Add(issuer);
             }
         });
-        builder.Services.AddAuthorization();
+        builder.Services.AddAuthorizationBuilder().AddMcpToolsPolicy(oauth.ToolsScope);
 
         // Configure MCP server with HTTP/SSE transport and register tools
         builder.Services
             .AddMcpServer(CalendarMcpServerOptions.Configure)
             .WithHttpTransport()
-            // The 14 individually registered tools (list_accounts, get_emails,
-            // get_email_details, search_emails, send_email, list_calendars,
-            // get_calendar_events, get_calendar_event_details, create_event,
-            // respond_to_event, update_event, get_contacts, search_contacts,
-            // get_contact_details) collapsed into ONE curated, action-multiplexed tool
-            // (D-17..D-26). The 14 raw tool classes are deleted, not left
-            // registered-but-hidden. get_calendar_event_details no longer takes accountId
-            // (MCP-05/D-20) -- see CalendarActionTool for the full contract.
-            .WithCalendarActionTool()
-            // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
-            // set in WithCalendarActionTool's factory, beside the schema patch.
-            .WithCalendarView()
-            .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
-            .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
-            .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>()
+            // Upstream's 29 tools are served as ONE curated, action-multiplexed tool (D-17..D-26).
+            // The upstream tool classes stay, unregistered: every action forwards to one of them.
+            .WithCalendarMcpSurface()
             .WithRequestFilters(filters => filters.AddCallToolFilter(
                 (next) => async (request, cancellationToken) =>
                 {
@@ -243,24 +231,28 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
-        // The admin and attachment endpoints use the same OAuth bearer as the MCP endpoint.
+        // The admin and attachment endpoints use the same OAuth bearer and scope as the MCP endpoint.
         app.UseWhen(
             context => context.Request.Path.StartsWithSegments("/admin") ||
                        context.Request.Path.StartsWithSegments("/attachments"),
             adminApp =>
             {
-                adminApp.UseMiddleware<AdminAuthMiddleware>();
+                adminApp.UseMiddleware<AdminAuthMiddleware>(oauth.ToolsScope);
             });
 
-        // OpenAPI + Scalar
-        app.MapOpenApi();
-        app.MapScalarApiReference();
+        // OpenAPI + Scalar. Development only: both are anonymous and together they publish the
+        // entire admin API surface -- every route, parameter and schema -- which is a map of the
+        // server for anyone who asks once the origin is public.
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+            app.MapScalarApiReference();
+        }
 
         // Map MCP protocol endpoints (HTTP/SSE)
-        app.MapMcp().RequireAuthorization();
+        app.MapMcp().RequireAuthorization(McpToolsScope.PolicyName);
 
-        // Map attachment upload endpoint (sibling of /mcp; same network-level
-        // protection — Tailscale ACLs / reverse proxy).
+        // Attachment endpoints; the UseWhen above gives them the MCP bearer and tenant binding.
         app.MapAttachmentEndpoints();
 
         // Map admin API endpoints for OAuth-protected management clients.
@@ -273,11 +265,14 @@ public class Program
 
         foreach (var url in app.Urls)
         {
-            Log.Information("Calendar MCP HTTP Server listening on {Url}", url);
+            Log.Information("Adjutant HTTP Server listening on {Url}", url);
         }
         Log.Information("  MCP endpoint:  /");
         Log.Information("  Admin API:     /admin");
-        Log.Information("  API Docs:      /scalar/v1");
+        if (app.Environment.IsDevelopment())
+        {
+            Log.Information("  API Docs:      /scalar/v1");
+        }
         Log.Information("  Health:        /health");
 
         app.WaitForShutdown();

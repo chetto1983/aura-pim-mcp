@@ -8,7 +8,7 @@ using ModelContextProtocol.Server;
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// Returns markdown "skill" documents that describe how to use Calendar MCP
+/// Returns markdown "skill" documents that describe how to use Adjutant
 /// effectively for specific tasks. Files live as embedded resources under
 /// <c>CalendarMcp.Core/Skills/*.md</c>; callers fetch them by name.
 /// </summary>
@@ -29,13 +29,13 @@ public sealed class GetGuideTool(ILogger<GetGuideTool> logger)
         ["email"] = "All email tools and common patterns: list, search, read details, send, organize, bulk operations.",
         ["calendar"] = "Calendar tools and patterns: list, create, update, respond. Timezone handling is mandatory.",
         ["contacts"] = "Contact tools: list, search, view, create, update, delete across providers that support contacts.",
-        ["attachments"] = "Non-obvious attachment flow: stash vs inline modes, upload/forward patterns, size limits.",
+        ["attachments"] = "Non-obvious attachment flow: stash IDs and resource links, upload/forward patterns, size limits.",
         ["scenarios"] = "End-to-end workflows wiring tools together: triage, scheduling, forwarding, bulk cleanup.",
         ["providers"] = "Per-provider behavior: Microsoft 365, Google, Outlook.com, IMAP/SMTP, ICS, JSON.",
     };
 
     [McpServerTool, Description(
-        "Returns a markdown guide explaining how to use the Calendar MCP server for a specific topic. " +
+        "Returns a markdown guide explaining how to use the Adjutant server for a specific topic. " +
         "Call with no arguments (or name='index') to get the list of available guides. " +
         "Read 'overview' first if you have not used this server before. " +
         "Read the topic-specific guide before attempting a non-trivial workflow (e.g., 'attachments' before forwarding files, 'scenarios' for multi-tool flows).")]
@@ -89,7 +89,7 @@ public sealed class GetGuideTool(ILogger<GetGuideTool> logger)
     {
         var names = ListGuideNames().ToList();
         var sb = new StringBuilder();
-        sb.AppendLine("# Calendar MCP — Available Guides");
+        sb.AppendLine("# Adjutant — Available Guides");
         sb.AppendLine();
         sb.AppendLine("Call `get_guide` with `name=<topic>` (e.g. `get_guide(name=\"overview\")`) to read any guide below.");
         sb.AppendLine();

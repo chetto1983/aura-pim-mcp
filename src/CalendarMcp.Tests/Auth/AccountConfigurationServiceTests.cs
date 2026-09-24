@@ -1,6 +1,8 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarMcp.Auth;
 using CalendarMcp.Core.Configuration;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -64,7 +66,7 @@ public sealed class AccountConfigurationServiceTests
     [TestMethod]
     public async Task Add_PersistsOwnerAndGloballyUniqueAccountId()
     {
-        var id = TenantIdentity.AccountId(TestData.TenantA, "new-account");
+        var id = OwnId("new-account");
         var account = TestData.CreateAccount(id: id);
 
         await _service.AddAccountAsync(account);
@@ -85,6 +87,163 @@ public sealed class AccountConfigurationServiceTests
 
         await Assert.ThrowsExactlyAsync<InvalidDataException>(
             async () => _ = await _service.GetAllAccountsFromConfigAsync());
+    }
+
+    [TestMethod]
+    public async Task AddAccount_PersistsPermissions_AndReadsThemBack()
+    {
+        var id = OwnId("acc-1");
+        var permissions = AccountPermissions.All
+            .With(AccountPermission.EmailSend, false)
+            .With(AccountPermission.CalendarWrite, false);
+
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id, permissions: permissions));
+
+        var stored = await _service.GetAccountFromConfigAsync(id);
+
+        Assert.IsNotNull(stored);
+        Assert.IsTrue(stored.Permissions.EmailRead);
+        Assert.IsFalse(stored.Permissions.EmailSend);
+        Assert.IsTrue(stored.Permissions.CalendarRead);
+        Assert.IsFalse(stored.Permissions.CalendarWrite);
+        Assert.IsTrue(stored.Permissions.ContactsRead);
+        Assert.IsTrue(stored.Permissions.ContactsWrite);
+    }
+
+    [TestMethod]
+    public async Task AddAccount_WritesPermissionsAsCamelCaseJson()
+    {
+        var id = OwnId("acc-1");
+        await _service.AddAccountAsync(TestData.CreateAccount(
+            id: id,
+            permissions: AccountPermissions.None.With(AccountPermission.EmailRead, true)));
+
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()));
+        var written = doc.RootElement
+            .GetProperty("CalendarMcp").GetProperty("Accounts")
+            .EnumerateArray()
+            .Single(a => a.GetProperty("Id").GetString() == id)
+            .GetProperty("Permissions");
+
+        Assert.IsTrue(written.GetProperty("emailRead").GetBoolean());
+        Assert.IsFalse(written.GetProperty("emailSend").GetBoolean());
+        Assert.IsFalse(written.GetProperty("contactsWrite").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task GetAccount_ConfigWithNoPermissionsBlock_GrantsEverything()
+    {
+        // A config written before this feature existed.
+        WriteOwnAccount("legacy", "microsoft365", permissionsJson: null);
+
+        var stored = await _service.GetAccountFromConfigAsync("legacy");
+
+        Assert.IsNotNull(stored);
+        foreach (var permission in AccountPermissions.AllPermissions)
+            Assert.IsTrue(stored.Permissions.IsGranted(permission), permission.ToString());
+    }
+
+    [TestMethod]
+    public async Task GetAccount_PartialPermissionsBlock_DefaultsOmittedFlagsToGranted()
+    {
+        WriteOwnAccount("partial", "google", """{ "emailSend": false }""");
+
+        var stored = await _service.GetAccountFromConfigAsync("partial");
+
+        Assert.IsNotNull(stored);
+        Assert.IsFalse(stored.Permissions.EmailSend);
+        Assert.IsTrue(stored.Permissions.EmailRead);
+        Assert.IsTrue(stored.Permissions.CalendarWrite);
+    }
+
+    [TestMethod]
+    public async Task GetAccount_PascalCasePermissionsBlock_IsHonoured()
+    {
+        WriteOwnAccount("pascal", "google", """{ "EmailRead": false, "CalendarRead": false }""");
+
+        var stored = await _service.GetAccountFromConfigAsync("pascal");
+
+        Assert.IsNotNull(stored);
+        Assert.IsFalse(stored.Permissions.EmailRead);
+        Assert.IsFalse(stored.Permissions.CalendarRead);
+        Assert.IsTrue(stored.Permissions.ContactsRead);
+    }
+
+    [TestMethod]
+    public async Task UpdateAccount_ReplacesPermissions()
+    {
+        var id = OwnId("acc-1");
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id));
+
+        var existing = await _service.GetAccountFromConfigAsync(id);
+        Assert.IsNotNull(existing);
+
+        await _service.UpdateAccountAsync(new AccountInfo
+        {
+            Id = existing.Id,
+            TenantId = existing.TenantId,
+            DisplayName = existing.DisplayName,
+            Provider = existing.Provider,
+            Domains = existing.Domains,
+            Enabled = existing.Enabled,
+            Priority = existing.Priority,
+            Permissions = AccountPermissions.None.With(AccountPermission.CalendarRead, true),
+            ProviderConfig = existing.ProviderConfig
+        });
+
+        var updated = await _service.GetAccountFromConfigAsync(id);
+
+        Assert.IsNotNull(updated);
+        Assert.IsTrue(updated.Permissions.CalendarRead);
+        Assert.IsFalse(updated.Permissions.EmailRead);
+        Assert.IsFalse(updated.Permissions.ContactsWrite);
+    }
+
+    [TestMethod]
+    public async Task AddAccount_MultipleAccountsSameProvider_KeepIndependentPermissions()
+    {
+        var workId = OwnId("gmail-work");
+        var personalId = OwnId("gmail-personal");
+
+        await _service.AddAccountAsync(TestData.CreateAccount(
+            id: workId, provider: "google",
+            permissions: AccountPermissions.None.With(AccountPermission.EmailRead, true)));
+        await _service.AddAccountAsync(TestData.CreateAccount(id: personalId, provider: "google"));
+
+        var work = await _service.GetAccountFromConfigAsync(workId);
+        var personal = await _service.GetAccountFromConfigAsync(personalId);
+
+        Assert.IsNotNull(work);
+        Assert.IsNotNull(personal);
+        Assert.IsFalse(work.Permissions.EmailSend);
+        Assert.IsTrue(personal.Permissions.EmailSend);
+    }
+
+    private static string OwnId(string localId) => TenantIdentity.AccountId(TestData.TenantA, localId);
+
+    /// <summary>
+    /// Replaces the config with one account owned by the bound tenant; a null
+    /// <paramref name="permissionsJson"/> omits the Permissions block entirely.
+    /// </summary>
+    private static void WriteOwnAccount(string id, string provider, string? permissionsJson)
+    {
+        var permissions = permissionsJson is null ? "" : $"\"Permissions\": {permissionsJson},";
+        File.WriteAllText(ConfigurationPaths.GetConfigFilePath(), $$"""
+            {
+              "CalendarMcp": {
+                "Accounts": [
+                  {
+                    "Id": "{{id}}",
+                    "TenantId": "{{TestData.TenantA}}",
+                    "DisplayName": "{{id}}",
+                    "Provider": "{{provider}}",
+                    {{permissions}}
+                    "ProviderConfig": {}
+                  }
+                ]
+              }
+            }
+            """);
     }
 
     private static string InitialConfig() => $$"""

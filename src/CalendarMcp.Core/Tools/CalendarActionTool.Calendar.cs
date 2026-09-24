@@ -1,363 +1,60 @@
 using System.Text.Json;
-using CalendarMcp.Core.Models;
-using CalendarMcp.Core.Services;
-using CalendarMcp.Core.Utilities;
-using Microsoft.Extensions.Logging;
+using System.Text.Json.Nodes;
 using ModelContextProtocol;
 
 namespace CalendarMcp.Core.Tools;
 
+/// <summary>
+/// The actions whose contract differs from upstream's: a calendar event is addressed by the
+/// opaque <see cref="EventRef"/> (MCP-05, D-20) instead of the provider's raw id plus an accountId.
+/// get_calendar_events and create_event mint references; get_calendar_event_details,
+/// update_event, delete_event and respond_to_event take one. Every action forwards to the
+/// upstream implementation and rewrites only the id fields of its JSON, so every other change
+/// upstream makes to these tools -- permissions, all-day ranges, local-day windows -- arrives here
+/// without a second copy of the logic.
+/// </summary>
 public sealed partial class CalendarActionTool
 {
-    /// <summary>list_calendars -- unchanged from the raw ListCalendarsTool.</summary>
-    private async Task<string> ListCalendarsAction(string? accountId)
-    {
-        _logger.LogInformation("Listing calendars: accountId={AccountId}", accountId);
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
-        List<AccountInfo> validAccounts;
-        if (string.IsNullOrEmpty(accountId))
-        {
-            validAccounts = _accountRegistry.GetEnabledAccounts().ToList();
-            if (validAccounts.Count == 0)
-                throw new McpException("No accounts found");
-
-            foreach (var skipped in validAccounts.Where(a => !AccountCapabilities.HasCalendar(a)))
-                _logger.LogInformation("Skipping account {AccountId} in list_calendars: no calendar capability", skipped.Id);
-            validAccounts = validAccounts.Where(AccountCapabilities.HasCalendar).ToList();
-        }
-        else
-        {
-            validAccounts = new List<AccountInfo> { await ToolGuard.RequireAccountAsync(_accountRegistry, accountId) };
-        }
-
-        try
-        {
-            var tasks = validAccounts.Select(async account =>
-            {
-                try
-                {
-                    var provider = _providerFactory.GetProvider(account!.Provider);
-                    var calendars = await provider.ListCalendarsAsync(account.Id, CancellationToken.None);
-                    return calendars;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error listing calendars from account {AccountId}", account!.Id);
-                    return Enumerable.Empty<CalendarInfo>();
-                }
-            });
-
-            var results = await Task.WhenAll(tasks);
-            var allCalendars = results.SelectMany(c => c).ToList();
-
-            var response = new
-            {
-                calendars = allCalendars.Select(c => new
-                {
-                    id = c.Id,
-                    accountId = c.AccountId,
-                    name = c.Name,
-                    owner = c.Owner,
-                    canEdit = c.CanEdit,
-                    isDefault = c.IsDefault
-                })
-            };
-
-            _logger.LogInformation("Retrieved {Count} calendars from {AccountCount} accounts",
-                allCalendars.Count, validAccounts.Count);
-
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (Exception ex) when (ex is not McpException)
-        {
-            _logger.LogError(ex, "Error in list_calendars action");
-            throw new McpException("Failed to list calendars.", ex);
-        }
-    }
-
-    /// <summary>
-    /// get_calendar_events -- unchanged from the raw GetCalendarEventsTool,
-    /// except each returned event's <c>eventId</c> is now the MCP-05 opaque
-    /// reference (<see cref="EventRef"/>) instead of the provider's raw id,
-    /// so it can be passed straight to get_calendar_event_details.
-    /// </summary>
+    /// <summary>get_calendar_events, with each event's provider id replaced by its EventRef.</summary>
     private async Task<string> GetCalendarEventsAction(
         string? timeZone, DateTime? startDate, DateTime? endDate, string? accountId, string? calendarId, int? count)
     {
+        // Required by upstream's own schema; optional in the multiplexed one.
         ToolGuard.RequireNonEmpty(timeZone, nameof(timeZone));
-        var resolvedCount = count ?? 50;
 
-        var tz = TimeZoneHelper.TryGetTimeZone(timeZone);
-        if (tz == null)
-            throw new McpException($"Invalid IANA timezone: '{timeZone}'. Use a valid IANA timezone name such as 'America/Chicago', 'Europe/London', or 'Asia/Tokyo'.");
-
-        // Determine which accounts to query (mirrors search_emails / list_calendars):
-        //   - accountId provided        -> that single account
-        //   - calendarId provided alone -> resolve the owning account automatically
-        //   - neither provided          -> all enabled accounts
-        var validateCalendarId = false;
-
-        List<AccountInfo> validAccounts;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            validAccounts = new List<AccountInfo> { await ToolGuard.RequireAccountAsync(_accountRegistry, accountId) };
-            validateCalendarId = !string.IsNullOrEmpty(calendarId) && !IsPrimaryAlias(calendarId);
-        }
-        else if (!string.IsNullOrEmpty(calendarId))
-        {
-            try
-            {
-                var allAccounts = _accountRegistry.GetEnabledAccounts()
-                    .Where(AccountCapabilities.HasCalendar)
-                    .ToList();
-                var lookupTasks = allAccounts.Select(async acc =>
-                {
-                    try
-                    {
-                        var prov = _providerFactory.GetProvider(acc.Provider);
-                        var cals = await prov.ListCalendarsAsync(acc.Id, CancellationToken.None);
-                        return cals.Any(c => c.Id == calendarId) ? acc.Id : null;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error listing calendars for account {AccountId} during calendar lookup", acc.Id);
-                        return null;
-                    }
-                });
-
-                var lookupResults = await Task.WhenAll(lookupTasks);
-                var matchingAccountIds = lookupResults.OfType<string>().ToList();
-
-                if (matchingAccountIds.Count == 0)
-                    throw new McpException($"No calendar found with id '{calendarId}'. Provide accountId to specify which account to query.");
-
-                if (matchingAccountIds.Count > 1)
-                    throw new McpException($"calendarId '{calendarId}' exists in multiple accounts; provide accountId to specify which account to query.");
-
-                accountId = matchingAccountIds[0];
-                _logger.LogInformation("Resolved accountId={AccountId} from calendarId={CalendarId}", accountId, calendarId);
-            }
-            catch (Exception ex) when (ex is not McpException)
-            {
-                _logger.LogError(ex, "Error resolving accountId from calendarId {CalendarId}", calendarId);
-                throw new McpException("Failed to resolve account from calendarId.", ex);
-            }
-
-            validAccounts = new List<AccountInfo> { await ToolGuard.RequireAccountAsync(_accountRegistry, accountId) };
-        }
-        else
-        {
-            validAccounts = _accountRegistry.GetEnabledAccounts().ToList();
-            if (validAccounts.Count == 0)
-                throw new McpException("No accounts found");
-        }
-
-        var warnings = new List<object>();
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            var only = validAccounts[0];
-            if (!AccountCapabilities.HasCalendar(only))
-            {
-                _logger.LogInformation("Account {AccountId} has no calendar capability; returning empty result", only.Id);
-                warnings.Add(new
-                {
-                    accountId = only.Id,
-                    warning = $"Account '{only.Id}' has no calendar capability (it is email-only). Use list_accounts to see each account's capabilities."
-                });
-                validAccounts = new List<AccountInfo>();
-            }
-        }
-        else
-        {
-            foreach (var skipped in validAccounts.Where(a => !AccountCapabilities.HasCalendar(a)))
-                _logger.LogInformation("Skipping account {AccountId} in calendar read: no calendar capability", skipped.Id);
-            validAccounts = validAccounts.Where(AccountCapabilities.HasCalendar).ToList();
-        }
-
-        var resolvedStart = startDate ?? TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
-        var resolvedEnd = endDate.HasValue ? endDate.Value.Date.AddDays(1) : resolvedStart.AddDays(7);
-
-        _logger.LogInformation("Getting calendar events: startDate={StartDate}, endDate={EndDate}, accountCount={AccountCount}, count={Count}, timeZone={TimeZone}",
-            resolvedStart, resolvedEnd, validAccounts.Count, resolvedCount, timeZone);
-
-        try
-        {
-            var tasks = validAccounts.Select(async account =>
-            {
-                try
-                {
-                    var provider = _providerFactory.GetProvider(account!.Provider);
-
-                    if (validateCalendarId)
-                    {
-                        try
-                        {
-                            var calendars = await provider.ListCalendarsAsync(account.Id, CancellationToken.None);
-                            if (!calendars.Any(c => c.Id == calendarId))
-                            {
-                                lock (warnings)
-                                {
-                                    warnings.Add(new
-                                    {
-                                        accountId = account.Id,
-                                        warning = $"calendarId '{calendarId}' was not found in account '{account.Id}'. Use list_calendars to obtain a valid calendar id."
-                                    });
-                                }
-                                return Enumerable.Empty<CalendarEvent>();
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Error validating calendarId {CalendarId} for account {AccountId}", calendarId, account.Id);
-                        }
-                    }
-
-                    var events = await provider.GetCalendarEventsAsync(
-                        account.Id, calendarId, resolvedStart, resolvedEnd, resolvedCount, CancellationToken.None);
-                    return events;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error getting calendar events from account {AccountId}", account!.Id);
-                    lock (warnings)
-                    {
-                        warnings.Add(new { accountId = account.Id, error = "Failed to retrieve events from this account." });
-                    }
-                    return Enumerable.Empty<CalendarEvent>();
-                }
-            });
-
-            var results = await Task.WhenAll(tasks);
-            var allEvents = results.SelectMany(e => e).OrderBy(e => e.Start).ToList();
-
-            var response = new
-            {
-                timezone = timeZone,
-                events = allEvents.Select(e => new
-                {
-                    eventId = EventRef.Encode(e.AccountId, e.Id),
-                    accountId = e.AccountId,
-                    calendarId = e.CalendarId,
-                    subject = e.Subject,
-                    start_utc = TimeZoneHelper.ToUtcString(e.Start),
-                    start_local = TimeZoneHelper.ToLocalString(e.Start, tz),
-                    end_utc = TimeZoneHelper.ToUtcString(e.End),
-                    end_local = TimeZoneHelper.ToLocalString(e.End, tz),
-                    location = e.Location,
-                    attendees = e.Attendees,
-                    isAllDay = e.IsAllDay,
-                    organizer = e.Organizer
-                }),
-                warnings = warnings.Count > 0 ? warnings : null
-            };
-
-            _logger.LogInformation("Retrieved {Count} events from {AccountCount} accounts between {Start} and {End}",
-                allEvents.Count, validAccounts.Count, resolvedStart, resolvedEnd);
-
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (Exception ex) when (ex is not McpException)
-        {
-            _logger.LogError(ex, "Error in get_calendar_events action");
-            throw new McpException("Failed to get calendar events.", ex);
-        }
+        var json = await Impl<GetCalendarEventsTool>().GetCalendarEvents(
+            timeZone!, startDate, endDate, accountId, calendarId, count ?? 50);
+        return WithEventRefs(json);
     }
 
-    /// <summary>
-    /// get_calendar_event_details -- MCP-05 (D-20): no accountId argument.
-    /// eventId must be the opaque reference get_calendar_events returned;
-    /// the account is resolved from it server-side. A missing or malformed
-    /// reference is rejected as a plain validation failure, never resolved
-    /// against a default account.
-    /// </summary>
+    /// <summary>get_calendar_event_details: the account is resolved from the reference.</summary>
     private async Task<string> GetCalendarEventDetailsAction(string? timeZone, string? calendarId, string? eventId)
     {
-        _logger.LogInformation("Getting calendar event details: calendarId={CalendarId}, timeZone={TimeZone}",
-            calendarId, timeZone);
-
         ToolGuard.RequireNonEmpty(timeZone, nameof(timeZone));
         ToolGuard.RequireNonEmpty(calendarId, nameof(calendarId));
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
 
-        var tz = TimeZoneHelper.TryGetTimeZone(timeZone);
-        if (tz == null)
-            throw new McpException($"Invalid IANA timezone: '{timeZone}'. Use a valid IANA timezone name such as 'America/Chicago', 'Europe/London', or 'Asia/Tokyo'.");
+        var json = await ForwardWithEventRef(eventId, (accountId, rawEventId) =>
+            Impl<GetCalendarEventDetailsTool>().GetCalendarEventDetails(timeZone!, accountId, calendarId!, rawEventId));
 
-        if (!EventRef.TryDecode(eventId, out var accountId, out var rawEventId))
+        // The reference is echoed back byte-for-byte; the raw ids it wraps are never shown.
+        var details = ParseObject(json);
+        RequireString(details, "id", "get_calendar_event_details");
+        RequireString(details, "accountId", "get_calendar_event_details");
+        RequireAbsent(details, "eventId", "get_calendar_event_details");
+        var rewritten = new JsonObject { ["eventId"] = eventId };
+        foreach (var (key, value) in details)
         {
-            throw new McpException(
-                "eventId is not a valid event reference. Obtain it from the eventId field returned by get_calendar_events -- do not construct or guess one.");
+            if (key is not ("id" or "accountId"))
+                rewritten[key] = value?.DeepClone();
         }
-
-        var account = await ToolGuard.RequireAccountAsync(_accountRegistry, accountId);
-
-        try
-        {
-            var provider = _providerFactory.GetProvider(account.Provider);
-            var evt = await provider.GetCalendarEventDetailsAsync(
-                accountId,
-                calendarId ?? "primary",
-                rawEventId,
-                CancellationToken.None);
-
-            if (evt == null)
-                throw new McpException($"Event not found for the supplied eventId.");
-
-            var response = new
-            {
-                eventId, // echoed back byte-for-byte -- opaque, never re-encoded
-                calendarId = evt.CalendarId,
-                subject = evt.Subject,
-                start_utc = TimeZoneHelper.ToUtcString(evt.Start),
-                start_local = TimeZoneHelper.ToLocalString(evt.Start, tz),
-                end_utc = TimeZoneHelper.ToUtcString(evt.End),
-                end_local = TimeZoneHelper.ToLocalString(evt.End, tz),
-                timezone = timeZone,
-                location = evt.Location,
-                body = evt.Body,
-                bodyFormat = evt.BodyFormat,
-                organizer = evt.Organizer,
-                organizerName = evt.OrganizerName,
-                attendees = evt.Attendees,
-                attendeeDetails = evt.AttendeeDetails.Select(a => new
-                {
-                    email = a.Email,
-                    name = a.Name,
-                    responseStatus = a.ResponseStatus,
-                    type = a.Type,
-                    isOrganizer = a.IsOrganizer
-                }),
-                isAllDay = evt.IsAllDay,
-                responseStatus = evt.ResponseStatus,
-                showAs = evt.ShowAs,
-                sensitivity = evt.Sensitivity,
-                isCancelled = evt.IsCancelled,
-                isOnlineMeeting = evt.IsOnlineMeeting,
-                onlineMeetingUrl = evt.OnlineMeetingUrl,
-                onlineMeetingProvider = evt.OnlineMeetingProvider,
-                isRecurring = evt.IsRecurring,
-                recurrencePattern = evt.RecurrencePattern,
-                categories = evt.Categories,
-                importance = evt.Importance,
-                createdDateTime = evt.CreatedDateTime,
-                lastModifiedDateTime = evt.LastModifiedDateTime
-            };
-
-            _logger.LogInformation("Retrieved calendar event details for account {AccountId}", accountId);
-
-            return JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (Exception ex) when (ex is not McpException)
-        {
-            _logger.LogError(ex, "Error in get_calendar_event_details action");
-            throw new McpException("Failed to get calendar event details.", ex);
-        }
+        return rewritten.ToJsonString(IndentedJson);
     }
 
-    /// <summary>create_event -- unchanged from the raw CreateEventTool.</summary>
     private async Task<string> CreateEventAction(
         string? subject, DateTime? start, DateTime? end, string? accountId, string? calendarId,
-        string? location, List<string>? attendees, string? body, string? timeZone)
+        string? location, List<string>? attendees, string? body, string? timeZone, bool? isAllDay)
     {
         if (string.IsNullOrEmpty(subject))
             throw new McpException("subject is required.");
@@ -366,149 +63,108 @@ public sealed partial class CalendarActionTool
         if (end is null)
             throw new McpException("end is required.");
 
-        var resolvedBody = StripCdataWrapper(body);
-
-        _logger.LogInformation("Creating event: subject={Subject}, start={Start}, end={End}, accountId={AccountId}",
-            subject, start, end, accountId);
-
-        AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            account = await ToolGuard.RequireAccountAsync(_accountRegistry, accountId);
-        }
-        else
-        {
-            var accounts = await _accountRegistry.GetAllAccountsAsync();
-            var first = accounts.FirstOrDefault();
-            if (first == null)
-                throw new McpException("No enabled account available to create event");
-            account = first;
-        }
-
-        try
-        {
-            var provider = _providerFactory.GetProvider(account.Provider);
-            var eventId = await provider.CreateEventAsync(
-                account.Id, calendarId, subject, start.Value, end.Value, location, attendees, resolvedBody, timeZone, CancellationToken.None);
-
-            var result = new
-            {
-                success = true,
-                eventId,
-                accountUsed = account.Id,
-                calendarUsed = calendarId ?? "default"
-            };
-
-            _logger.LogInformation("Created event in account {AccountId}", account.Id);
-
-            return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (Exception ex) when (ex is not McpException)
-        {
-            _logger.LogError(ex, "Error in create_event action");
-            throw new McpException("Failed to create event.", ex);
-        }
+        var result = ParseObject(await Impl<CreateEventTool>().CreateEvent(
+            subject, start.Value, end.Value, accountId, calendarId, location, attendees, body, timeZone, isAllDay ?? false));
+        result["eventId"] = EventRef.Encode(
+            RequireString(result, "accountUsed", "create_event"), RequireString(result, "eventId", "create_event"));
+        return result.ToJsonString(IndentedJson);
     }
 
-    /// <summary>update_event -- unchanged from the raw UpdateEventTool.</summary>
     private async Task<string> UpdateEventAction(
-        string? accountId, string? calendarId, string? eventId, string? subject, DateTime? start, DateTime? end,
-        string? location, List<string>? attendees, string? timeZone)
-    {
-        _logger.LogInformation("Updating event: eventId={EventId}, accountId={AccountId}, calendarId={CalendarId}",
-            eventId, accountId, calendarId);
+        string? calendarId, string? eventId, string? subject, DateTime? start, DateTime? end,
+        string? location, List<string>? attendees, string? timeZone, bool? isAllDay) =>
+        EchoEventRef(await ForwardWithEventRef(eventId, (accountId, rawEventId) =>
+            Impl<UpdateEventTool>().UpdateEvent(
+                accountId, calendarId!, rawEventId, subject, start, end, location, attendees, timeZone, isAllDay)),
+            eventId!, "update_event");
 
-        ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
-        ToolGuard.RequireNonEmpty(calendarId, nameof(calendarId));
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
-        var account = await ToolGuard.RequireAccountAsync(_accountRegistry, accountId!);
+    private async Task<string> DeleteEventAction(string? eventId, string? calendarId) =>
+        EchoEventRef(await ForwardWithEventRef(eventId, (accountId, rawEventId) =>
+            Impl<DeleteEventTool>().DeleteEvent(rawEventId, accountId, calendarId)),
+            eventId!, "delete_event");
+
+    private async Task<string> RespondToEventAction(
+        string? eventId, string? response, string? calendarId, string? comment) =>
+        EchoEventRef(await ForwardWithEventRef(eventId, (accountId, rawEventId) =>
+            Impl<RespondToEventTool>().RespondToEvent(rawEventId, response!, accountId, calendarId, comment)),
+            eventId!, "respond_to_event");
+
+    /// <summary>
+    /// Decodes the reference and runs the upstream call with the account and raw id it wraps. A
+    /// missing or malformed reference is rejected, never resolved against a default account, and
+    /// an error that quotes the raw id quotes the reference instead: the caller only holds that.
+    /// </summary>
+    private static async Task<string> ForwardWithEventRef(
+        string? reference, Func<string, string, Task<string>> call)
+    {
+        ToolGuard.RequireNonEmpty(reference, "eventId");
+        if (!EventRef.TryDecode(reference, out var accountId, out var rawEventId))
+        {
+            throw new McpException(
+                "eventId is not a valid event reference. Obtain it from the eventId field returned by get_calendar_events or create_event -- do not construct or guess one.");
+        }
 
         try
         {
-            var provider = _providerFactory.GetProvider(account.Provider);
-            await provider.UpdateEventAsync(
-                accountId!, calendarId!, eventId!, subject, start, end, location, attendees, timeZone, CancellationToken.None);
-
-            return JsonSerializer.Serialize(new
-            {
-                success = true,
-                eventId,
-                accountUsed = accountId,
-                calendarUsed = calendarId
-            }, new JsonSerializerOptions { WriteIndented = true });
+            return await call(accountId, rawEventId);
         }
-        catch (Exception ex) when (ex is not McpException)
+        catch (McpException ex) when (ex.Message.Contains(rawEventId, StringComparison.Ordinal))
         {
-            _logger.LogError(ex, "Error in update_event action");
-            throw new McpException("Failed to update event.", ex);
+            throw new McpException(ex.Message.Replace(rawEventId, reference, StringComparison.Ordinal), ex);
         }
     }
 
-    /// <summary>respond_to_event -- unchanged from the raw RespondToEventTool.</summary>
-    private async Task<string> RespondToEventAction(
-        string? eventId, string? response, string? accountId, string? calendarId, string? comment)
+    /// <summary>Replaces the raw eventId a write result echoes with the caller's reference.</summary>
+    private static string EchoEventRef(string upstreamJson, string reference, string action)
     {
-        _logger.LogInformation("Responding to event: eventId={EventId}, response={Response}, accountId={AccountId}, calendarId={CalendarId}",
-            eventId, response, accountId, calendarId);
-
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
-        ToolGuard.RequireNonEmpty(response, nameof(response));
-
-        var normalizedResponse = response!.ToLowerInvariant();
-        if (normalizedResponse != "accept" && normalizedResponse != "accepted" &&
-            normalizedResponse != "tentative" && normalizedResponse != "tentativelyaccepted" &&
-            normalizedResponse != "decline" && normalizedResponse != "declined")
-        {
-            throw new McpException("Invalid response type. Valid values are: accept, tentative, decline");
-        }
-
-        AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            account = await ToolGuard.RequireAccountAsync(_accountRegistry, accountId);
-        }
-        else
-        {
-            var accounts = await _accountRegistry.GetAllAccountsAsync();
-            var first = accounts.FirstOrDefault();
-            if (first == null)
-                throw new McpException("No enabled account available to respond to event");
-            account = first;
-        }
-
-        try
-        {
-            var provider = _providerFactory.GetProvider(account.Provider);
-            await provider.RespondToEventAsync(
-                account.Id, calendarId ?? "primary", eventId!, response, comment, CancellationToken.None);
-
-            var result = new
-            {
-                success = true,
-                message = $"Event response sent: {response}",
-                eventId,
-                response = normalizedResponse,
-                accountUsed = account.Id,
-                calendarUsed = calendarId ?? "default"
-            };
-
-            _logger.LogInformation("Responded to event {EventId} with {Response} from account {AccountId}",
-                eventId, response, account.Id);
-
-            return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
-        }
-        catch (Exception ex) when (ex is not McpException)
-        {
-            _logger.LogError(ex, "Error in respond_to_event action");
-            throw new McpException("Failed to respond to event.", ex);
-        }
+        var result = ParseObject(upstreamJson);
+        RequireString(result, "eventId", action);
+        result["eventId"] = reference;
+        return result.ToJsonString(IndentedJson);
     }
 
     /// <summary>
-    /// "primary" is the alias every provider uses for an account's default calendar, and the
-    /// calendarId the tool emits for default-calendar events. It is accepted as input but is
-    /// never returned by ListCalendarsAsync, so it must bypass calendarId validation.
+    /// Replaces <c>events[].id</c> with <c>eventId</c> = EventRef(accountId, id). Fails loudly if
+    /// upstream renames either field or starts emitting its own <c>eventId</c>: a silent
+    /// pass-through would hand the model raw ids that every event action then rejects.
     /// </summary>
-    private static bool IsPrimaryAlias(string? calendarId) =>
-        string.Equals(calendarId, "primary", StringComparison.Ordinal);
+    internal static string WithEventRefs(string upstreamJson)
+    {
+        var response = ParseObject(upstreamJson);
+        if (response["events"] is not JsonArray events)
+            throw new InvalidOperationException("get_calendar_events returned no 'events' array.");
+
+        for (var i = 0; i < events.Count; i++)
+        {
+            var evt = events[i]?.AsObject()
+                ?? throw new InvalidOperationException($"get_calendar_events returned a null event at index {i}.");
+            RequireAbsent(evt, "eventId", "get_calendar_events");
+            var reference = EventRef.Encode(
+                RequireString(evt, "accountId", "get_calendar_events"), RequireString(evt, "id", "get_calendar_events"));
+
+            var rewritten = new JsonObject { ["eventId"] = reference };
+            foreach (var (key, value) in evt)
+            {
+                if (key != "id")
+                    rewritten[key] = value?.DeepClone();
+            }
+            events[i] = rewritten;
+        }
+        return response.ToJsonString(IndentedJson);
+    }
+
+    private static string RequireString(JsonObject result, string field, string action) =>
+        result[field] is JsonValue value && value.TryGetValue<string>(out var text) && text.Length > 0
+            ? text
+            : throw new InvalidOperationException($"{action} returned no '{field}' string.");
+
+    private static void RequireAbsent(JsonObject result, string field, string action)
+    {
+        if (result.ContainsKey(field))
+            throw new InvalidOperationException($"{action} now returns its own '{field}'; the EventRef rewrite would hide it.");
+    }
+
+    private static JsonObject ParseObject(string json) =>
+        JsonNode.Parse(json)?.AsObject()
+            ?? throw new InvalidOperationException("Calendar tool returned a non-object JSON result.");
 }

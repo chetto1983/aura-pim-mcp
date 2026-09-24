@@ -46,6 +46,19 @@ public static class TenantIdentity
 {
     public const string OAuthClaimName = "sub";
 
+    /// <summary>
+    /// Names the tenant of a local, single-user process -- the CLI and the stdio server -- where
+    /// no OAuth bearer exists to carry a subject.
+    /// </summary>
+    public const string LocalTenantVariable = "CALENDAR_MCP_TENANT_ID";
+
+    /// <summary>
+    /// The principal a local process presents on every request, carrying its tenant the way a
+    /// bearer's <c>sub</c> does, so the tools bind a tenant through the one path both transports share.
+    /// </summary>
+    public static ClaimsPrincipal LocalPrincipal(string? tenantId) =>
+        new(new ClaimsIdentity([new Claim(OAuthClaimName, Normalize(tenantId))], "local"));
+
     public static string Normalize(string? value)
     {
         if (!Guid.TryParse(value?.Trim(), out var tenantId) || tenantId == Guid.Empty)

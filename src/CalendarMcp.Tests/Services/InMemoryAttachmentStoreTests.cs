@@ -190,6 +190,16 @@ public class InMemoryAttachmentStoreTests
         Assert.IsNotNull(store.TryConsume(stored!.Id));
     }
 
+    [TestMethod]
+    public void DefaultCap_AdmitsA25MiBAttachmentAndRefusesOneByteMore()
+    {
+        const int cap = 25 * 1024 * 1024;
+        var store = CreateStore();
+
+        Assert.IsNotNull(store.Put("max.bin", null, new byte[cap]));
+        Assert.IsNull(store.Put("over.bin", null, new byte[cap + 1]));
+    }
+
     private sealed class FakeTimeProvider(DateTimeOffset start) : TimeProvider
     {
         private DateTimeOffset _now = start;

@@ -1,6 +1,8 @@
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Utilities;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Calendar.v3;
 using Google.Apis.Calendar.v3.Data;
 using Google.Apis.Gmail.v1;
@@ -8,6 +10,7 @@ using Google.Apis.Gmail.v1.Data;
 using Google.Apis.PeopleService.v1;
 using Google.Apis.PeopleService.v1.Data;
 using Google.Apis.Services;
+using Google.Apis.Util;
 using Google.Apis.Util.Store;
 using Microsoft.Extensions.Logging;
 using MimeKit;
@@ -42,20 +45,20 @@ public class GoogleProviderService : IGoogleProviderService
     /// <summary>
     /// Get Google credential for an account
     /// </summary>
-    private async Task<UserCredential?> GetCredentialAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<UserCredential> GetCredentialAsync(string accountId, CancellationToken cancellationToken)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
         {
             _logger.LogError("Account {AccountId} not found in registry", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' not found in registry");
         }
 
         if (!account.ProviderConfig.TryGetValue("clientId", out var clientId) ||
             !account.ProviderConfig.TryGetValue("clientSecret", out var clientSecret))
         {
             _logger.LogError("Account {AccountId} missing clientId or clientSecret in configuration", accountId);
-            return null;
+            throw new ProviderOperationException($"Account '{accountId}' is missing clientId or clientSecret in its configuration");
         }
 
         try
@@ -73,7 +76,7 @@ public class GoogleProviderService : IGoogleProviderService
             if (!File.Exists(tokenFile))
             {
                 _logger.LogWarning("No cached credential found for Google account {AccountId}. Run CLI to authenticate.", accountId);
-                return null;
+                throw new AccountAuthenticationRequiredException(accountId);
             }
 
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
@@ -91,16 +94,22 @@ public class GoogleProviderService : IGoogleProviderService
                 if (!refreshed)
                 {
                     _logger.LogWarning("Failed to refresh Google token for account {AccountId}", accountId);
-                    return null;
+                    throw new AccountAuthenticationRequiredException(accountId);
                 }
             }
 
             return credential;
         }
-        catch (Exception ex)
+        catch (TokenResponseException ex)
+        {
+            // Refresh token expired or revoked (e.g. invalid_grant): only re-authenticating fixes it.
+            _logger.LogWarning(ex, "Google token refresh rejected for account {AccountId}: {Message}", accountId, ex.Message);
+            throw new AccountAuthenticationRequiredException(accountId, ex);
+        }
+        catch (Exception ex) when (ex is not AccountAuthenticationRequiredException)
         {
             _logger.LogError(ex, "Error getting Google credential for account {AccountId}: {Message}", accountId, ex.Message);
-            return null;
+            throw;
         }
     }
 
@@ -139,17 +148,32 @@ public class GoogleProviderService : IGoogleProviderService
         });
     }
 
+    /// <summary>
+    /// Narrows a Gmail message list to one folder (alias or label ID). Without a folder the
+    /// list keeps Gmail's default view: all mail except spam and trash.
+    /// </summary>
+    private static void ApplyFolder(UsersResource.MessagesResource.ListRequest request, string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+
+        var filter = MailFolderAliases.ToGmailListFilter(folder);
+        if (filter.LabelId is not null)
+            request.LabelIds = new Repeatable<string>([filter.LabelId]);
+        if (filter.IncludeSpamTrash)
+            request.IncludeSpamTrash = true;
+        if (filter.Query is not null)
+            request.Q = string.IsNullOrEmpty(request.Q) ? filter.Query : $"{request.Q} {filter.Query}";
+    }
+
     public async Task<IEnumerable<EmailMessage>> GetEmailsAsync(
         string accountId, 
         int count = 20, 
         bool unreadOnly = false, 
+        string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<EmailMessage>();
-        }
 
         try
         {
@@ -158,6 +182,7 @@ public class GoogleProviderService : IGoogleProviderService
             var request = service.Users.Messages.List("me");
             request.MaxResults = count;
             request.Q = unreadOnly ? "is:unread" : null;
+            ApplyFolder(request, folder);
             
             var response = await request.ExecuteAsync(cancellationToken);
 
@@ -180,7 +205,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching emails from Google account {AccountId}", accountId);
-            return Enumerable.Empty<EmailMessage>();
+            throw;
         }
     }
 
@@ -190,13 +215,10 @@ public class GoogleProviderService : IGoogleProviderService
         int count = 20, 
         DateTime? fromDate = null, 
         DateTime? toDate = null, 
+        string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<EmailMessage>();
-        }
 
         try
         {
@@ -216,6 +238,7 @@ public class GoogleProviderService : IGoogleProviderService
             var request = service.Users.Messages.List("me");
             request.MaxResults = count;
             request.Q = searchQuery;
+            ApplyFolder(request, folder);
             
             var response = await request.ExecuteAsync(cancellationToken);
 
@@ -239,7 +262,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching emails from Google account {AccountId} with query '{Query}'", accountId, query);
-            return Enumerable.Empty<EmailMessage>();
+            throw;
         }
     }
 
@@ -249,10 +272,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -274,10 +293,15 @@ public class GoogleProviderService : IGoogleProviderService
             _logger.LogInformation("Retrieved email details for {EmailId} from Google account {AccountId}", emailId, accountId);
             return result;
         }
+        catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting email details for {EmailId} from Google account {AccountId}", emailId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -339,7 +363,6 @@ public class GoogleProviderService : IGoogleProviderService
         }
 
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null) return null;
 
         try
         {
@@ -394,11 +417,16 @@ public class GoogleProviderService : IGoogleProviderService
                 Bytes = bytes,
             };
         }
+        catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching attachment {AttachmentId} on {EmailId} from Google account {AccountId}",
                 attachmentId, emailId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -426,10 +454,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot send email: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -508,10 +532,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot delete email: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -541,10 +561,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot mark email as read: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -576,17 +592,13 @@ public class GoogleProviderService : IGoogleProviderService
         }
     }
 
-    public async Task MoveEmailAsync(
+    public async Task<string?> MoveEmailAsync(
         string accountId,
         string emailId,
         string destinationFolder,
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot move email: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -596,37 +608,34 @@ public class GoogleProviderService : IGoogleProviderService
             // Gmail uses labels instead of folders
             // Common labels: "INBOX", "TRASH", "SPAM", "STARRED", "IMPORTANT"
             // Archive is done by removing INBOX label
-            // Map common folder names to label operations
-            if (destinationFolder.Equals("archive", StringComparison.OrdinalIgnoreCase))
+            // Map common folder names to label operations. Drafts/sent aliases have no
+            // label move equivalent and fall through to the custom-label path.
+            switch (MailFolderAliases.TryParse(destinationFolder, out var wellKnown) ? wellKnown : (WellKnownMailFolder?)null)
             {
-                // Archive means remove from INBOX
-                modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
-            }
-            else if (destinationFolder.Equals("trash", StringComparison.OrdinalIgnoreCase) ||
-                     destinationFolder.Equals("deleteditems", StringComparison.OrdinalIgnoreCase))
-            {
-                // Move to trash
-                modifyRequest.AddLabelIds = new List<string> { "TRASH" };
-                modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
-            }
-            else if (destinationFolder.Equals("spam", StringComparison.OrdinalIgnoreCase) ||
-                     destinationFolder.Equals("junkemail", StringComparison.OrdinalIgnoreCase))
-            {
-                // Move to spam
-                modifyRequest.AddLabelIds = new List<string> { "SPAM" };
-                modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
-            }
-            else if (destinationFolder.Equals("inbox", StringComparison.OrdinalIgnoreCase))
-            {
-                // Move to inbox (in case it was archived)
-                modifyRequest.AddLabelIds = new List<string> { "INBOX" };
-            }
-            else
-            {
-                // Treat as a custom label ID and add it to the message
-                // Note: Custom labels are additive - they don't remove INBOX by default
-                // This preserves the message in inbox while adding the label
-                modifyRequest.AddLabelIds = new List<string> { destinationFolder };
+                case WellKnownMailFolder.Archive:
+                    // Archive means remove from INBOX
+                    modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
+                    break;
+                case WellKnownMailFolder.Trash:
+                    // Move to trash
+                    modifyRequest.AddLabelIds = new List<string> { "TRASH" };
+                    modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
+                    break;
+                case WellKnownMailFolder.Spam:
+                    // Move to spam
+                    modifyRequest.AddLabelIds = new List<string> { "SPAM" };
+                    modifyRequest.RemoveLabelIds = new List<string> { "INBOX" };
+                    break;
+                case WellKnownMailFolder.Inbox:
+                    // Move to inbox (in case it was archived)
+                    modifyRequest.AddLabelIds = new List<string> { "INBOX" };
+                    break;
+                default:
+                    // Treat as a custom label ID and add it to the message
+                    // Note: Custom labels are additive - they don't remove INBOX by default
+                    // This preserves the message in inbox while adding the label
+                    modifyRequest.AddLabelIds = new List<string> { destinationFolder };
+                    break;
             }
 
             var request = service.Users.Messages.Modify(modifyRequest, "me", emailId);
@@ -634,12 +643,15 @@ public class GoogleProviderService : IGoogleProviderService
 
             _logger.LogInformation("Moved email {EmailId} to folder/label '{Folder}' for Google account {AccountId}", 
                 emailId, destinationFolder, accountId);
+
+            // Gmail moves by relabeling, so the message keeps its ID.
+            return emailId;
         }
         catch (Google.GoogleApiException gex) when (gex.Message.Contains("Label") || gex.Message.Contains("label"))
         {
             _logger.LogError(gex, "Invalid label '{Label}' for Google account {AccountId}", 
                 destinationFolder, accountId);
-            throw new InvalidOperationException(
+            throw new ProviderOperationException(
                 $"Invalid label '{destinationFolder}'. Use system labels (INBOX, TRASH, SPAM) or get valid custom label IDs from Gmail settings.", 
                 gex);
         }
@@ -656,10 +668,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<CalendarInfo>();
-        }
 
         try
         {
@@ -690,7 +698,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error listing calendars from Google account {AccountId}", accountId);
-            return Enumerable.Empty<CalendarInfo>();
+            throw;
         }
     }
 
@@ -703,10 +711,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<CalendarEvent>();
-        }
 
         try
         {
@@ -740,6 +744,8 @@ public class GoogleProviderService : IGoogleProviderService
                 Subject = evt.Summary ?? string.Empty,
                 Start = GetEventDateTime(evt.Start),
                 End = GetEventDateTime(evt.End),
+                StartDate = TimeZoneHelper.ParseFloatingDate(evt.Start?.Date),
+                EndDate = TimeZoneHelper.ParseFloatingDate(evt.End?.Date),
                 Location = evt.Location ?? string.Empty,
                 Body = evt.Description ?? string.Empty,
                 Organizer = evt.Organizer?.Email ?? string.Empty,
@@ -754,7 +760,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting calendar events from Google account {AccountId}", accountId);
-            return Enumerable.Empty<CalendarEvent>();
+            throw;
         }
     }
 
@@ -765,10 +771,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -793,6 +795,8 @@ public class GoogleProviderService : IGoogleProviderService
                 Subject = evt.Summary ?? string.Empty,
                 Start = GetEventDateTime(evt.Start),
                 End = GetEventDateTime(evt.End),
+                StartDate = TimeZoneHelper.ParseFloatingDate(evt.Start?.Date),
+                EndDate = TimeZoneHelper.ParseFloatingDate(evt.End?.Date),
                 Location = evt.Location ?? string.Empty,
                 Body = evt.Description ?? string.Empty,
                 BodyFormat = "text",
@@ -827,10 +831,15 @@ public class GoogleProviderService : IGoogleProviderService
             _logger.LogInformation("Retrieved event details for {EventId} from Google account {AccountId}", eventId, accountId);
             return result;
         }
+        catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting calendar event details for {EventId} from Google account {AccountId}", eventId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -844,13 +853,10 @@ public class GoogleProviderService : IGoogleProviderService
         List<string>? attendees = null,
         string? body = null,
         string? timeZone = null,
+        bool isAllDay = false,
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot create event: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -862,16 +868,8 @@ public class GoogleProviderService : IGoogleProviderService
                 Summary = subject,
                 Description = body,
                 Location = location,
-                Start = new EventDateTime
-                {
-                    DateTimeRaw = start.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                },
-                End = new EventDateTime
-                {
-                    DateTimeRaw = end.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                }
+                Start = EventTimeBuilder.ToGoogle(start, timeZone, isAllDay),
+                End = EventTimeBuilder.ToGoogle(end, timeZone, isAllDay)
             };
 
             if (attendees != null && attendees.Count > 0)
@@ -905,13 +903,10 @@ public class GoogleProviderService : IGoogleProviderService
         string? location = null,
         List<string>? attendees = null,
         string? timeZone = null,
+        bool? isAllDay = null,
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot update event: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -929,21 +924,14 @@ public class GoogleProviderService : IGoogleProviderService
             {
                 existingEvent.Location = location;
             }
+            // Replacing the whole EventDateTime switches between date (all-day) and dateTime.
             if (start.HasValue)
             {
-                existingEvent.Start = new EventDateTime
-                {
-                    DateTimeRaw = start.Value.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                };
+                existingEvent.Start = EventTimeBuilder.ToGoogle(start.Value, timeZone, isAllDay == true);
             }
             if (end.HasValue)
             {
-                existingEvent.End = new EventDateTime
-                {
-                    DateTimeRaw = end.Value.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    TimeZone = timeZone ?? "UTC"
-                };
+                existingEvent.End = EventTimeBuilder.ToGoogle(end.Value, timeZone, isAllDay == true);
             }
             if (attendees != null)
             {
@@ -972,10 +960,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot delete event: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -1001,10 +985,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot respond to event: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -1016,14 +996,14 @@ public class GoogleProviderService : IGoogleProviderService
 
             if (evt.Attendees == null || !evt.Attendees.Any())
             {
-                throw new InvalidOperationException("Event has no attendees, cannot respond");
+                throw new ProviderOperationException("Event has no attendees, cannot respond");
             }
 
             // Find the current user's attendee entry
             var myAttendee = evt.Attendees.FirstOrDefault(a => a.Self == true);
             if (myAttendee == null)
             {
-                throw new InvalidOperationException("You are not an attendee of this event");
+                throw new ProviderOperationException("You are not an attendee of this event");
             }
 
             // Update the response status
@@ -1065,10 +1045,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<Models.Contact>();
-        }
 
         try
         {
@@ -1097,7 +1073,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching contacts from Google account {AccountId}", accountId);
-            return Enumerable.Empty<Models.Contact>();
+            throw;
         }
     }
 
@@ -1108,10 +1084,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return Enumerable.Empty<Models.Contact>();
-        }
 
         try
         {
@@ -1142,7 +1114,7 @@ public class GoogleProviderService : IGoogleProviderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching contacts from Google account {AccountId} with query '{Query}'", accountId, query);
-            return Enumerable.Empty<Models.Contact>();
+            throw;
         }
     }
 
@@ -1152,10 +1124,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            return null;
-        }
 
         try
         {
@@ -1176,10 +1144,15 @@ public class GoogleProviderService : IGoogleProviderService
             _logger.LogInformation("Retrieved contact details for {ContactId} from Google account {AccountId}", contactId, accountId);
             return result;
         }
+        catch (Google.GoogleApiException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // Genuinely not found: let the caller report "not found" rather than an error.
+            return null;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting contact details for {ContactId} from Google account {AccountId}", contactId, accountId);
-            return null;
+            throw;
         }
     }
 
@@ -1196,10 +1169,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot create contact: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -1283,10 +1252,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot update contact: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -1389,10 +1354,6 @@ public class GoogleProviderService : IGoogleProviderService
         CancellationToken cancellationToken = default)
     {
         var credential = await GetCredentialAsync(accountId, cancellationToken);
-        if (credential == null)
-        {
-            throw new InvalidOperationException($"Cannot delete contact: No authentication credential for account {accountId}");
-        }
 
         try
         {
@@ -1500,18 +1461,15 @@ public class GoogleProviderService : IGoogleProviderService
         var ccList = ParseEmailAddresses(cc);
 
         // The Date header is sender-supplied and not always RFC-parseable: 2 of 25 live
-        // Gmail messages failed TryParse (a newsletter and a utility bill), and because
-        // the discarded bool left DateTime.MinValue standing in as a real timestamp, both
-        // reported as year 1 and sort last forever under "newest first". InternalDate is
-        // Gmail's own receipt clock in epoch milliseconds, returned for the default `full`
-        // format this provider requests, and it cannot fail to parse -- so it is the
-        // authority whenever the header does not yield one.
-        if (!DateTime.TryParse(date, out var receivedDate) || receivedDate == DateTime.MinValue)
-        {
-            receivedDate = message.InternalDate is long internalMs
-                ? DateTimeOffset.FromUnixTimeMilliseconds(internalMs).UtcDateTime
-                : DateTime.MinValue;
-        }
+        // Gmail messages failed to parse (a newsletter and a utility bill), and
+        // DateTime.MinValue standing in as a real timestamp reported them as year 1, sorted
+        // last forever under "newest first". InternalDate is Gmail's own receipt clock in
+        // epoch milliseconds, returned for the default `full` format this provider requests,
+        // and it cannot fail to parse -- so it is the authority whenever the header does not
+        // yield one.
+        var receivedDate = ParseDateHeader(date);
+        if (receivedDate == DateTime.MinValue && message.InternalDate is long internalMs)
+            receivedDate = DateTimeOffset.FromUnixTimeMilliseconds(internalMs).UtcDateTime;
 
         // Get body
         var body = includeBody ? GetMessageBody(message) : (message.Snippet ?? string.Empty);
@@ -1540,6 +1498,13 @@ public class GoogleProviderService : IGoogleProviderService
                 string.IsNullOrEmpty(listUnsubscribePost) ? null : listUnsubscribePost)
         };
     }
+
+    /// <summary>
+    /// Parses an RFC 2822 Date header to UTC, honoring the header's offset rather than
+    /// the server's local zone. Returns <see cref="DateTime.MinValue"/> if unparseable.
+    /// </summary>
+    internal static DateTime ParseDateHeader(string? date) =>
+        DateTimeOffset.TryParse(date, out var parsed) ? parsed.UtcDateTime : DateTime.MinValue;
 
     private static string GetHeader(IList<MessagePartHeader> headers, string name)
     {
@@ -1629,7 +1594,7 @@ public class GoogleProviderService : IGoogleProviderService
         return Encoding.UTF8.GetString(bytes);
     }
 
-    private static DateTimeOffset GetEventDateTime(EventDateTime? eventDateTime)
+    internal static DateTimeOffset GetEventDateTime(EventDateTime? eventDateTime)
     {
         if (eventDateTime == null)
             return DateTimeOffset.MinValue;
@@ -1637,8 +1602,10 @@ public class GoogleProviderService : IGoogleProviderService
         if (eventDateTime.DateTimeDateTimeOffset.HasValue)
             return eventDateTime.DateTimeDateTimeOffset.Value;
 
-        if (!string.IsNullOrEmpty(eventDateTime.Date))
-            return DateTimeOffset.Parse(eventDateTime.Date);
+        // All-day events carry a floating date ("yyyy-MM-dd"); anchor it to UTC midnight so the
+        // result doesn't depend on the host's time zone. Callers use StartDate/EndDate for display.
+        if (TimeZoneHelper.ParseFloatingDate(eventDateTime.Date) is { } date)
+            return TimeZoneHelper.UtcMidnight(date);
 
         return DateTimeOffset.MinValue;
     }

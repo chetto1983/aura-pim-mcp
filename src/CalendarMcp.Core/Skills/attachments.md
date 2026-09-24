@@ -1,6 +1,6 @@
 # Attachments
 
-Attachments are the most non-obvious part of Calendar MCP because the
+Attachments are the most non-obvious part of Adjutant because the
 bytes generally **do not transit through the agent**. Two pathways
 exist; pick by direction.
 
@@ -47,16 +47,13 @@ remains usable until it expires; re-call `send_email`.
 
 The stdio transport does not have an HTTP upload endpoint, so on stdio
 you can only send via inline `base64Content` (small files), or by first
-calling `get_email_attachment` in `stash` mode to get an ID for forwarding.
+calling `get_email_attachment` to get an ID for forwarding.
 
 ## Inbound (reading/forwarding a file)
 
-`get_email_attachment(accountId, emailId, attachmentId, mode="stash")`
-fetches an attachment from a received email. Two modes:
-
-### `mode="stash"` (default)
-
-Downloads the file into the server's attachment store and returns:
+`get_email_attachment(accountId, emailId, attachmentId)` fetches an
+attachment from a received email into the server's attachment store and
+returns two things:
 
 ```json
 {
@@ -68,17 +65,10 @@ Downloads the file into the server's attachment store and returns:
 }
 ```
 
-The bytes never round-trip through the agent. Hand the returned
-`attachmentId` directly to `send_email` to forward, or (HTTP server
-only) fetch the raw bytes via `GET /attachments/{id}` for non-MCP
-consumers.
-
-### `mode="inline"`
-
-Returns the bytes as `base64Content` in the response, capped at
-**1 MB**. Use only when the agent itself needs to read the file
-content (e.g., to OCR an image, parse a small PDF). Files larger than
-1 MB are refused with an error directing you to `stash` mode.
+plus a resource link, `attachment://stash/xyz...`. A client that needs the
+file's content reads that link with `resources/read`; the bytes never
+pass through the model. Hand the `attachmentId` to `send_email` to
+forward the file. Reading the link does not use up the ID.
 
 ## Forwarding flow (the most common pattern)
 
@@ -92,7 +82,7 @@ get_email_details(accountId, emailId)
   → response.attachments[]   // each has provider-side attachmentId
 
 For each attachment to forward:
-  get_email_attachment(accountId, emailId, attachmentId, mode="stash")
+  get_email_attachment(accountId, emailId, attachmentId)
   → response.attachmentId     // server-stash ID (different from provider's)
 
 send_email(
@@ -122,8 +112,7 @@ fails.
 |---|---|---|
 | Total decoded payload per outbound message | 25 MB | This server |
 | Per-attachment cap | 3 MB (M365 / Outlook.com), 25 MB (Google) | Upstream provider |
-| Inline mode (`get_email_attachment mode="inline"`) | 1 MB | This server |
-| Server store per-item | Configurable (admin) | This server |
+| Server store per-item | 25 MiB (fixed in this fork) | This server |
 
 Exceeding the total or per-attachment caps results in `McpException`
 with a descriptive message — surface it to the user; don't retry blindly.
@@ -132,11 +121,12 @@ with a descriptive message — surface it to the user; don't retry blindly.
 
 - **Stash IDs are single-use** for sending; consume them by passing to
   `send_email`. Re-stash if needed.
-- **IDs expire** (server-configurable, default minutes-to-hours). Treat
+- **IDs expire 15 minutes after the attachment is stashed.** Treat
   them as transient — get-and-use within the same conversation turn
   when possible.
-- **Don't put bytes in tool responses unnecessarily.** Prefer `stash`
-  over `inline` whenever you don't need to inspect the content.
+- **The bytes never travel in the tool result.** `get_email_attachment`
+  always stashes; a client that needs the content reads the resource
+  link with `resources/read`. Forwarding needs only the `attachmentId`.
 - **No filename-only attachments.** Every entry must have either
   `attachmentId` (with optional `name` override) or `base64Content`
   with `name`.

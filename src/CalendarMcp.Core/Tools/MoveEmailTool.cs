@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -20,7 +21,7 @@ public sealed class MoveEmailTool(
     public async Task<string> MoveEmail(
         [Description("Account ID that owns the email. Obtain from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Email message ID to move. Obtain from the id field returned by get_emails or search_emails.")] string emailId,
-        [Description("Destination: 'archive', 'inbox', 'trash', 'spam', 'drafts' (Microsoft only), 'sentitems' (Microsoft only), or a custom label/folder ID (Google only). Aliases: 'deleteditems'='trash', 'junkemail'='spam'.")] string destination)
+        [Description("Destination: 'archive', 'inbox', 'trash', 'spam', 'drafts' (Microsoft, IMAP), 'sentitems' (Microsoft, IMAP), or a custom folder ID (Microsoft), label ID (Google) or folder name (IMAP). Aliases: 'deleteditems'='trash', 'junkemail'='spam'.")] string destination)
     {
         logger.LogInformation("Moving email: accountId={AccountId}, emailId={EmailId}, destination={Destination}",
             accountId, emailId, destination);
@@ -28,17 +29,21 @@ public sealed class MoveEmailTool(
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
         ToolGuard.RequireNonEmpty(destination, nameof(destination));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.EmailRead);
 
         try
         {
             var provider = providerFactory.GetProvider(account.Provider);
-            await provider.MoveEmailAsync(accountId, emailId, destination, CancellationToken.None);
+            var newEmailId = await provider.MoveEmailAsync(accountId, emailId, destination, CancellationToken.None);
 
             var response = new
             {
                 success = true,
                 emailId = emailId,
+                // Microsoft and IMAP assign a new ID in the destination folder; use this one
+                // for follow-up calls. Null when the provider can't report it.
+                newEmailId = newEmailId,
                 accountId = accountId,
                 destination = destination,
                 message = $"Email '{emailId}' moved to '{destination}' in account '{accountId}'"
@@ -55,7 +60,7 @@ public sealed class MoveEmailTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in move_email tool");
-            throw new McpException("Failed to move email.", ex);
+            throw ToolGuard.Failure("move email", ex);
         }
     }
 }

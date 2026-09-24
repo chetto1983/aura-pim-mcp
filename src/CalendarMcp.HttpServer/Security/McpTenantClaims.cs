@@ -7,10 +7,11 @@ namespace CalendarMcp.HttpServer.Security;
 /// <para>
 /// Which tenant a caller gets is a property of (issuer, subject) together, not of the
 /// subject alone — see <see cref="McpOAuthOptions.TenantIdentityFor"/>. Doing that here
-/// rather than at every read means <c>TenantIdentity.FromPrincipal</c> and its two callers
-/// stay exactly as they were: they still read one <c>sub</c> claim, and it is now the
-/// resolved one. A resolution spread across call sites is a resolution that will one day
-/// be missing from one of them.
+/// rather than at every read means <c>TenantIdentity.FromPrincipal</c> and its three
+/// callers -- <c>CalendarActionTool</c>, <c>EmailAttachmentResource</c> and
+/// <c>AdminAuthMiddleware</c> -- stay exactly as they were: they still read one
+/// <c>sub</c> claim, and it is now the resolved one. A resolution spread across call
+/// sites is a resolution that will one day be missing from one of them.
 /// </para>
 /// </summary>
 internal static class McpTenantClaims

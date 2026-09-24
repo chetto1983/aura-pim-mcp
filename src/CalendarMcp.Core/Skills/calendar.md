@@ -31,8 +31,12 @@ used.
 
 - `timeZone` (required) — IANA name; controls the `_local` times in
   output and how `startDate`/`endDate` are interpreted.
+- `startDate`/`endDate` are local dates in `timeZone`, and `endDate` is
+  inclusive. The result is the events that overlap those local days, from
+  local midnight on `startDate` to local midnight after `endDate`, so an
+  evening event on the day before never shows up.
 - `startDate` defaults to today (in `timeZone`); `endDate` defaults to
-  7 days after `startDate`.
+  6 days after `startDate` (7 days in all).
 - `accountId` fans out across all enabled accounts when omitted (like
   `list_calendars`). Provide it to scope to one account, or provide
   `calendarId` alone to resolve the account when it uniquely identifies one.
@@ -40,15 +44,20 @@ used.
 
 Returns events sorted by start time, each with `id, accountId,
 calendarId, subject, start_utc/start_local, end_utc/end_local,
-location, attendees, isAllDay, organizer`.
+start_date/end_date, location, attendees, isAllDay, organizer`.
+`start_date`/`end_date` are set only for all-day events (null otherwise).
 
 ### `get_calendar_event_details(accountId, calendarId, eventId, timeZone)`
 
 Full event including description/body. All four parameters are required.
 
-### `create_event(subject, start, end, accountId?, calendarId?, location?, attendees?[], body?, timeZone)`
+### `create_event(subject, start, end, accountId?, calendarId?, location?, attendees?[], body?, timeZone, isAllDay?)`
 
 - `start` and `end` are ISO 8601 (e.g. `2026-05-14T10:00:00`).
+- `isAllDay=true` creates an all-day event. Pass dates (`yyyy-MM-dd`);
+  `end` is **exclusive** — a one-day event on 2026-10-01 is
+  `start="2026-10-01", end="2026-10-02"`. Times of day are ignored, and an
+  `end` on the same date as `start` is treated as one day.
 - Pair them with `timeZone` (IANA). Without `timeZone`, the times are
   interpreted in server local time — usually wrong.
 - Omitting `accountId` uses the first configured account, which is
@@ -57,10 +66,14 @@ Full event including description/body. All four parameters are required.
 - Omitting `calendarId` uses the account's default calendar.
 - `attendees` is an array of email addresses.
 
-### `update_event(accountId, calendarId, eventId, subject?, start?, end?, location?, attendees?[], timeZone?)`
+### `update_event(accountId, calendarId, eventId, subject?, start?, end?, location?, attendees?[], timeZone?, isAllDay?)`
 
 All except identifiers are optional; pass only what you want to change.
 When updating `start` or `end`, also pass `timeZone`.
+`isAllDay=true`/`false` converts the event to all-day/timed and requires
+both `start` and `end` (dates, end exclusive, when `true`). **When moving
+an existing all-day event, pass `isAllDay=true`** — otherwise the new
+times are sent as timed values.
 
 ### `delete_event(accountId, calendarId, eventId)`
 
@@ -131,6 +144,19 @@ create_event(
 )
 ```
 
+All-day (one day, end exclusive):
+
+```
+create_event(
+  accountId="work-m365",
+  subject="Team offsite",
+  start="2026-10-01",
+  end="2026-10-02",
+  timeZone="America/Chicago",
+  isAllDay=true
+)
+```
+
 ### Move a meeting
 
 ```
@@ -163,9 +189,13 @@ multi-account availability, fan out and merge.
 
 - **Default account** for `create_event`/`respond_to_event` is whichever
   account was registered first — pass `accountId` explicitly.
-- **All-day events**: pass start/end as midnight-to-midnight in the
-  user's zone; check provider behavior — `isAllDay` is returned but
-  not a creation parameter.
+- **All-day events** are floating dates. They are returned with
+  `start_date`/`end_date` (`yyyy-MM-dd`, **end date exclusive** — a
+  one-day event on 2026-09-23 has `end_date` 2026-09-24), and
+  `start_local`/`end_local` are local midnight in the requested zone.
+  Bucket them by `start_date`; don't derive the day by converting
+  `start_utc` yourself. To create one, pass `isAllDay=true` with date-only
+  `start`/`end` (end exclusive) to `create_event`.
 - **Recurring events**: not directly supported via tool parameters in
   the current version. `get_calendar_events` returns expanded
   occurrences; `create_event` creates single instances.

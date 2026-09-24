@@ -52,6 +52,11 @@ public sealed partial class GetContextualEmailSummaryTool(
         if (accounts.Count == 0)
             throw new McpException("No accounts configured");
 
+        accounts = ToolGuard.FilterByPermission(
+            accounts, AccountPermission.EmailRead, logger, "get_contextual_email_summary");
+        if (accounts.Count == 0)
+            throw ToolGuard.NoPermittedAccounts(AccountPermission.EmailRead);
+
         try
         {
 
@@ -59,15 +64,17 @@ public sealed partial class GetContextualEmailSummaryTool(
             var searchKeywords = ParseTopics(topics);
             
             // Fetch emails from all accounts in parallel
-            var allEmails = await FetchEmailsFromAllAccountsAsync(accounts, countPerAccount, unreadOnly, searchKeywords);
-            
+            var warnings = new List<AccountReadWarning>();
+            var allEmails = await FetchEmailsFromAllAccountsAsync(accounts, countPerAccount, unreadOnly, searchKeywords, warnings);
+
             if (allEmails.Count == 0)
             {
                 return JsonSerializer.Serialize(new
                 {
                     message = "No emails found matching criteria",
                     searchKeywords,
-                    accountsSearched = accounts.Count
+                    accountsSearched = accounts.Count,
+                    warnings = warnings.Count > 0 ? warnings : null
                 }, JsonOptions);
             }
 
@@ -78,6 +85,7 @@ public sealed partial class GetContextualEmailSummaryTool(
                 searchKeywords, 
                 includeBodyPreview, 
                 maxSamplesPerCluster);
+            summary.Warnings = warnings.Count > 0 ? warnings : null;
 
             logger.LogInformation(
                 "Built contextual summary: {TotalEmails} emails, {ClusterCount} clusters, {MismatchCount} mismatches, {PersonaCount} personas",
@@ -88,7 +96,7 @@ public sealed partial class GetContextualEmailSummaryTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in get_contextual_email_summary tool");
-            throw new McpException("Failed to get contextual email summary.", ex);
+            throw ToolGuard.Failure("get contextual email summary", ex);
         }
     }
 
@@ -107,7 +115,8 @@ public sealed partial class GetContextualEmailSummaryTool(
         List<AccountInfo> accounts,
         int countPerAccount,
         bool unreadOnly,
-        List<string> searchKeywords)
+        List<string> searchKeywords,
+        List<AccountReadWarning> warnings)
     {
         var tasks = accounts.Select(async account =>
         {
@@ -120,17 +129,25 @@ public sealed partial class GetContextualEmailSummaryTool(
                 {
                     var query = string.Join(" OR ", searchKeywords);
                     return await provider.SearchEmailsAsync(
-                        account.Id, query, countPerAccount, null, null, CancellationToken.None);
+                        account.Id, query, countPerAccount, null, null, cancellationToken: CancellationToken.None);
                 }
                 else
                 {
                     return await provider.GetEmailsAsync(
-                        account.Id, countPerAccount, unreadOnly, CancellationToken.None);
+                        account.Id, countPerAccount, unreadOnly, cancellationToken: CancellationToken.None);
                 }
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Error fetching emails from account {AccountId}", account.Id);
+                lock (warnings)
+                {
+                    warnings.Add(new AccountReadWarning
+                    {
+                        AccountId = account.Id,
+                        Error = ToolGuard.DescribeAccountFailure(ex, "emails")
+                    });
+                }
                 return Enumerable.Empty<EmailMessage>();
             }
         });

@@ -54,7 +54,8 @@ public sealed class StoredAttachment
 
 public sealed class AttachmentStoreOptions
 {
-    public int MaxBytesPerAttachment { get; set; } = 10 * 1024 * 1024;
+    // Gmail's attachment limit, and the cap Aura's MCP bridge materializes a file under.
+    public int MaxBytesPerAttachment { get; set; } = 25 * 1024 * 1024;
     public long MaxTotalBytes { get; set; } = 100L * 1024 * 1024;
     public TimeSpan Ttl { get; set; } = TimeSpan.FromMinutes(15);
 }

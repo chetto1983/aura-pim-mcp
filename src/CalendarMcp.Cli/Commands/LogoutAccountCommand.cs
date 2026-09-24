@@ -24,7 +24,7 @@ public class LogoutAccountCommand : AsyncCommand<LogoutAccountCommand.Settings>
 
     protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        AnsiConsole.Write(new FigletText("Calendar MCP")
+        AnsiConsole.Write(new FigletText("Adjutant")
             .Centered()
             .Color(Color.Blue));
 

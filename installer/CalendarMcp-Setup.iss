@@ -1,13 +1,22 @@
-; Calendar MCP Windows Installer Script
+; Adjutant Windows Installer Script
 ; This script creates a Windows installer using Inno Setup
 ;
 ; To build the installer:
 ; 1. Install Inno Setup (https://jrsoftware.org/isinfo.php)
 ; 2. Run: iscc CalendarMcp-Setup.iss
 
-#define MyAppName "Calendar MCP"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "Calendar MCP Project"
+#define MyAppName "Adjutant"
+
+; The version is read from the built payload rather than hardcoded here, so it always
+; tracks VersionPrefix in Directory.Build.props. PayloadDir is the same directory the
+; [Files] section installs from, so if the version resolves the payload is present.
+#define PayloadDir "..\release\calendar-mcp-win-x64"
+#define PayloadExe PayloadDir + "\CalendarMcp.Cli.exe"
+#if !FileExists(PayloadExe)
+  #error Payload not found. Publish the win-x64 build into ..\release\calendar-mcp-win-x64 before compiling this installer.
+#endif
+#define MyAppVersion GetFileVersion(PayloadExe)
+#define MyAppPublisher "Adjutant Project"
 #define MyAppURL "https://github.com/MarimerLLC/calendar-mcp"
 #define MyAppExeName "CalendarMcp.Cli.exe"
 #define MyAppServerExeName "CalendarMcp.StdioServer.exe"
@@ -21,6 +30,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
+VersionInfoVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -40,11 +50,11 @@ ArchitecturesInstallIn64BitMode=x64
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "addtopath"; Description: "Add Calendar MCP to system PATH"; GroupDescription: "Additional options:"; Flags: checkedonce
+Name: "addtopath"; Description: "Add Adjutant to system PATH"; GroupDescription: "Additional options:"; Flags: checkedonce
 
 [Files]
 ; All files from the build output directory
-Source: "..\release\calendar-mcp-win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
@@ -113,7 +123,7 @@ begin
 end;
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Open Calendar MCP CLI"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\{#MyAppExeName}"; Description: "Open Adjutant CLI"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

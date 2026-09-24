@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace CalendarMcp.Core.Providers;
@@ -23,7 +24,7 @@ file static class JsonFileHelper
         if (doc.RootElement.TryGetProperty("value", out var valueElement))
             return JsonSerializer.Deserialize<List<T>>(valueElement.GetRawText(), options) ?? [];
 
-        throw new InvalidOperationException("JSON must be a direct array or an object with a 'value' array property.");
+        throw new ProviderOperationException("JSON must be a direct array or an object with a 'value' array property.");
     }
 }
 
@@ -69,7 +70,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
-            throw new InvalidOperationException($"Account '{accountId}' not found in registry.");
+            throw new ProviderOperationException($"Account '{accountId}' not found in registry.");
 
         var cacheTtl = GetCacheTtl(account);
 
@@ -87,7 +88,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
             var jsonContent = await LoadJsonContentAsync(account, cancellationToken);
 
             var entries = JsonSerializer.Deserialize<List<JsonCalendarEntry>>(jsonContent, JsonOptions)
-                ?? throw new InvalidOperationException($"JSON calendar file for '{accountId}' deserialized to null. Check that the file contains a JSON array.");
+                ?? throw new ProviderOperationException($"JSON calendar file for '{accountId}' deserialized to null. Check that the file contains a JSON array.");
 
             var newCached = new CachedJsonData(entries, DateTime.UtcNow);
             _cache[accountId] = newCached;
@@ -116,7 +117,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
     private async Task<string> LoadJsonContentAsync(AccountInfo account, CancellationToken cancellationToken)
     {
         var content = await LoadFileBySourceAsync(account, "filePath", "oneDrivePath", cancellationToken);
-        return content ?? throw new InvalidOperationException(
+        return content ?? throw new ProviderOperationException(
             $"Account '{account.Id}' is missing the calendar file path in providerConfig. " +
             "Add 'filePath' (local) or 'oneDrivePath' (OneDrive) to providerConfig.");
     }
@@ -152,7 +153,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
             return await FetchFromOneDriveAsync(account, oneDrivePath, cancellationToken);
         }
 
-        throw new InvalidOperationException(
+        throw new ProviderOperationException(
             $"Unknown JSON source '{source}' for account '{account.Id}'. Expected 'local' or 'onedrive'.");
     }
 
@@ -174,7 +175,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
             isReusedCredentials = true;
             var refAccount = await _accountRegistry.GetAccountAsync(refAccountId);
             if (refAccount == null)
-                throw new InvalidOperationException(
+                throw new ProviderOperationException(
                     $"Account '{account.Id}' references auth account '{refAccountId}' which was not found. " +
                     "Check the 'authAccountId' in providerConfig.");
 
@@ -189,7 +190,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
         }
 
         if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(tenantId))
-            throw new InvalidOperationException(
+            throw new ProviderOperationException(
                 $"Missing clientId or tenantId for OneDrive access on account '{account.Id}'. " +
                 (isReusedCredentials
                     ? $"The referenced auth account '{refAccountId}' does not have clientId/tenantId configured."
@@ -200,12 +201,10 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
 
         if (token == null)
         {
-            var hint = isReusedCredentials
-                ? $"The reused account '{refAccountId}' may not have the 'Files.Read' permission consented. " +
-                  $"Run 'calendar-mcp-cli reauth {refAccountId}' to re-authenticate with Files.Read scope."
-                : $"Run 'calendar-mcp-cli reauth {authAccountId}' to authenticate.";
-            throw new InvalidOperationException(
-                $"Failed to get OneDrive access token for account '{account.Id}'. {hint}");
+            var detail = isReusedCredentials
+                ? $"It is used for OneDrive access by account '{account.Id}' and may not have the 'Files.Read' permission consented; re-authenticate it with Files.Read scope."
+                : "It needs OneDrive access (Files.Read) to load its calendar file.";
+            throw new AccountAuthenticationRequiredException(authAccountId, detail: detail);
         }
 
         var httpClient = _httpClientFactory.CreateClient("JsonProvider");
@@ -224,7 +223,9 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
                     ? "The access token may lack 'Files.Read' permission. Re-authenticate with the correct scope."
                     : response.StatusCode == System.Net.HttpStatusCode.NotFound
                         ? "File not found. Check that the path is correct."
-                        : $"Response: {errorBody}"));
+                        : $"Response: {errorBody}"),
+                inner: null,
+                statusCode: response.StatusCode);
         }
 
         return await response.Content.ReadAsStringAsync(cancellationToken);
@@ -284,16 +285,13 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            var evtStart = ParseDateTime(entry.StartWithTimeZone, entry.Start);
-            var evtEnd = ParseDateTime(entry.EndWithTimeZone, entry.End);
-
-            if (evtStart == null || evtEnd == null)
+            if (ResolveEventTimes(entry) is not { } times)
                 continue;
 
             // Filter by date range
-            if (evtStart.Value < new DateTimeOffset(end, TimeSpan.Zero) && evtEnd.Value > new DateTimeOffset(start, TimeSpan.Zero))
+            if (times.Start < new DateTimeOffset(end, TimeSpan.Zero) && times.End > new DateTimeOffset(start, TimeSpan.Zero))
             {
-                events.Add(MapToCalendarEvent(entry, accountId, evtStart.Value, evtEnd.Value));
+                events.Add(MapToCalendarEvent(entry, accountId, times));
             }
         }
 
@@ -312,13 +310,10 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
         if (entry == null)
             return null;
 
-        var evtStart = ParseDateTime(entry.StartWithTimeZone, entry.Start);
-        var evtEnd = ParseDateTime(entry.EndWithTimeZone, entry.End);
-
-        if (evtStart == null || evtEnd == null)
+        if (ResolveEventTimes(entry) is not { } times)
             return null;
 
-        return MapToCalendarEvent(entry, accountId, evtStart.Value, evtEnd.Value);
+        return MapToCalendarEvent(entry, accountId, times);
     }
 
     #endregion
@@ -370,7 +365,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
     #region Email Operations
 
     public async Task<IEnumerable<EmailMessage>> GetEmailsAsync(
-        string accountId, int count = 20, bool unreadOnly = false,
+        string accountId, int count = 20, bool unreadOnly = false, string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var entries = await GetEmailsJsonDataAsync(accountId, cancellationToken);
@@ -383,7 +378,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
 
     public async Task<IEnumerable<EmailMessage>> SearchEmailsAsync(
         string accountId, string query, int count = 20,
-        DateTime? fromDate = null, DateTime? toDate = null,
+        DateTime? fromDate = null, DateTime? toDate = null, string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var entries = await GetEmailsJsonDataAsync(accountId, cancellationToken);
@@ -441,7 +436,7 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("JSON file provider is read-only; emails cannot be marked as read.");
 
-    public Task MoveEmailAsync(
+    public Task<string?> MoveEmailAsync(
         string accountId, string emailId, string destinationFolder,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("JSON file provider is read-only; emails cannot be moved.");
@@ -486,14 +481,14 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
         string accountId, string? calendarId, string subject,
         DateTime start, DateTime end, string? location = null,
         List<string>? attendees = null, string? body = null,
-        string? timeZone = null, CancellationToken cancellationToken = default)
+        string? timeZone = null, bool isAllDay = false, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("JSON calendar provider is read-only.");
 
     public Task UpdateEventAsync(
         string accountId, string calendarId, string eventId,
         string? subject = null, DateTime? start = null, DateTime? end = null,
         string? location = null, List<string>? attendees = null,
-        string? timeZone = null, CancellationToken cancellationToken = default)
+        string? timeZone = null, bool? isAllDay = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("JSON calendar provider is read-only.");
 
     public Task DeleteEventAsync(
@@ -679,8 +674,38 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
 
     #region JSON-to-CalendarEvent Mapping
 
+    /// <summary>
+    /// Resolves an entry's start/end. All-day entries are floating dates: the date is taken as
+    /// written (no host or source offset applied) and anchored to UTC midnight. Returns null when
+    /// the entry's times can't be parsed.
+    /// </summary>
+    internal static EventTimes? ResolveEventTimes(JsonCalendarEntry entry)
+    {
+        if (entry.IsAllDay == true
+            && TimeZoneHelper.ParseFloatingDate(FirstNonEmpty(entry.Start, entry.StartWithTimeZone)) is { } startDate)
+        {
+            var endDate = TimeZoneHelper.ParseFloatingDate(FirstNonEmpty(entry.End, entry.EndWithTimeZone)) is { } d && d > startDate
+                ? d
+                : startDate.AddDays(1);
+            return new EventTimes(TimeZoneHelper.UtcMidnight(startDate), TimeZoneHelper.UtcMidnight(endDate), startDate, endDate);
+        }
+
+        var evtStart = ParseDateTime(entry.StartWithTimeZone, entry.Start);
+        var evtEnd = ParseDateTime(entry.EndWithTimeZone, entry.End);
+
+        if (evtStart == null || evtEnd == null)
+            return null;
+
+        return new EventTimes(evtStart.Value, evtEnd.Value, null, null);
+    }
+
+    internal readonly record struct EventTimes(DateTimeOffset Start, DateTimeOffset End, DateOnly? StartDate, DateOnly? EndDate);
+
+    private static string? FirstNonEmpty(string? first, string? second) =>
+        !string.IsNullOrEmpty(first) ? first : second;
+
     private CalendarEvent MapToCalendarEvent(
-        JsonCalendarEntry entry, string accountId, DateTimeOffset start, DateTimeOffset end)
+        JsonCalendarEntry entry, string accountId, EventTimes times)
     {
         // Parse attendees from semicolon/comma-separated strings
         var requiredAttendees = ParseAttendeeString(entry.RequiredAttendees);
@@ -792,8 +817,10 @@ public class JsonCalendarProviderService : IJsonCalendarProviderService
             AccountId = accountId,
             CalendarId = DefaultCalendarId,
             Subject = entry.Subject ?? string.Empty,
-            Start = start,
-            End = end,
+            Start = times.Start,
+            End = times.End,
+            StartDate = times.StartDate,
+            EndDate = times.EndDate,
             Location = entry.Location ?? string.Empty,
             Body = entry.Body ?? string.Empty,
             BodyFormat = bodyFormat,

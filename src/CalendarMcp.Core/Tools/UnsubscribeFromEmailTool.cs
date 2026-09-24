@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,8 @@ public sealed class UnsubscribeFromEmailTool(
 
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.EmailSend);
 
         try
         {
@@ -77,7 +79,7 @@ public sealed class UnsubscribeFromEmailTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in unsubscribe_from_email tool");
-            throw new McpException("Failed to unsubscribe.", ex);
+            throw ToolGuard.Failure("unsubscribe", ex);
         }
     }
 

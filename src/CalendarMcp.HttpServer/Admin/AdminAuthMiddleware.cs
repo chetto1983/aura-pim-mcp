@@ -1,9 +1,11 @@
 using CalendarMcp.Core.Tenancy;
+using CalendarMcp.HttpServer.Security;
 
 namespace CalendarMcp.HttpServer.Admin;
 
 public sealed class AdminAuthMiddleware(
-    RequestDelegate next)
+    RequestDelegate next,
+    string toolsScope)
 {
     private static readonly string[] ExemptPaths = ["/admin/auth/google/callback"];
 
@@ -22,10 +24,10 @@ public sealed class AdminAuthMiddleware(
             await context.Response.WriteAsJsonAsync(new { error = "OAuth bearer token required." });
             return;
         }
-        if (!HasScope(context.User.FindFirst("scope")?.Value, "mcp:tools"))
+        if (!McpToolsScope.IsGranted(context.User, toolsScope))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new { error = "OAuth token lacks mcp:tools scope." });
+            await context.Response.WriteAsJsonAsync(new { error = $"OAuth token lacks {toolsScope} scope." });
             return;
         }
 
@@ -44,7 +46,4 @@ public sealed class AdminAuthMiddleware(
         using (tenantContext.Bind(tenantId))
             await next(context);
     }
-
-    private static bool HasScope(string? raw, string required) =>
-        raw?.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(required, StringComparer.Ordinal) == true;
 }

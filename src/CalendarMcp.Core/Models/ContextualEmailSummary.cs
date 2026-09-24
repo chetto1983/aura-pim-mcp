@@ -34,6 +34,22 @@ public class ContextualEmailSummary
     /// Summary of which personas are being addressed by senders
     /// </summary>
     public List<PersonaContext> PersonaContexts { get; init; } = new();
+
+    /// <summary>
+    /// Accounts that could not be read, and why. Null when every account was read successfully.
+    /// </summary>
+    public List<AccountReadWarning>? Warnings { get; set; }
+}
+
+/// <summary>
+/// An account whose emails could not be read, so its absence from the summary is not mistaken
+/// for an account with no matching mail
+/// </summary>
+public class AccountReadWarning
+{
+    public required string AccountId { get; init; }
+
+    public required string Error { get; init; }
 }
 
 /// <summary>
@@ -97,7 +113,12 @@ public class EmailSummaryItem
     public string Subject { get; init; } = string.Empty;
     public string From { get; init; } = string.Empty;
     public string FromName { get; init; } = string.Empty;
-    public DateTime ReceivedDateTime { get; init; }
+    public DateTime ReceivedDateTime
+    {
+        get => _receivedDateTime;
+        init => _receivedDateTime = Utilities.TimeZoneHelper.EnsureUtc(value);
+    }
+    private readonly DateTime _receivedDateTime;
     public bool IsRead { get; init; }
     public bool HasAttachments { get; init; }
     

@@ -104,7 +104,7 @@ See `attachments` for the full pattern. Short form:
    → response.attachments[].attachmentId   (provider-side IDs)
 
 2. For each attachment to forward:
-   get_email_attachment(accountId, emailId, attachmentId, mode="stash")
+   get_email_attachment(accountId, emailId, attachmentId)
    → response.attachmentId                  (server-stash ID)
 
 3. send_email(

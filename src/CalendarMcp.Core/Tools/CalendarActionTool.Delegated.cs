@@ -1,48 +1,81 @@
 using CalendarMcp.Core.Models;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
 
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// The twelve actions the first curation round left behind, exposed by FORWARDING to the
-/// implementation classes that already carry them.
+/// Every action except the calendar-event ones (CalendarActionTool.Calendar.cs, which address
+/// events by EventRef), exposed by FORWARDING to the upstream implementation class that already
+/// carries it.
 /// </summary>
 /// <remarks>
-/// The first round (D-21/46-05) folded fourteen tools into the curated surface by moving each
-/// body into an <c>*Action</c> method and deleting the class it came from. Twelve classes were
-/// never folded, and since <c>Program.cs</c> registers only <c>WithCalendarActionTool()</c>,
-/// they were left implemented, tested, and unreachable -- no MCP client could call them.
-/// Upstream registers 29 tools; the curated surface published 17. These twelve are the
-/// difference, so the fork now offers what the original does behind a single tool.
+/// The first curation round (D-21/46-05) moved fourteen tool bodies into this facade and deleted
+/// the classes they came from. Those copies stopped receiving upstream fixes: the 1.8.3 sync found
+/// permissions, provider-error reporting, all-day events and folder reads applied to the classes
+/// and to none of the copies, and every one of them surfaced as a modify/delete conflict. The
+/// implementation classes are therefore the single definition of what each action does, and this
+/// file stays a routing table.
 /// <para>
-/// The gap read as a hole rather than a shortfall: <c>create_event</c> and
-/// <c>update_event</c> were curated while <c>delete_event</c> was not, so an agent could put an
-/// event on a calendar and never take it off (measured live -- a test event had to be removed by
-/// hand). The server's own instructions, meanwhile, told callers to invoke <c>get_guide</c>, a
-/// tool the curated enum did not contain.
+/// Construction goes through <see cref="ActivatorUtilities"/> because the constructors are not
+/// uniform -- <c>UnsubscribeFromEmailTool</c> also needs an <c>UnsubscribeExecutor</c>,
+/// <c>GetGuideTool</c> only a logger -- so a dependency added upstream needs no edit here.
 /// </para>
 /// <para>
-/// These forward instead of re-implementing. Copying twelve tested method bodies into this
-/// facade would duplicate the logic and leave two copies to drift; the implementation classes
-/// stay the single definition of what each action does, and this file stays a routing table.
-/// Construction goes through <see cref="ActivatorUtilities"/> rather than explicit
-/// <c>new</c> calls because their constructors are not uniform -- <c>UnsubscribeFromEmailTool</c>
-/// also needs an <c>UnsubscribeExecutor</c>, <c>GetGuideTool</c> needs only a logger -- and
-/// hand-wiring them made this file wrong twice before the compiler caught it. Letting the
-/// container answer means a dependency added upstream needs no edit here.
-/// </para>
-/// <para>
-/// Argument validation is deliberately NOT repeated. Every implementation already calls
-/// <c>ToolGuard.RequireNonEmpty</c> on what it requires and throws <c>McpException</c> naming the
-/// missing parameter, so a second check here would only be a second place to go stale.
+/// Argument validation is NOT repeated, with one exception: a value-type parameter upstream
+/// declares non-nullable (<c>isRead</c>, an event's <c>start</c>/<c>end</c>) is required by its
+/// own tool schema, while every parameter of the multiplexed schema is optional. Unwrapping it
+/// would invent a value, so it is checked here; required strings, lists and arrays are passed
+/// through as-is because the implementation already rejects them when missing.
 /// </para>
 /// </remarks>
 public sealed partial class CalendarActionTool
 {
     private T Impl<T>() where T : notnull => ActivatorUtilities.CreateInstance<T>(_services);
 
-    private Task<string> DeleteEventAction(string? eventId, string? accountId, string? calendarId) =>
-        Impl<DeleteEventTool>().DeleteEvent(eventId!, accountId, calendarId);
+    private Task<string> ListAccountsAction() =>
+        Impl<ListAccountsTool>().ListAccounts();
+
+    private Task<string> GetEmailsAction(string? accountId, int? count, bool? unreadOnly, string? folder) =>
+        Impl<GetEmailsTool>().GetEmails(accountId, count ?? 20, unreadOnly ?? false, folder);
+
+    private Task<string> GetEmailDetailsAction(string? accountId, string? emailId) =>
+        Impl<GetEmailDetailsTool>().GetEmailDetails(accountId!, emailId!);
+
+    private Task<string> SearchEmailsAction(
+        string? query, string? accountId, int? count, DateTime? fromDate, DateTime? toDate, string? folder) =>
+        Impl<SearchEmailsTool>().SearchEmails(query!, accountId, count ?? 20, fromDate, toDate, folder);
+
+    private Task<string> SendEmailAction(
+        List<string>? to, string? subject, string? body, string? accountId, string? bodyFormat,
+        List<string>? cc, List<OutboundEmailAttachment>? attachments, string? textBody, string? htmlBody)
+    {
+        if (string.IsNullOrEmpty(subject))
+            throw new McpException("subject is required.");
+        return Impl<SendEmailTool>().SendEmail(
+            to!, subject, body ?? "", accountId, bodyFormat ?? "html", cc, attachments, textBody, htmlBody);
+    }
+
+    private Task<string> DeleteEmailAction(string? accountId, string? emailId) =>
+        Impl<DeleteEmailTool>().DeleteEmail(accountId!, emailId!);
+
+    private Task<string> MarkEmailReadAction(string? accountId, string? emailId, bool? isRead) =>
+        Impl<MarkEmailAsReadTool>().MarkEmailAsRead(accountId!, emailId!, RequireIsRead(isRead, "mark_email_read"));
+
+    private Task<string> MoveEmailAction(string? accountId, string? emailId, string? destination) =>
+        Impl<MoveEmailTool>().MoveEmail(accountId!, emailId!, destination!);
+
+    private Task<string> ListCalendarsAction(string? accountId) =>
+        Impl<ListCalendarsTool>().ListCalendars(accountId);
+
+    private Task<string> GetContactsAction(string? accountId, int? count) =>
+        Impl<GetContactsTool>().GetContacts(accountId, count ?? 50);
+
+    private Task<string> SearchContactsAction(string? query, string? accountId, int? count) =>
+        Impl<SearchContactsTool>().SearchContacts(query!, accountId, count ?? 50);
+
+    private Task<string> GetContactDetailsAction(string? accountId, string? contactId) =>
+        Impl<GetContactDetailsTool>().GetContactDetails(accountId!, contactId!);
 
     private Task<string> CreateContactAction(
         string? displayName, string? accountId, string? givenName, string? surname,
@@ -62,10 +95,6 @@ public sealed partial class CalendarActionTool
     private Task<string> DeleteContactAction(string? accountId, string? contactId) =>
         Impl<DeleteContactTool>().DeleteContact(accountId!, contactId!);
 
-    private Task<string> GetEmailAttachmentAction(
-        string? accountId, string? emailId, string? attachmentId, string? mode) =>
-        Impl<GetEmailAttachmentTool>().GetEmailAttachment(accountId!, emailId!, attachmentId!, mode ?? "stash");
-
     private Task<string> GetContextualEmailSummaryAction(
         string? topics, int? countPerAccount, bool? unreadOnly, bool? includeBodyPreview, int? maxSamplesPerCluster) =>
         Impl<GetContextualEmailSummaryTool>().GetContextualEmailSummary(
@@ -83,11 +112,14 @@ public sealed partial class CalendarActionTool
         Impl<UnsubscribeFromEmailTool>().UnsubscribeFromEmail(accountId!, emailId!, method ?? "auto");
 
     private Task<string> BulkDeleteEmailsAction(BulkEmailItem[]? items) =>
-        Impl<BulkDeleteEmailsTool>().BulkDeleteEmails(items ?? []);
+        Impl<BulkDeleteEmailsTool>().BulkDeleteEmails(items!);
 
     private Task<string> BulkMarkEmailsReadAction(BulkEmailItem[]? items, bool? isRead) =>
-        Impl<BulkMarkEmailsAsReadTool>().BulkMarkEmailsAsRead(items ?? [], isRead ?? true);
+        Impl<BulkMarkEmailsAsReadTool>().BulkMarkEmailsAsRead(items!, RequireIsRead(isRead, "bulk_mark_emails_read"));
 
     private Task<string> BulkMoveEmailsAction(BulkEmailItem[]? items, string? destination) =>
-        Impl<BulkMoveEmailsTool>().BulkMoveEmails(items ?? [], destination!);
+        Impl<BulkMoveEmailsTool>().BulkMoveEmails(items!, destination!);
+
+    private static bool RequireIsRead(bool? isRead, string action) =>
+        isRead ?? throw new McpException($"{action} requires 'isRead' (true to mark read, false to mark unread).");
 }

@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Providers;
+using CalendarMcp.Core.Services;
 
 namespace CalendarMcp.Tests.Providers;
 
@@ -45,7 +46,9 @@ public class ImapProviderServiceTests
     [DataRow("INBOX/1234/notanumber")]
     public void ParseEmailId_RejectsInvalidFormats(string bad)
     {
-        Assert.Throws<FormatException>(() => ImapProviderService.ParseEmailId(bad));
+        // Client-safe type, so the tool error tells the caller what a valid ID looks like.
+        var ex = Assert.ThrowsExactly<ProviderOperationException>(() => ImapProviderService.ParseEmailId(bad));
+        StringAssert.Contains(ex.Message, "is not in IMAP format");
     }
 
     [TestMethod]
@@ -54,5 +57,42 @@ public class ImapProviderServiceTests
     public void ParseEmailId_RejectsEmptyOrWhitespace(string bad)
     {
         Assert.Throws<ArgumentException>(() => ImapProviderService.ParseEmailId(bad));
+    }
+
+    // Non-default folder names prove the account's configuration is honored.
+    private static readonly ImapProviderService.ImapAccountConfig CustomFolders = new(
+        AccountId: "acc-1",
+        ImapHost: "imap.example.com", ImapPort: 993,
+        SmtpHost: "smtp.example.com", SmtpPort: 587,
+        Username: "user", Password: "pw",
+        InboxFolder: "INBOX",
+        SentFolder: "Sent Items",
+        TrashFolder: "Deleted Items",
+        JunkFolder: "Junk E-mail");
+
+    [TestMethod]
+    [DataRow("inbox", "INBOX")]
+    [DataRow("sentitems", "Sent Items")]
+    [DataRow("trash", "Deleted Items")]
+    [DataRow("deleteditems", "Deleted Items")]
+    [DataRow("spam", "Junk E-mail")]
+    [DataRow("junkemail", "Junk E-mail")]
+    [DataRow("Trash", "Deleted Items")]
+    public void ResolveConfiguredFolder_MapsAliasesToConfiguredFolders(string destination, string expected)
+    {
+        Assert.IsTrue(MailFolderAliases.TryParse(destination, out var folder));
+
+        Assert.AreEqual(expected, ImapProviderService.ResolveConfiguredFolder(folder, CustomFolders));
+    }
+
+    [TestMethod]
+    [DataRow("archive")]
+    [DataRow("drafts")]
+    public void ResolveConfiguredFolder_ReturnsNullForSpecialUseOnlyAliases(string destination)
+    {
+        // No providerConfig key for these; the provider falls back to SPECIAL-USE lookup.
+        Assert.IsTrue(MailFolderAliases.TryParse(destination, out var folder));
+
+        Assert.IsNull(ImapProviderService.ResolveConfiguredFolder(folder, CustomFolders));
     }
 }

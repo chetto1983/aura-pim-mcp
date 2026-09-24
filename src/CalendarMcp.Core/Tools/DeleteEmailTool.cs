@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
@@ -26,7 +27,8 @@ public sealed class DeleteEmailTool(
 
         ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(emailId, nameof(emailId));
-        var account = await ToolGuard.RequireAccountAsync(accountRegistry, accountId);
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, AccountPermission.EmailRead);
 
         try
         {
@@ -52,7 +54,7 @@ public sealed class DeleteEmailTool(
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in delete_email tool");
-            throw new McpException("Failed to delete email.", ex);
+            throw ToolGuard.Failure("delete email", ex);
         }
     }
 }

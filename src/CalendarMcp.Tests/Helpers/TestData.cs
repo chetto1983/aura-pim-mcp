@@ -14,7 +14,8 @@ internal static class TestData
         string provider = "microsoft365",
         bool enabled = true,
         List<string>? domains = null,
-        Dictionary<string, string>? providerConfig = null)
+        Dictionary<string, string>? providerConfig = null,
+        AccountPermissions? permissions = null)
     {
         return new AccountInfo
         {
@@ -24,6 +25,7 @@ internal static class TestData
             Provider = provider,
             Enabled = enabled,
             Domains = domains ?? ["example.com"],
+            Permissions = permissions ?? AccountPermissions.All,
             ProviderConfig = providerConfig ?? new Dictionary<string, string>
             {
                 ["TenantId"] = "test-tenant",
@@ -72,6 +74,33 @@ internal static class TestData
             End = end ?? DateTime.UtcNow.AddHours(2),
             Location = "Test Room",
             Organizer = "organizer@example.com"
+        };
+    }
+
+    /// <summary>
+    /// Creates an all-day event the way providers map one: floating dates, with Start/End
+    /// anchored to UTC midnight.
+    /// </summary>
+    public static CalendarEvent CreateAllDayEvent(
+        DateOnly date,
+        int days = 1,
+        string id = "all-day-1",
+        string accountId = "test-account",
+        string calendarId = "calendar-1",
+        string subject = "All Day Event")
+    {
+        var endDate = date.AddDays(days);
+        return new CalendarEvent
+        {
+            Id = id,
+            AccountId = accountId,
+            CalendarId = calendarId,
+            Subject = subject,
+            Start = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero),
+            End = new DateTimeOffset(endDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero),
+            StartDate = date,
+            EndDate = endDate,
+            IsAllDay = true
         };
     }
 

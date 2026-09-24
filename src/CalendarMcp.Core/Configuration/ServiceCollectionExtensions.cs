@@ -1,7 +1,6 @@
 using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
-using CalendarMcp.Core.Tools;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,12 +8,12 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CalendarMcp.Core.Configuration;
 
 /// <summary>
-/// Extension methods for configuring Calendar MCP services
+/// Extension methods for configuring Adjutant services
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds Calendar MCP core services to the dependency injection container
+    /// Adds Adjutant core services to the dependency injection container
     /// </summary>
     public static IServiceCollection AddCalendarMcpCore(this IServiceCollection services)
     {
@@ -51,33 +50,15 @@ public static class ServiceCollectionExtensions
         // Register account registry
         services.AddSingleton<IAccountRegistry, AccountRegistry>();
 
-        // Attachment store (in-memory; eviction sweeper is registered by the
-        // HTTP server only — stdio mode never uploads, so lazy expiry on
-        // consume is sufficient there).
+        // Attachment store (in-memory; eviction sweeper is registered by the HTTP
+        // server only -- stdio mode has no sweeper, but every get_email_attachment
+        // read now stashes there too, so memory stays bounded by MaxTotalBytes
+        // rather than by an upload-only sweeper).
         services.AddOptions<AttachmentStoreOptions>();
         services.AddSingleton<IAttachmentStore, InMemoryAttachmentStore>();
 
-        // Register MCP tools (method-based pattern - just register the classes)
-        // The 14 individually registered tools this curated action tool
-        // replaces (list_accounts, get_emails, get_email_details, search_emails,
-        // send_email, list_calendars, get_calendar_events, get_calendar_event_details,
-        // create_event, respond_to_event, update_event, get_contacts, search_contacts,
-        // get_contact_details) are DELETED, not merely unregistered (D-26).
-        services.AddSingleton<CalendarActionTool>();
-        services.AddSingleton<GetGuideTool>();
-        services.AddSingleton<GetEmailAttachmentTool>();
-        services.AddSingleton<DeleteEmailTool>();
-        services.AddSingleton<MarkEmailAsReadTool>();
-        services.AddSingleton<MoveEmailTool>();
-        services.AddSingleton<BulkDeleteEmailsTool>();
-        services.AddSingleton<BulkMarkEmailsAsReadTool>();
-        services.AddSingleton<BulkMoveEmailsTool>();
-        services.AddSingleton<DeleteEventTool>();
-        services.AddSingleton<GetUnsubscribeInfoTool>();
-        services.AddSingleton<UnsubscribeFromEmailTool>();
-        services.AddSingleton<CreateContactTool>();
-        services.AddSingleton<UpdateContactTool>();
-        services.AddSingleton<DeleteContactTool>();
+        // No tool class is registered: WithCalendarActionTool builds the one curated tool, and
+        // it constructs each upstream tool class it forwards to through ActivatorUtilities.
 
         // Register MCP prompts
         services.AddSingleton<CalendarPrompts>();

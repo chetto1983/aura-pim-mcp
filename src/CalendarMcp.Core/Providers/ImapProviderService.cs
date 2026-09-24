@@ -30,6 +30,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public const string DefaultInbox = "INBOX";
     public const string DefaultSent = "[Gmail]/Sent Mail";
     public const string DefaultTrash = "[Gmail]/Trash";
+    public const string DefaultJunk = "[Gmail]/Spam";
 
     private const string ProviderName = "imap";
 
@@ -88,19 +89,19 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
         var lastSlash = id.LastIndexOf('/');
         if (lastSlash <= 0)
-            throw new FormatException(
+            throw new ProviderOperationException(
                 $"Email ID '{id}' is not in IMAP format. Expected '<folder>/<uidvalidity>/<uid>'.");
 
         var secondLastSlash = id.LastIndexOf('/', lastSlash - 1);
         if (secondLastSlash <= 0)
-            throw new FormatException(
+            throw new ProviderOperationException(
                 $"Email ID '{id}' is not in IMAP format. Expected '<folder>/<uidvalidity>/<uid>'.");
 
         var folder = id[..secondLastSlash];
         if (!uint.TryParse(id[(secondLastSlash + 1)..lastSlash], out var uidValidity) ||
             !uint.TryParse(id[(lastSlash + 1)..], out var uid))
         {
-            throw new FormatException(
+            throw new ProviderOperationException(
                 $"Email ID '{id}' is not in IMAP format. UID validity and UID must be unsigned integers.");
         }
 
@@ -112,7 +113,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     private async Task<ImapAccountConfig> ResolveConfigAsync(string accountId)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId)
-            ?? throw new InvalidOperationException($"Account '{accountId}' not found in registry.");
+            ?? throw new ProviderOperationException($"Account '{accountId}' not found in registry.");
 
         var pc = account.ProviderConfig;
 
@@ -122,7 +123,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         var storedPassword = Get(pc, "password", "");
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(storedPassword))
-            throw new InvalidOperationException(
+            throw new ProviderOperationException(
                 $"Account '{accountId}' is missing username or password in providerConfig.");
 
         return new ImapAccountConfig(
@@ -135,7 +136,8 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             Password: _passwordProtector.Unprotect(storedPassword),
             InboxFolder: Get(pc, "inboxFolder", DefaultInbox),
             SentFolder: Get(pc, "sentFolder", DefaultSent),
-            TrashFolder: Get(pc, "trashFolder", DefaultTrash));
+            TrashFolder: Get(pc, "trashFolder", DefaultTrash),
+            JunkFolder: Get(pc, "junkFolder", DefaultJunk));
 
         static string Get(IDictionary<string, string> d, string key, string fallback) =>
             d.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : fallback;
@@ -175,20 +177,6 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             client.Dispose();
             throw;
         }
-    }
-
-    private static async Task<IMailFolder> OpenFolderAsync(
-        ImapClient client, string folderName, FolderAccess access, CancellationToken ct)
-    {
-        var folder = string.Equals(folderName, "INBOX", StringComparison.OrdinalIgnoreCase)
-            ? client.Inbox
-            : await client.GetFolderAsync(folderName, ct);
-
-        if (folder is null)
-            throw new InvalidOperationException($"IMAP folder '{folderName}' not found.");
-
-        await folder.OpenAsync(access, ct);
-        return folder;
     }
 
     // ── Connection pooling ───────────────────────────────────────────
@@ -316,12 +304,14 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     // ── Email operations ─────────────────────────────────────────────
 
     public async Task<IEnumerable<EmailMessage>> GetEmailsAsync(
-        string accountId, int count = 20, bool unreadOnly = false, CancellationToken cancellationToken = default)
+        string accountId, int count = 20, bool unreadOnly = false, string? folder = null,
+        CancellationToken cancellationToken = default)
     {
         var cfg = await ResolveConfigAsync(accountId);
+        var requestedFolder = folder;
         return await WithImapAsync<IEnumerable<EmailMessage>>(cfg, async client =>
         {
-            var folder = await OpenFolderAsync(client, cfg.InboxFolder, FolderAccess.ReadOnly, cancellationToken);
+            var (folder, folderName) = await OpenListFolderAsync(client, cfg, requestedFolder, cancellationToken);
 
             IList<UniqueId> uids;
             if (unreadOnly)
@@ -341,20 +331,21 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
             return summaries
                 .OrderByDescending(s => s.InternalDate ?? s.Date)
-                .Select(s => SummaryToEmail(s, cfg.InboxFolder, folder.UidValidity, accountId))
+                .Select(s => SummaryToEmail(s, folderName, folder.UidValidity, accountId))
                 .ToList();
         }, cancellationToken);
     }
 
     public async Task<IEnumerable<EmailMessage>> SearchEmailsAsync(
         string accountId, string query, int count = 20,
-        DateTime? fromDate = null, DateTime? toDate = null,
+        DateTime? fromDate = null, DateTime? toDate = null, string? folder = null,
         CancellationToken cancellationToken = default)
     {
         var cfg = await ResolveConfigAsync(accountId);
+        var requestedFolder = folder;
         return await WithImapAsync<IEnumerable<EmailMessage>>(cfg, async client =>
         {
-            var folder = await OpenFolderAsync(client, cfg.InboxFolder, FolderAccess.ReadOnly, cancellationToken);
+            var (folder, folderName) = await OpenListFolderAsync(client, cfg, requestedFolder, cancellationToken);
 
             SearchQuery search = string.IsNullOrWhiteSpace(query)
                 ? SearchQuery.All
@@ -379,7 +370,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
             return summaries
                 .OrderByDescending(s => s.InternalDate ?? s.Date)
-                .Select(s => SummaryToEmail(s, cfg.InboxFolder, folder.UidValidity, accountId))
+                .Select(s => SummaryToEmail(s, folderName, folder.UidValidity, accountId))
                 .ToList();
         }, cancellationToken);
     }
@@ -580,7 +571,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         }, cancellationToken);
     }
 
-    public async Task MoveEmailAsync(
+    public async Task<string?> MoveEmailAsync(
         string accountId, string emailId, string destinationFolder,
         CancellationToken cancellationToken = default)
     {
@@ -590,13 +581,18 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         var (folderName, uidValidity, uid) = ParseEmailId(emailId);
         var cfg = await ResolveConfigAsync(accountId);
 
-        await WithImapAsync(cfg, async client =>
+        return await WithImapAsync<string?>(cfg, async client =>
         {
             var folder = await OpenFolderAsync(client, folderName, FolderAccess.ReadWrite, cancellationToken);
             EnsureUidValidity(folder, uidValidity, accountId, folderName);
 
-            var dest = await client.GetFolderAsync(destinationFolder, cancellationToken);
-            await folder.MoveToAsync(new[] { new UniqueId(uid) }, dest, cancellationToken);
+            var dest = await ResolveFolderAsync(client, cfg, destinationFolder, cancellationToken);
+            var moved = await folder.MoveToAsync(new UniqueId(uid), dest, cancellationToken);
+
+            // The new UID is only known when the server supports UIDPLUS (COPYUID).
+            return moved is { Validity: > 0 } newUid
+                ? FormatEmailId(dest.FullName, newUid.Validity, newUid.Id)
+                : null;
         }, cancellationToken);
     }
 }

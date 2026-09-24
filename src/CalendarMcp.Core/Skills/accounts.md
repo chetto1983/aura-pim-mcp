@@ -1,6 +1,6 @@
 # Accounts
 
-Every tool in Calendar MCP operates against one or more configured
+Every tool in Adjutant operates against one or more configured
 accounts. Understanding the account model is prerequisite to anything
 else you do here.
 
@@ -121,6 +121,6 @@ the result.
 
 ## Disabled accounts
 
-Accounts can be marked disabled via the admin UI. `list_accounts`
+Accounts can be marked disabled through the admin API. `list_accounts`
 returns only enabled accounts. If a previously-known `accountId` stops
 working, re-call `list_accounts` to refresh.

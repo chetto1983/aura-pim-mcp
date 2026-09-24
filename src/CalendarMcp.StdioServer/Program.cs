@@ -1,5 +1,6 @@
-using CalendarMcp.Core.Apps;
+using System.Security.Claims;
 using CalendarMcp.Core.Configuration;
+using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,7 +43,21 @@ public class Program
                 .CreateLogger();
         }
         
-        Log.Information("Calendar MCP Server starting. Config directory: {ConfigDir}", configDir);
+        Log.Information("Adjutant Server starting. Config directory: {ConfigDir}", configDir);
+
+        // stdio carries no bearer: the process serves the one tenant the CLI added accounts for.
+        // stderr, not the log: with OTLP configured the Serilog logger above does not exist.
+        ClaimsPrincipal tenant;
+        try
+        {
+            tenant = TenantIdentity.LocalPrincipal(Environment.GetEnvironmentVariable(TenantIdentity.LocalTenantVariable));
+        }
+        catch (ArgumentException)
+        {
+            await Console.Error.WriteLineAsync(
+                $"{TenantIdentity.LocalTenantVariable} must name the tenant UUID the accounts were added for with the CLI.");
+            return 1;
+        }
 
         try
         {
@@ -107,43 +122,23 @@ public class Program
 
             builder.ConfigureServices((context, services) =>
             {
-                // Configure Calendar MCP settings
+                // Configure Adjutant settings
                 services.Configure<CalendarMcpConfiguration>(
                     context.Configuration.GetSection("CalendarMcp"));
                 
-                // Add Calendar MCP core services (providers, tools, account registry)
+                // Add Adjutant core services (providers, tools, account registry)
                 services.AddCalendarMcpCore();
                 
-                // Configure MCP server with stdio transport and register tools
-                // list_accounts, get_emails, get_email_details, search_emails,
-                // send_email, list_calendars, get_calendar_events, get_calendar_event_details,
-                // create_event, respond_to_event, update_event, get_contacts, search_contacts,
-                // get_contact_details collapsed into one curated action tool (D-17..D-26); see
-                // CalendarActionTool. Mirrors the HttpServer registration so both transports
-                // advertise the identical curated surface.
+                // The same surface as the HttpServer: upstream's 29 tools as ONE curated,
+                // action-multiplexed tool (D-17..D-26), which binds its tenant from the request's
+                // principal -- set here, for every message, to the local tenant.
                 services.AddMcpServer(CalendarMcpServerOptions.Configure)
-                    .WithCalendarActionTool()
-                    // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
-                    // set in WithCalendarActionTool's factory, beside the schema patch.
-                    .WithCalendarView()
-                    .WithTools<CalendarMcp.Core.Tools.GetGuideTool>()
-                    .WithTools<CalendarMcp.Core.Tools.GetEmailAttachmentTool>()
-                    .WithTools<CalendarMcp.Core.Tools.DeleteEmailTool>()
-                    .WithTools<CalendarMcp.Core.Tools.MarkEmailAsReadTool>()
-                    .WithTools<CalendarMcp.Core.Tools.MoveEmailTool>()
-                    .WithTools<CalendarMcp.Core.Tools.BulkDeleteEmailsTool>()
-                    .WithTools<CalendarMcp.Core.Tools.BulkMarkEmailsAsReadTool>()
-                    .WithTools<CalendarMcp.Core.Tools.BulkMoveEmailsTool>()
-                    .WithTools<CalendarMcp.Core.Tools.GetContextualEmailSummaryTool>()
-                    .WithTools<CalendarMcp.Core.Tools.DeleteEventTool>()
-                    .WithTools<CalendarMcp.Core.Tools.GetUnsubscribeInfoTool>()
-                    .WithTools<CalendarMcp.Core.Tools.UnsubscribeFromEmailTool>()
-                    .WithTools<CalendarMcp.Core.Tools.CreateContactTool>()
-                    .WithTools<CalendarMcp.Core.Tools.UpdateContactTool>()
-                    .WithTools<CalendarMcp.Core.Tools.DeleteContactTool>()
-                    .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
-                    .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
-                    .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>()
+                    .WithMessageFilters(filters => filters.AddIncomingFilter(next => (context, cancellationToken) =>
+                    {
+                        context.User = tenant;
+                        return next(context, cancellationToken);
+                    }))
+                    .WithCalendarMcpSurface()
                     .WithStdioServerTransport();
             });
 

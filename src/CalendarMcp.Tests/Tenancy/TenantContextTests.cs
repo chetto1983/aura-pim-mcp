@@ -48,6 +48,25 @@ public sealed class TenantContextTests
         Assert.IsTrue(second.EndsWith("__work", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public void LocalPrincipal_CarriesTheTenantAsABearerSubjectWould()
+    {
+        var local = TenantIdentity.LocalPrincipal($" {TestData.TenantA.ToUpperInvariant()} ");
+
+        Assert.AreEqual(TestData.TenantA, TenantIdentity.FromPrincipal(local));
+        Assert.IsTrue(local.Identity?.IsAuthenticated);
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("not-a-uuid")]
+    [DataRow("00000000-0000-0000-0000-000000000000")]
+    public void LocalPrincipal_RefusesAMissingOrInvalidTenant(string? tenantId)
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => TenantIdentity.LocalPrincipal(tenantId));
+    }
+
     private static ClaimsPrincipal Principal(string subject) => new(new ClaimsIdentity(
         [new Claim(TenantIdentity.OAuthClaimName, subject)], "Bearer"));
 }
