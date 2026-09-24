@@ -5,7 +5,7 @@ namespace CalendarMcp.Cli.Commands;
 
 internal static class CliTenant
 {
-    internal const string IdentityVariable = "CALENDAR_MCP_TENANT_ID";
+    internal const string IdentityVariable = TenantIdentity.LocalTenantVariable;
 
     internal static string RequireIdentity(string? value = null) =>
         TenantIdentity.Normalize(value ?? Environment.GetEnvironmentVariable(IdentityVariable));
