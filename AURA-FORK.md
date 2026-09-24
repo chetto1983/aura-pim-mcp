@@ -76,6 +76,13 @@ file says the fork does not have, this file wins.
      (`isRead` on `mark_email_read`/`bulk_mark_emails_read`, `start`/`end` on `create_event`)
      the forwarder rejects its absence instead of inventing a value. Required strings, lists
      and arrays pass through: upstream already rejects them when missing.
+   - **Attachments come back as a resource link.** `get_email_attachment` always stashes and
+     returns the stash JSON plus a `resource_link` to `attachment://stash/<attachmentId>`, served by
+     `EmailAttachmentResource` (tenant from the request principal, non-consuming `TryRead`,
+     MIME from the file name when the provider says `application/octet-stream`). The curated
+     schema has no `mode`; upstream's tool class keeps its inline mode, unreachable here. The
+     per-attachment store cap is 25 MiB. The curated forwarder also drops upstream's "Try inline
+     mode if the file is small." from the store-full error.
 
 5. **Health and docs endpoints.** `/health/ready` resolves the account registry rather than
    querying it: accounts are tenant-scoped and an anonymous probe has no tenant.
