@@ -296,6 +296,33 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 
 For setup walkthrough including Gmail app passwords, see `docs/IMAP-SETUP.md`.
 
+### CalDAV / CardDAV Accounts
+
+```json
+{
+  "Id": "11111111111111111111111111111111__personal-icloud",
+  "TenantId": "11111111-1111-1111-1111-111111111111",
+  "DisplayName": "iCloud",
+  "Provider": "dav",
+  "Domains": ["icloud.com", "me.com", "mac.com"],
+  "ProviderConfig": {
+    "preset": "icloud",
+    "username": "you@icloud.com",
+    "password": "ENC:CfDJ8...",
+    "enableCalendar": "true",
+    "enableContacts": "true"
+  }
+}
+```
+
+**Required ProviderConfig keys**: `username`, `password`, and at least one of `caldavUrl` / `carddavUrl` (or a preset that supplies them, e.g. `icloud`).
+
+**Presets**: `icloud`, `icloud-cn`, `fastmail`, `nextcloud`, `generic`.
+
+**Capabilities**: Calendar and/or contacts (read/write). Email is unsupported — pair with an IMAP account for iCloud Mail.
+
+For Apple app-specific passwords and host allowlisting, see `docs/ICLOUD-DAV-SETUP.md`.
+
 ## Account Permissions
 
 Every account carries an optional `Permissions` block controlling which actions may touch it.

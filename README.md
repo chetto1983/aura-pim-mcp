@@ -5,7 +5,7 @@
 > admin UI; and the 29 tools are served as one curated `calendar` tool. See
 > [AURA-FORK.md](AURA-FORK.md) for every difference.
 
-A Model Context Protocol (MCP) server that gives AI assistants access to email, calendar, and contact data across multiple accounts — Microsoft 365, Outlook.com, Google Workspace, IMAP/SMTP mailboxes, ICS feeds, and JSON calendar files.
+A Model Context Protocol (MCP) server that gives AI assistants access to email, calendar, and contact data across multiple accounts — Microsoft 365, Outlook.com, Google Workspace, IMAP/SMTP mailboxes, CalDAV/CardDAV (including iCloud), ICS feeds, and JSON calendar files.
 
 ## Overview
 
@@ -19,6 +19,7 @@ Calendar-MCP aggregates email, calendar, and contact information from multiple p
 | Outlook.com | Yes | Yes | Yes | OAuth 2.0 (MSAL) |
 | Google Workspace / Gmail | Yes | Yes | Yes | OAuth 2.0 |
 | IMAP/SMTP | Yes | -- | -- | Username + app password (encrypted at rest) |
+| CalDAV / CardDAV | -- | Yes | Yes | Username + app password (iCloud, Nextcloud, Fastmail, …) |
 | ICS Calendar Feeds | -- | Read-only | -- | None (public URLs) |
 | JSON Calendar Files | -- | Read-only | -- | None (local files) |
 
@@ -63,6 +64,22 @@ The server exposes these tools to AI assistants:
 
 See [docs/mcp-tools.md](docs/mcp-tools.md) for full tool specifications.
 
+### Works Well with Scheduler
+
+Finding a meeting time with people outside your own organization means comparing calendars you can't see.
+[Scheduler](https://github.com/MarimerLLC/scheduler) is an MCP server for exactly that: the organizer proposes
+times, and everyone invited votes on each one from their own assistant or from a link in the invitation email,
+without anyone sharing a calendar. It never reads calendars itself, which is where Calendar-MCP comes in. With
+both connected, an assistant can:
+
+- **Organize:** find free times with `find_available_times`, propose them through Scheduler, and once a time
+  is picked, create the real meeting with `create_event`.
+- **Answer an invitation:** find Scheduler's emails (subjects start with `[sched:CODE]`) with
+  `search_emails`, check each proposed time with `get_calendar_events`, vote through Scheduler, and accept the
+  organizer's invitation later with `respond_to_event`.
+
+Neither depends on the other; Calendar-MCP works the same without Scheduler.
+
 ## Getting Started
 
 ### Prerequisites
@@ -98,6 +115,9 @@ CalendarMcp.Cli add-m365-account
 # Google Workspace or Gmail
 CalendarMcp.Cli add-google-account
 
+# CalDAV / CardDAV (iCloud, Fastmail, Nextcloud, custom)
+CalendarMcp.Cli add-dav-account
+
 # Verify
 CalendarMcp.Cli list-accounts
 CalendarMcp.Cli test-account <account-id>
@@ -106,7 +126,8 @@ CalendarMcp.Cli test-account <account-id>
 Account setup guides:
 - [Microsoft 365 / Outlook.com Setup](docs/M365-SETUP.md)
 - [Google / Gmail Setup](docs/GOOGLE-SETUP.md)
-
+- [iCloud CalDAV / CardDAV Setup](docs/ICLOUD-DAV-SETUP.md)
+- [IMAP/SMTP Setup](docs/IMAP-SETUP.md)
 ### Connect Your AI Assistant
 
 **Claude Desktop** — add to your config (`%APPDATA%\Claude\claude_desktop_config.json` on Windows):

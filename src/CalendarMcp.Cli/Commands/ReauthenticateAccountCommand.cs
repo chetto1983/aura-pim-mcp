@@ -168,12 +168,33 @@ public class ReauthenticateAccountCommand : AsyncCommand<ReauthenticateAccountCo
                 }
             }
 
+            // Password providers have no OAuth token cache — update the password instead.
+            if (provider is "dav" or "caldav" or "carddav" or "imap" or "imap-smtp")
+            {
+                AnsiConsole.MarkupLine($"[yellow]Provider '{provider}' uses a stored username/password, not OAuth.[/]");
+                AnsiConsole.MarkupLine("[dim]Update the password through the client that manages this server's accounts" +
+                                      (provider is "dav" or "caldav" or "carddav"
+                                          ? ", or re-run add-dav-account with the same account ID"
+                                          : " or in the config") +
+                                      ".[/]");
+                AnsiConsole.MarkupLine("[dim]To verify connectivity: test-account " + settings.AccountId + "[/]");
+                return 0;
+            }
+
+            if (provider is "ics" or "icalendar")
+            {
+                AnsiConsole.MarkupLine("[yellow]ICS feeds have no credentials to reauthenticate.[/]");
+                AnsiConsole.MarkupLine($"[dim]Use: test-account {settings.AccountId}[/]");
+                return 0;
+            }
+
             // Support M365, Outlook.com, and Google accounts
             if (string.IsNullOrEmpty(provider) ||
                 (provider != "microsoft365" && provider != "outlook.com" && provider != "google"))
             {
                 AnsiConsole.MarkupLine($"[red]Error: Unsupported provider '{provider}'.[/]");
-                AnsiConsole.MarkupLine($"[dim]Supported providers: microsoft365, outlook.com, google, json[/]");
+                AnsiConsole.MarkupLine($"[dim]Supported OAuth reauth: microsoft365, outlook.com, google, json (OneDrive).[/]");
+                AnsiConsole.MarkupLine($"[dim]For dav/imap: update the password in config or through the client that manages this server's accounts, then run test-account.[/]");
                 return 1;
             }
 

@@ -599,9 +599,9 @@ public class OutlookComProviderService : IOutlookComProviderService
 
             Microsoft.Graph.Models.EventCollectionResponse? events;
 
-            // "primary" is our alias for the default calendar (Graph has no such id), so treat
-            // it like an omitted calendarId — mirrors GetCalendarEventDetailsAsync below.
-            if (string.IsNullOrEmpty(calendarId) || calendarId == "primary")
+            // Graph has no "primary" id; treat the default-calendar aliases like an omitted
+            // calendarId — mirrors GetCalendarEventDetailsAsync and CreateEventAsync below.
+            if (CalendarIdAliases.IsDefaultCalendar(calendarId))
             {
                 events = await graphClient.Me.Calendar.CalendarView.GetAsync(config =>
                 {
@@ -633,7 +633,7 @@ public class OutlookComProviderService : IOutlookComProviderService
                     {
                         Id = evt.Id ?? string.Empty,
                         AccountId = accountId,
-                        CalendarId = calendarId ?? "primary",
+                        CalendarId = CalendarIdAliases.IsDefaultCalendar(calendarId) ? CalendarIdAliases.Primary : calendarId,
                         Subject = evt.Subject ?? string.Empty,
                         Start = ParseM365DateTime(evt.Start, evt.IsAllDay == true),
                         End = ParseM365DateTime(evt.End, evt.IsAllDay == true),
@@ -643,6 +643,7 @@ public class OutlookComProviderService : IOutlookComProviderService
                         Body = evt.Body?.Content ?? string.Empty,
                         Organizer = evt.Organizer?.EmailAddress?.Address ?? string.Empty,
                         Attendees = evt.Attendees?.Select(a => a.EmailAddress?.Address ?? string.Empty).ToList() ?? [],
+                        AttendeeDetails = MapAttendees(evt),
                         IsAllDay = evt.IsAllDay ?? false,
                         ResponseStatus = MapResponseStatus(evt.ResponseStatus?.Response)
                     });
@@ -673,7 +674,7 @@ public class OutlookComProviderService : IOutlookComProviderService
             var graphClient = new GraphServiceClient(authProvider);
 
             Event? evt;
-            if (string.IsNullOrEmpty(calendarId) || calendarId == "primary")
+            if (CalendarIdAliases.IsDefaultCalendar(calendarId))
             {
                 evt = await graphClient.Me.Calendar.Events[eventId].GetAsync(config =>
                 {
@@ -707,7 +708,7 @@ public class OutlookComProviderService : IOutlookComProviderService
             {
                 Id = evt.Id ?? string.Empty,
                 AccountId = accountId,
-                CalendarId = calendarId ?? "primary",
+                CalendarId = CalendarIdAliases.IsDefaultCalendar(calendarId) ? CalendarIdAliases.Primary : calendarId,
                 Subject = evt.Subject ?? string.Empty,
                 Start = ParseM365DateTime(evt.Start, evt.IsAllDay == true),
                 End = ParseM365DateTime(evt.End, evt.IsAllDay == true),
@@ -719,16 +720,7 @@ public class OutlookComProviderService : IOutlookComProviderService
                 Organizer = evt.Organizer?.EmailAddress?.Address ?? string.Empty,
                 OrganizerName = evt.Organizer?.EmailAddress?.Name ?? string.Empty,
                 Attendees = evt.Attendees?.Select(a => a.EmailAddress?.Address ?? string.Empty).ToList() ?? [],
-                AttendeeDetails = evt.Attendees?.Select(a => new Models.EventAttendee
-                {
-                    Email = a.EmailAddress?.Address ?? string.Empty,
-                    Name = a.EmailAddress?.Name ?? string.Empty,
-                    ResponseStatus = MapAttendeeResponseStatus(a.Status?.Response),
-                    Type = MapAttendeeType(a.Type),
-                    IsOrganizer = (a.EmailAddress?.Address ?? string.Empty).Equals(
-                        evt.Organizer?.EmailAddress?.Address ?? string.Empty, 
-                        StringComparison.OrdinalIgnoreCase)
-                }).ToList() ?? [],
+                AttendeeDetails = MapAttendees(evt),
                 IsAllDay = evt.IsAllDay ?? false,
                 ResponseStatus = MapResponseStatus(evt.ResponseStatus?.Response),
                 ShowAs = MapShowAs(evt.ShowAs),
@@ -792,6 +784,18 @@ public class OutlookComProviderService : IOutlookComProviderService
             _ => "notResponded"
         };
     }
+
+    internal static List<Models.EventAttendee> MapAttendees(Event evt) =>
+        evt.Attendees?.Select(a => new Models.EventAttendee
+        {
+            Email = a.EmailAddress?.Address ?? string.Empty,
+            Name = a.EmailAddress?.Name ?? string.Empty,
+            ResponseStatus = MapAttendeeResponseStatus(a.Status?.Response),
+            Type = MapAttendeeType(a.Type),
+            IsOrganizer = (a.EmailAddress?.Address ?? string.Empty).Equals(
+                evt.Organizer?.EmailAddress?.Address ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase)
+        }).ToList() ?? [];
 
     private static string MapAttendeeResponseStatus(ResponseType? response)
     {
@@ -964,13 +968,20 @@ public class OutlookComProviderService : IOutlookComProviderService
             }
 
             Event? createdEvent;
-            if (string.IsNullOrEmpty(calendarId))
+            if (CalendarIdAliases.IsDefaultCalendar(calendarId))
             {
                 createdEvent = await graphClient.Me.Calendar.Events.PostAsync(newEvent, cancellationToken: cancellationToken);
             }
             else
             {
-                createdEvent = await graphClient.Me.Calendars[calendarId].Events.PostAsync(newEvent, cancellationToken: cancellationToken);
+                try
+                {
+                    createdEvent = await graphClient.Me.Calendars[calendarId].Events.PostAsync(newEvent, cancellationToken: cancellationToken);
+                }
+                catch (ODataError ex) when (CalendarIdAliases.TranslateCreateFailure(calendarId, ex) is { } unknownCalendar)
+                {
+                    throw unknownCalendar;
+                }
             }
 
             var eventId = createdEvent?.Id ?? string.Empty;

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Apps;
+using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
@@ -420,11 +421,12 @@ public static class CalendarActionToolServiceExtensions
 
     /// <summary>
     /// Registers this fork's whole calendar-mcp surface: the curated <c>calendar</c> tool, its
-    /// MCP Apps view, the <c>attachment://stash/{id}</c> resource, and the three prompt classes.
+    /// MCP Apps view, the <c>attachment://stash/{id}</c> resource, upstream's quoted-scalar
+    /// argument filter, and the three prompt classes.
     /// Both hosts (<c>StdioServer/Program.cs</c>, <c>HttpServer/Program.cs</c>) and the test
-    /// harness (<c>InProcessMcpSession</c>) call this one extension instead of the six calls
+    /// harness (<c>InProcessMcpSession</c>) call this one extension instead of the seven calls
     /// individually, so all three build the same registration chain -- a chain a future upstream
-    /// sync's <c>Program.cs</c> merge conflict cannot silently narrow the way six separate calls
+    /// sync's <c>Program.cs</c> merge conflict cannot silently narrow the way seven separate calls
     /// could, and one the test suite actually exercises.
     /// </summary>
     public static IMcpServerBuilder WithCalendarMcpSurface(this IMcpServerBuilder builder) =>
@@ -435,6 +437,8 @@ public static class CalendarActionToolServiceExtensions
             .WithCalendarView()
             // attachment://stash/{id}: the file behind get_email_attachment's resource_link.
             .WithEmailAttachmentResource()
+            // "true" / "50" from a model, read through the curated tool's own schema.
+            .WithStringScalarArguments()
             .WithPrompts<CalendarMcp.Core.Prompts.CalendarPrompts>()
             .WithPrompts<CalendarMcp.Core.Prompts.EmailPrompts>()
             .WithPrompts<CalendarMcp.Core.Prompts.ContactPrompts>();

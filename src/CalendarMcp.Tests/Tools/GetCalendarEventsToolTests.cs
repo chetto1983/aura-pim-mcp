@@ -296,6 +296,88 @@ public class GetCalendarEventsToolTests
     }
 
     [TestMethod]
+    [DataRow("microsoft365", "Default")]
+    [DataRow("outlook.com", "PRIMARY")]
+    public async Task GetCalendarEvents_GraphAccountWithAliasSpelling_SkipsValidation(string provider, string alias)
+    {
+        // The Graph providers resolve "default" and any casing of "primary" to the default
+        // calendar, so those spellings must not be validated against ListCalendarsAsync either.
+        var account = TestData.CreateAccount(id: "acc-1", provider: provider);
+        var events = new List<CalendarEvent>
+        {
+            TestData.CreateEvent(id: "ev1", accountId: "acc-1", calendarId: "primary", subject: "Meeting",
+                start: new DateTime(2025, 1, 10, 15, 0, 0, DateTimeKind.Utc),
+                end: new DateTime(2025, 1, 10, 16, 0, 0, DateTimeKind.Utc))
+        };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(account));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        // The tool swallows ListCalendarsAsync failures, so an unexpected call wouldn't throw
+        // out of the tool; expect zero calls so provExp.Verify() catches it instead.
+        provExp.Setups.ListCalendarsAsync("acc-1", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<CalendarInfo>>([]))
+            .ExpectedCallCount(0);
+        provExp.Setups.GetCalendarEventsAsync(
+            "acc-1", alias, Arg.Any<DateTime?>(), Arg.Any<DateTime?>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<CalendarEvent>>(events));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider(provider).ReturnValue(provExp.Instance());
+
+        var tool = new GetCalendarEventsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetCalendarEventsTool>.Instance);
+
+        var result = await tool.GetCalendarEvents(TestTimeZone, Start, End, "acc-1", alias);
+        var doc = JsonDocument.Parse(result);
+
+        Assert.AreEqual(1, doc.RootElement.GetProperty("events").GetArrayLength());
+        Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
+
+        regExp.Verify();
+        factExp.Verify();
+        provExp.Verify();
+    }
+
+    [TestMethod]
+    public async Task GetCalendarEvents_GoogleAccountWithDefaultAlias_StillValidates()
+    {
+        // Google is unchanged: only the exact "primary" bypasses validation, so "default"
+        // is checked against the account's calendars and reported as not found.
+        var account = TestData.CreateAccount(id: "acc-g", provider: "google");
+        var calendars = new List<CalendarInfo> { TestData.CreateCalendar(id: "me@example.com", accountId: "acc-g") };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-g")
+            .ReturnValue(Task.FromResult<AccountInfo?>(account));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.ListCalendarsAsync("acc-g", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<CalendarInfo>>(calendars));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("google").ReturnValue(provExp.Instance());
+
+        var tool = new GetCalendarEventsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetCalendarEventsTool>.Instance);
+
+        var result = await tool.GetCalendarEvents(TestTimeZone, Start, End, "acc-g", "default");
+        var doc = JsonDocument.Parse(result);
+
+        Assert.AreEqual(0, doc.RootElement.GetProperty("events").GetArrayLength());
+        var warnings = doc.RootElement.GetProperty("warnings");
+        Assert.AreEqual(1, warnings.GetArrayLength());
+        StringAssert.Contains(warnings[0].GetProperty("warning").GetString(), "default");
+
+        regExp.Verify();
+        factExp.Verify();
+        provExp.Verify();
+    }
+
+    [TestMethod]
     public async Task GetCalendarEvents_AccountIdWithValidCalendarId_ReturnsEventsNoWarning()
     {
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
@@ -854,5 +936,87 @@ public class GetCalendarEventsToolTests
         await tool.GetCalendarEvents("America/Chicago", first, first.AddDays(days - 1), "acc-1", count: count);
 
         Assert.AreEqual(expected, calls.Single().Count);
+    }
+
+    [TestMethod]
+    public async Task GetCalendarEvents_ReturnsOwnResponseStatus_AndOmitsAttendeeDetailsByDefault()
+    {
+        var tool = CreateToolWithInvite(out var regExp, out var factExp, out var provExp);
+
+        var result = await tool.GetCalendarEvents(TestTimeZone, Start, End, "acc-1");
+        var evt = JsonDocument.Parse(result).RootElement.GetProperty("events")[0];
+
+        Assert.AreEqual("tentative", evt.GetProperty("responseStatus").GetString());
+        Assert.AreEqual(JsonValueKind.Null, evt.GetProperty("attendeeDetails").ValueKind);
+
+        regExp.Verify();
+        factExp.Verify();
+        provExp.Verify();
+    }
+
+    [TestMethod]
+    public async Task GetCalendarEvents_IncludeAttendeeDetails_ReturnsEachAttendeesResponse()
+    {
+        var tool = CreateToolWithInvite(out var regExp, out var factExp, out var provExp);
+
+        var result = await tool.GetCalendarEvents(TestTimeZone, Start, End, "acc-1",
+            includeAttendeeDetails: true);
+        var details = JsonDocument.Parse(result).RootElement.GetProperty("events")[0]
+            .GetProperty("attendeeDetails");
+
+        Assert.AreEqual(2, details.GetArrayLength());
+        Assert.AreEqual("alice@example.com", details[0].GetProperty("email").GetString());
+        Assert.AreEqual("Alice", details[0].GetProperty("name").GetString());
+        Assert.AreEqual("accepted", details[0].GetProperty("responseStatus").GetString());
+        Assert.AreEqual("required", details[0].GetProperty("type").GetString());
+        Assert.IsTrue(details[0].GetProperty("isOrganizer").GetBoolean());
+        Assert.AreEqual("declined", details[1].GetProperty("responseStatus").GetString());
+        Assert.AreEqual("optional", details[1].GetProperty("type").GetString());
+        Assert.IsFalse(details[1].GetProperty("isOrganizer").GetBoolean());
+
+        regExp.Verify();
+        factExp.Verify();
+        provExp.Verify();
+    }
+
+    private static GetCalendarEventsTool CreateToolWithInvite(
+        out IAccountRegistryCreateExpectations regExp,
+        out IProviderServiceFactoryCreateExpectations factExp,
+        out IProviderServiceCreateExpectations provExp)
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var invite = new CalendarEvent
+        {
+            Id = "ev1",
+            AccountId = "acc-1",
+            CalendarId = "primary",
+            Subject = "Planning",
+            Start = new DateTime(2025, 1, 10, 15, 0, 0, DateTimeKind.Utc),
+            End = new DateTime(2025, 1, 10, 16, 0, 0, DateTimeKind.Utc),
+            Organizer = "alice@example.com",
+            Attendees = ["alice@example.com", "bob@example.com"],
+            AttendeeDetails =
+            [
+                new EventAttendee { Email = "alice@example.com", Name = "Alice", ResponseStatus = "accepted", IsOrganizer = true },
+                new EventAttendee { Email = "bob@example.com", Name = "Bob", ResponseStatus = "declined", Type = "optional" }
+            ],
+            ResponseStatus = "tentative"
+        };
+
+        regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(account));
+
+        provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetCalendarEventsAsync(
+            "acc-1", Arg.Any<string?>(), Arg.Any<DateTime?>(), Arg.Any<DateTime?>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<CalendarEvent>>([invite]));
+
+        factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        return new GetCalendarEventsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetCalendarEventsTool>.Instance);
     }
 }
