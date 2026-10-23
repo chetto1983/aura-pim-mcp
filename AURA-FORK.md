@@ -13,10 +13,14 @@ file says the fork does not have, this file wins.
 
 ## Changes vs upstream
 
-1. **Dependencies ahead of upstream.** The fork carries newer packages than upstream 1.8.3
+1. **Dependencies ahead of upstream.** The fork carries newer packages than upstream 1.9.0
    (Microsoft.Graph 6.5, Kiota.Abstractions 2.0 -- which also closes GHSA-7j59-v9qr-6fq9 -- MSAL
-   4.88, Google APIs 1.75/1.76, MailKit 4.17, OpenTelemetry 1.18, Serilog 10, MSTest 4.3). On a
-   sync, keep the fork's versions unless upstream's are newer.
+   4.88, Google APIs 1.75/1.76, OpenTelemetry 1.18, Serilog 10, MSTest 4.3). MailKit 4.18.2 and
+   Microsoft.Extensions.* / DataProtection 10.0.13 bring System.Security.Cryptography.Pkcs and
+   .Xml to 10.0.13, closing GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-r955-8q5j-3h83,
+   GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. The HTTP server takes Xml from the ASP.NET
+   shared framework instead, so the image is fixed by the `aspnet:10.0` runtime it is built on,
+   not by this file. On a sync, keep the fork's versions unless upstream's are newer.
 
 2. **Authentication is Aura's OAuth, not upstream's API key or admin console.** Every MCP
    (`/`), attachment (`/attachments`) and admin (`/admin`) request carries an OAuth bearer
