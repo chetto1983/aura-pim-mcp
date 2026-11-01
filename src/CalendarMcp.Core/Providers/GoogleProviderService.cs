@@ -224,20 +224,9 @@ public class GoogleProviderService : IGoogleProviderService
         {
             var service = CreateGmailService(credential);
             
-            // Build Gmail search query
-            var searchQuery = query;
-            if (fromDate.HasValue)
-            {
-                searchQuery += $" after:{fromDate.Value:yyyy/MM/dd}";
-            }
-            if (toDate.HasValue)
-            {
-                searchQuery += $" before:{toDate.Value:yyyy/MM/dd}";
-            }
-
             var request = service.Users.Messages.List("me");
             request.MaxResults = count;
-            request.Q = searchQuery;
+            request.Q = GmailQuery.WithDateBounds(query, fromDate, toDate);
             ApplyFolder(request, folder);
             
             var response = await request.ExecuteAsync(cancellationToken);
