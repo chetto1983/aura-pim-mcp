@@ -15,9 +15,12 @@ file says the fork does not have, this file wins.
 
 1. **Dependencies ahead of upstream.** The fork carries newer packages than upstream 1.9.0
    (Microsoft.Graph 6.5, Kiota.Abstractions 2.0 -- which also closes GHSA-7j59-v9qr-6fq9 -- MSAL
-   4.88, Google APIs 1.75/1.76, OpenTelemetry 1.18, Serilog 10, MSTest 4.3), and two upstream
-   has not at all: ReverseMarkdown 6.3.0 and AngleSharp.Css 1.3.0, both MIT, pinned exactly because
-   `HiddenText` and the pipeline in `MailBody` lean on their behaviour. MailKit 4.18.2 and
+   4.88, Google APIs 1.75/1.76, OpenTelemetry 1.18, Serilog 10, MSTest 4.3), and three upstream
+   has not at all: ReverseMarkdown 6.3.0, AngleSharp.Css 1.3.0 and AngleSharp 1.9.0, all MIT, pinned
+   exactly (`[x.y.z]`) because `HiddenText` and the pipeline in `MailBody` lean on their behaviour.
+   AngleSharp is named by the fork rather than left to the other two: 1.8.6 is the first with
+   `MaximumDepth`, which bounds the parse, and what ReverseMarkdown and AngleSharp.Css ask for is
+   lower. MailKit 4.18.2 and
    Microsoft.Extensions.* / DataProtection 10.0.13 bring System.Security.Cryptography.Pkcs and
    .Xml to 10.0.13, closing GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-r955-8q5j-3h83,
    GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. The HTTP server takes Xml from the ASP.NET
@@ -116,12 +119,16 @@ file says the fork does not have, this file wins.
      `primary` still reads the default one. A calendar that fails is named in `warnings`
      (`PartialCalendarRead`), and the call fails only when all do. Calendar lists follow their pages
      (`GraphCalendarList`).
-   - A mail body prefers `text/plain` on Gmail and IMAP. HTML-only mail reaches the model as
+   - A mail body is chosen by what its parts mean on Gmail and IMAP: `text/plain` is preferred only inside
+     `multipart/alternative`, anywhere else the first part with words in it wins, and a blank part is no
+     part. HTML-only mail reaches the model as
      Markdown at the tool edge (`GetEmailDetailsTool` calling `Utilities/MailBody`): `Body` stays
      what the provider holds, and `bodyFormat` says `text` or `markdown`. `MailBody` runs ReverseMarkdown
      after a preprocessing pipeline: `HiddenText` drops what a reader cannot see, with AngleSharp.Css
      computing the cascade, `LayoutTables` flattens tables that only place things, and tracking
      parameters leave links. A Gmail mail's format now comes from the part it was read from.
+     `HiddenText` removes what a reader cannot see by the means listed in the plan's *Hidden text*
+     table, and the tool says so: other means can get through. Invisible characters go from plain text too.
 
 8. **The changes contract: `POST /admin/changes` and `POST /admin/items`.** What Aura's mail and
    calendar watch reads, under the same bearer and tenant as `/admin`. It is not an MCP action, so
@@ -145,6 +152,15 @@ file says the fork does not have, this file wins.
      passes `GraphLinks.Checked` before it is followed, because `BearerTokenAuthenticationProvider`
      puts the account's token on any host. A cursor is never logged, and neither is a provider's
      exception message.
+   - **One mail never blocks a page, and conversion is bounded.** A page is all or nothing and is
+     replayed from the same cursor when it fails, so a mail whose body cannot be converted arrives with an
+     empty snippet, and `get_email_details` answers its metadata and says the body could not be
+     converted, never raw HTML. Every body goes through one cap of 1 MiB, a depth limit, and a time
+     budget of 500 ms for a snippet and 3 s for the tool; a page spends at most 30 s on snippets, then
+     the rest arrive empty. IMAP converts after it releases the account's gate.
+   - **Forged input is a 400.** A cursor or item that can never work answers `invalid_cursor` or
+     `invalid_items` before a server is asked; a cursor for another `inboxFolder` is expired instead.
+     A stored password that cannot be decrypted is `provider_auth`.
    - **Tests reach real servers.** GreenMail and Dovecot run in CI (`.github/workflows/ci.yml`,
      `PIM_TEST_GREENMAIL`, `PIM_TEST_DOVECOT`); under `CI` an unset variable fails the test.
 
@@ -197,7 +213,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   `partial`, `GetMessageBody` preferring `text/plain` and answering the format, `GetBodyFromParts`
   skipping attachments and forwarded messages, the `TokenResponseException` filter, `Transport`.
   `M365ProviderService.cs` and `OutlookComProviderService.cs`: `partial`, `Transport`,
-  `CreateGraphClient`. `M365AuthenticationService.cs`: no catch-all returning null.
+  `CreateGraphClient`. `M365AuthenticationService.cs`: no catch-all returning null (`NullWhenGrantIsGoneAsync`).
   `ImapProviderService.Support.cs`: `ExtractBody` with text first. `GetEmailDetailsTool.cs`:
   `MailBody.ForModel`.
 - A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
