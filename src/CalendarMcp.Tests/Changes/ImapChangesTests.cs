@@ -580,6 +580,27 @@ public class ImapChangesTests
         Assert.AreEqual("INBOX", ChangesCursor.Decode(body.GetProperty("nextCursor").GetString()!, "imap.mail").Folders<object>().Keys.Single());
     }
 
+    /// <summary>
+    /// GreenMail has no Sent folder after it is deleted. Dovecot's default mailboxes make a special-use folder
+    /// again at once: EXAMINE answers OK with nothing in it, so there it is a Sent folder that holds no mail.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, null)]
+    [DataRow(true, false)]
+    public async Task ASentFolderThatDisappeared_IsReadAsTheServerSaysIt(bool dovecot, bool? writtenTo)
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(dovecot ? ImapServers.Dovecot : ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail("Prima", from: "prima@example.com"));
+        var first = await mailbox.ReadAsync(cursor);
+        Assert.IsFalse(first.Changes.Single().Signals!.WrittenTo);
+
+        await mailbox.DeleteFolderAsync(ImapMailbox.SentFolder);
+        await mailbox.DeliverAsync(ImapMailbox.Mail("Dopo", from: "dopo@example.com"));
+
+        Assert.AreEqual(writtenTo, (await mailbox.ReadAsync(first.Next)).Changes.Single().Signals!.WrittenTo);
+    }
+
     [TestMethod]
     public async Task AGarbledKnownSet_IsRefusedBeforeTheServerIsAsked()
     {

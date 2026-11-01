@@ -406,8 +406,19 @@ public partial class ImapProviderService
             sent = GetSpecialFolder(client, SpecialFolder.Sent);
         }
 
-        if (sent is not null)
+        if (sent is null)
+            return null;
+
+        // MailKit keeps a folder it has listed, so one deleted since is found again and refused at EXAMINE.
+        // The refusal is the server's NO, whatever its wording.
+        try
+        {
             await sent.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
+        }
+        catch (Exception e) when (e is FolderNotFoundException or ImapCommandException { Response: ImapCommandResponse.No })
+        {
+            return null;
+        }
 
         return sent;
     }

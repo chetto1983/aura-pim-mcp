@@ -192,7 +192,15 @@ internal sealed class ImapMailbox : IAsyncDisposable
         await CreateFolderAsync(Inbox);
     }
 
-    public async Task DeleteWatchedFolderAsync() => await (await _world.GetFolderAsync(Inbox)).DeleteAsync();
+    public Task DeleteWatchedFolderAsync() => DeleteFolderAsync(Inbox);
+
+    public async Task DeleteFolderAsync(string name)
+    {
+        if (_world.Inbox.IsOpen)
+            await _world.Inbox.CloseAsync();
+
+        await (await _world.GetFolderAsync(name)).DeleteAsync();
+    }
 
     public Task<ChangesCursor> StartAsync() => Provider.StartAsync(Account.Id, default);
 
