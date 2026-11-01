@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Services;
 using Google;
@@ -37,6 +38,7 @@ public class ProviderFailuresTests
         [new ProviderOperationException("missing clientId"), "provider_auth"],
         [new MsalUiRequiredException("invalid_grant", "revoked"), "provider_auth"],
         [new AuthenticationException("bad password"), "provider_auth"],
+        [new CryptographicException("the key is not in the key ring"), "provider_auth"],
         [TokenEndpoint(HttpStatusCode.BadRequest), "provider_auth"],
         [Google(HttpStatusCode.Unauthorized), "provider_auth"],
         [new ApiException { ResponseStatusCode = 401 }, "provider_auth"],

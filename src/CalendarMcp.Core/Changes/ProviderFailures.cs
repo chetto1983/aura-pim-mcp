@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using CalendarMcp.Core.Services;
 using Google;
 using Google.Apis.Auth.OAuth2.Responses;
@@ -37,6 +38,8 @@ internal static class ProviderFailures
         MsalUiRequiredException => ChangesException.ProviderAuth(failure),
         AuthenticationException => ChangesException.ProviderAuth(failure),
         FolderNotFoundException => ChangesException.ProviderAuth(failure),
+        // A key ring lost or rotated leaves a stored password nothing can read, and only a person can re-enter it.
+        CryptographicException => ChangesException.ProviderAuth(failure),
 
         TokenResponseException token => FromStatus(failure, (int?)token.StatusCode),
         GoogleApiException google => FromGoogle(google),

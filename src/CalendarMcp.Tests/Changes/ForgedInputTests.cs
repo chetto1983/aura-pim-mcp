@@ -80,6 +80,22 @@ public class ForgedInputTests
         Assert.AreEqual("invalid_items", body.GetProperty("error").GetString());
     }
 
+    /// <summary>A key ring lost or rotated away leaves a stored password nothing can read. Retrying changes nothing.</summary>
+    [TestMethod]
+    public async Task APasswordThatCannotBeDecrypted_IsAHardFailureNamedForTheAccount()
+    {
+        var account = Account();
+        account.ProviderConfig["password"] = new PasswordProtector(new EphemeralDataProtectionProvider()).Protect("secret");
+        var other = new PasswordProtector(new EphemeralDataProtectionProvider());
+        await using var imap = new ImapProviderService(new SingleAccountRegistry(account), other, NullLogger<ImapProviderService>.Instance);
+        await using var pim = new ChangesPipeline([account], [imap]);
+
+        var (status, body) = await pim.PostAsync("/admin/changes", new { accountId = Mine, resource = "mail" });
+
+        Assert.AreEqual(502, status);
+        Assert.AreEqual("provider_auth", body.GetProperty("error").GetString());
+    }
+
     [TestMethod]
     public async Task ABlankCalendarId_IsTheCallersError()
     {
