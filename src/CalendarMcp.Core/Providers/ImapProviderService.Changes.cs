@@ -67,6 +67,11 @@ public partial class ImapProviderService
         string accountId, ChangesCursor cursor, int limit, CancellationToken cancellationToken)
     {
         var cfg = await ResolveConfigAsync(accountId);
+
+        // The cursor was good when it was written. The account has been pointed at another folder since.
+        if (!cursor.Has(cfg.InboxFolder))
+            throw new CursorExpiredException();
+
         var saved = cursor.Folder<ImapPosition>(cfg.InboxFolder);
         var known = ImapDelta.Expand(saved.Known);
 

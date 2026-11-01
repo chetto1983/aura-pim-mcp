@@ -47,6 +47,8 @@ public sealed class ChangesCursor
     public static ChangesCursor Of<T>(string kind, string folder, T state) =>
         Of(kind, [new KeyValuePair<string, T>(folder, state)]);
 
+    public bool Has(string folder) => _folders.ContainsKey(folder);
+
     /// <summary>One folder's state. A cursor that lacks it was not written by this PIM.</summary>
     public T Folder<T>(string folder) =>
         _folders.TryGetValue(folder, out var state) ? Read<T>(state) : throw ChangesException.InvalidCursor();

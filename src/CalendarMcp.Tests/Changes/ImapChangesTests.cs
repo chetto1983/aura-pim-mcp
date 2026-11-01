@@ -563,6 +563,23 @@ public class ImapChangesTests
         StringAssert.EndsWith(batch.Changes.Single().Id, $"/{uids[^1]}", "a deletion past the window goes unnoticed, and the plan says so");
     }
 
+    /// <summary>The cursor was good. The account was pointed elsewhere, which only starting over can answer.</summary>
+    [TestMethod]
+    public async Task ACursorForAFolderNoLongerWatched_HasExpired()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail, inbox: "Watched");
+        var cursor = await mailbox.StartAsync();
+        mailbox.Account.ProviderConfig["inboxFolder"] = "INBOX";
+        await using var pim = new ChangesPipeline([mailbox.Account], [mailbox.Provider]);
+
+        var (status, body) = await pim.PostAsync(
+            "/admin/changes", new { accountId = mailbox.Account.Id, resource = "mail", cursor = cursor.Encode() });
+
+        Assert.AreEqual(200, status);
+        Assert.IsTrue(body.GetProperty("resetRequired").GetBoolean());
+        Assert.AreEqual("INBOX", ChangesCursor.Decode(body.GetProperty("nextCursor").GetString()!, "imap.mail").Folders<object>().Keys.Single());
+    }
+
     [TestMethod]
     public async Task AGarbledKnownSet_IsRefusedBeforeTheServerIsAsked()
     {
