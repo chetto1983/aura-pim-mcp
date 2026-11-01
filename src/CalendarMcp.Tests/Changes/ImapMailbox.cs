@@ -133,6 +133,19 @@ internal sealed class ImapMailbox : IAsyncDisposable
         return (await folder.SearchAsync(MailKit.Search.SearchQuery.All)).Max(uid => uid.Id);
     }
 
+    /// <summary>Fills the watched folder in one MULTIAPPEND and answers the UIDs, oldest first.</summary>
+    public async Task<List<uint>> DeliverManyAsync(int count)
+    {
+        var folder = await OpenAsync(Inbox, FolderAccess.ReadWrite);
+        var requests = Enumerable.Range(0, count)
+            .Select(i => (IAppendRequest)new AppendRequest(Mail($"Mail {i}")))
+            .ToList();
+
+        await folder.AppendAsync(requests);
+
+        return (await folder.SearchAsync(MailKit.Search.SearchQuery.All)).Select(uid => uid.Id).Order().ToList();
+    }
+
     public async Task ExpungeAsync(uint uid)
     {
         var folder = await OpenAsync(Inbox, FolderAccess.ReadWrite);

@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Changes;
+using CalendarMcp.Core.Changes.Imap;
 using CalendarMcp.Core.Models;
 using MailKit;
 using MimeKit;
@@ -364,6 +365,52 @@ public class ImapChangesTests
         await mailbox.DeliverAsync(message);
 
         Assert.AreEqual("Città già pagata", (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+    }
+
+    [TestMethod]
+    public async Task TheSameCursorTwice_AnswersTheSame()
+    {
+        // Aura commits the cursor with its verdicts, so a failed commit sends the same one again.
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail());
+
+        var first = await mailbox.ReadAsync(cursor);
+        var again = await mailbox.ReadAsync(cursor);
+
+        Assert.AreEqual(first.Changes.Single().Id, again.Changes.Single().Id);
+        Assert.AreEqual(first.Next.Encode(), again.Next.Encode());
+    }
+
+    [TestMethod]
+    public async Task AVeryLargeBody_StillArrivesWithNoSnippet()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        var message = ImapMailbox.Mail("Enorme");
+        message.Body = new TextPart("plain") { Text = new string('a', 1200 * 1024) };
+
+        await mailbox.DeliverAsync(message);
+        var added = (await mailbox.ReadAsync(cursor)).Changes.Single();
+
+        Assert.AreEqual("Enorme", added.Subject);
+        Assert.AreEqual(string.Empty, added.Snippet);
+    }
+
+    [TestMethod]
+    public async Task AMailboxPastTheWindow_StartsWithTheNewestAndNoticesTheirDeletion()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);
+        var uids = await mailbox.DeliverManyAsync(ImapDelta.KnownWindow + 5);
+        var cursor = await mailbox.StartAsync();
+
+        Assert.AreEqual(ImapDelta.KnownWindow, ImapDelta.Expand(cursor.Folder<ImapPosition>("INBOX").Known).Count);
+
+        await mailbox.ExpungeAsync(uids[0]);
+        await mailbox.ExpungeAsync(uids[^1]);
+        var batch = await mailbox.ReadAsync(cursor);
+
+        StringAssert.EndsWith(batch.Changes.Single().Id, $"/{uids[^1]}", "a deletion past the window goes unnoticed, and the plan says so");
     }
 
     [TestMethod]
