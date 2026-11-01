@@ -1,3 +1,4 @@
+using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Providers.Dav;
@@ -35,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DavDiscovery>();
         services.AddSingleton<IDavProviderService, DavProviderService>();
         services.AddSingleton<IProviderServiceFactory, ProviderServiceFactory>();
+        services.AddSingleton<ChangesService>();
 
         // DataProtection + PasswordProtector for at-rest encryption of provider passwords
         services.AddCalendarMcpDataProtection();

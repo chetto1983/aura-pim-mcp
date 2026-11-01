@@ -36,6 +36,8 @@ public static class AdminEndpoints
         admin.MapGet("/auth/{accountId}/google/start", StartGoogleOAuth);
         admin.MapGet("/auth/google/callback", GoogleOAuthCallback);
 
+        admin.MapChangesEndpoints();
+
         return app;
     }
 

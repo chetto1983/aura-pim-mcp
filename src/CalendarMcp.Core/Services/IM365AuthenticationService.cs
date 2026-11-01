@@ -49,7 +49,10 @@ public interface IM365AuthenticationService
     /// <param name="scopes">Required scopes</param>
     /// <param name="accountId">Unique account identifier for token cache</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Access token or null if not available</returns>
+    /// <returns>
+    /// Access token, or null when the account must sign in again. A failure that says nothing
+    /// about the grant, such as a network error during the refresh, throws instead.
+    /// </returns>
     Task<string?> GetTokenSilentlyAsync(
         string tenantId,
         string clientId,

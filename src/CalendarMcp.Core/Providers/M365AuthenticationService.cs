@@ -115,14 +115,11 @@ public class M365AuthenticationService : IM365AuthenticationService
             _logger.LogDebug("✓ Silent authentication successful for account {AccountId}", accountId);
             return result.AccessToken;
         }
+        // Only this exception says the grant is gone. Null reads as "reconnect the account", so a
+        // network blip during a refresh must not end here: it would pause a person's watch.
         catch (MsalUiRequiredException)
         {
             _logger.LogWarning("Silent authentication failed for account {AccountId}. Interactive authentication required.", accountId);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during silent authentication for account {AccountId}: {Message}", accountId, ex.Message);
             return null;
         }
     }

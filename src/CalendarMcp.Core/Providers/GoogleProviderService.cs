@@ -106,9 +106,10 @@ public class GoogleProviderService : IGoogleProviderService
 
             return credential;
         }
-        catch (TokenResponseException ex)
+        catch (TokenResponseException ex) when (ex.StatusCode is null or < System.Net.HttpStatusCode.InternalServerError and not System.Net.HttpStatusCode.TooManyRequests)
         {
             // Refresh token expired or revoked (e.g. invalid_grant): only re-authenticating fixes it.
+            // A 429 or 5xx from the token endpoint says nothing about the grant, and goes on as itself.
             _logger.LogWarning(ex, "Google token refresh rejected for account {AccountId}: {Message}", accountId, ex.Message);
             throw new AccountAuthenticationRequiredException(accountId, ex);
         }
