@@ -18,7 +18,7 @@ public sealed class GetEmailDetailsTool(
     IProviderServiceFactory providerFactory,
     ILogger<GetEmailDetailsTool> logger)
 {
-    [McpServerTool, Description("Get full email content including body and attachments for a specific email. bodyFormat says what the body holds: 'text' for a plain-text part, or 'markdown' for mail sent only as HTML, which is converted with its links, lists and tables kept and any hidden text removed. Both accountId and emailId are required — obtain them from the accountId and id fields returned by get_emails or search_emails.")]
+    [McpServerTool, Description("Get full email content including body and attachments for a specific email. bodyFormat says what the body holds: 'text' for a plain-text part, or 'markdown' for mail sent only as HTML, which is converted with its links, lists and tables kept and any hidden text removed, or 'omitted' when that HTML could not be converted, and body then says why. Both accountId and emailId are required — obtain them from the accountId and id fields returned by get_emails or search_emails.")]
     public async Task<string> GetEmailDetails(
         [Description("Required. Account ID that owns the email. Obtain from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Required. Email ID — pass as parameter name 'emailId' (NOT 'messageId'). Use the value from the 'id' field returned by get_emails or search_emails.")] string emailId)

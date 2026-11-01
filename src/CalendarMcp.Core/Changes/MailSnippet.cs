@@ -15,10 +15,22 @@ internal static partial class MailSnippet
     /// </summary>
     public const int MaxLength = 400;
 
+    /// <summary>
+    /// The snippet, or empty when the body cannot be read. The mail still arrives: a page that fails
+    /// is replayed forever, so one mail would stop every mail behind it. The snippet is for a
+    /// classifier, and the verdict does not read it.
+    /// </summary>
     public static string Of(string body, string format)
     {
-        var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body) : body;
-        return Cap(Whitespace().Replace(Clean(text), " ").Trim());
+        try
+        {
+            var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body) : body;
+            return Cap(Whitespace().Replace(Clean(text), " ").Trim());
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return string.Empty;
+        }
     }
 
     private static string Clean(string text)

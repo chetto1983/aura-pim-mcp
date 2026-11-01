@@ -119,6 +119,18 @@ public class MailBodyTests
     }
 
     [TestMethod]
+    [DataRow("""<td bgcolor="rgb(9999999999,0,0)">Words</td>""")]
+    [DataRow("""<td bgcolor="rgb(0,0,0,1.2.3)">Words</td>""")]
+    [DataRow("""<td bgcolor="rgb(99999999999999999999,99999999999999999999,99999999999999999999,99999999999999999999)">Words</td>""")]
+    [DataRow("""<p style="font-size:99999999999999999999999999999999999999999999px">Words</p>""")]
+    [DataRow("""<p style="height:99999999999999999999999999999999999999999999px;overflow:hidden">Words</p>""")]
+    [DataRow("""<p style="text-indent:-99999999999999999999999999999999999999999999">Words</p>""")]
+    public void AHostileNumber_IsNoReasonToFail(string html)
+    {
+        StringAssert.Contains(MailBody.ToPlainText($"<html><body><table><tr>{html}</tr></table></body></html>"), "Words");
+    }
+
+    [TestMethod]
     [DataRow("javascript:alert(1)")]
     [DataRow("JaVaScRiPt:alert(1)")]
     [DataRow("data:text/html;base64,AAAA")]

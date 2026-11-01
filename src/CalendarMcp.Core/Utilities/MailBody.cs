@@ -18,6 +18,12 @@ public static partial class MailBody
     public const string HtmlFormat = "html";
     public const string MarkdownFormat = "markdown";
 
+    /// <summary>The body could not be converted, and <c>body</c> says so instead of holding the mail.</summary>
+    public const string OmittedFormat = "omitted";
+
+    private const string NotConverted =
+        "The body of this mail could not be converted to text, so it is left out. The other fields are unaffected.";
+
     private static readonly string[] AllowedLinkSchemes = ["http", "https", "mailto"];
 
     private static readonly HashSet<string> TrackingParameters = new(StringComparer.OrdinalIgnoreCase)
@@ -35,9 +41,24 @@ public static partial class MailBody
 
     private static readonly Config Conversion = BuildConversion();
 
-    /// <summary>The body and its format as the model should receive them.</summary>
-    public static (string Body, string Format) ForModel(string body, string format) =>
-        format == HtmlFormat ? (ToMarkdown(body), MarkdownFormat) : (body, format);
+    /// <summary>
+    /// The body and its format as the model should receive them. HTML that cannot be converted is
+    /// never handed over as it is: what the filter would have removed is exactly what must not arrive.
+    /// </summary>
+    public static (string Body, string Format) ForModel(string body, string format)
+    {
+        if (format != HtmlFormat)
+            return (body, format);
+
+        try
+        {
+            return (ToMarkdown(body), MarkdownFormat);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return (NotConverted, OmittedFormat);
+        }
+    }
 
     public static string ToMarkdown(string html) =>
         string.IsNullOrWhiteSpace(html)

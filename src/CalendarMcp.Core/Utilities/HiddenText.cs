@@ -140,7 +140,10 @@ internal static partial class HiddenText
         if (!rgb.Success)
             return null;
 
-        var alpha = rgb.Groups[4].Success ? double.Parse(rgb.Groups[4].Value, CultureInfo.InvariantCulture) : 1;
+        var alpha = 1d;
+        if (rgb.Groups[4].Success && !double.TryParse(rgb.Groups[4].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out alpha))
+            return null;
+
         return (new Rgb(int.Parse(rgb.Groups[1].Value), int.Parse(rgb.Groups[2].Value), int.Parse(rgb.Groups[3].Value)), alpha);
 
         static int FromHex(Match match, int group) => Convert.ToInt32(match.Groups[group].Value, 16);
@@ -148,42 +151,41 @@ internal static partial class HiddenText
 
     private static bool IsTiny(string? fontSize)
     {
-        var match = Number().Match(fontSize ?? string.Empty);
-        if (!match.Success)
+        if (ReadNumber(fontSize) is not { } size)
             return false;
 
-        var size = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-        return match.Groups[2].Value.ToLowerInvariant() switch
+        return size.Unit.ToLowerInvariant() switch
         {
-            "em" or "rem" => size <= 0.1,
-            "%" => size <= 10,
-            _ => size <= 1
+            "em" or "rem" => size.Value <= 0.1,
+            "%" => size.Value <= 10,
+            _ => size.Value <= 1
         };
     }
 
-    private static bool IsZero(string? value)
-    {
-        var match = Number().Match(value ?? string.Empty);
-        return match.Success && double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) == 0;
-    }
+    private static bool IsZero(string? value) => ReadNumber(value) is { Value: 0 };
 
-    private static double Pixels(string? value)
+    private static double Pixels(string? value) => ReadNumber(value) is { Unit: "" or "px" } number ? number.Value : 0;
+
+    // An attribute reaches this unparsed and unchecked, so its text is anyone's. The parse must not throw.
+    private static (double Value, string Unit)? ReadNumber(string? value)
     {
         var match = Number().Match(value ?? string.Empty);
-        return match.Success && match.Groups[2].Value is "" or "px"
-            ? double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture)
-            : 0;
+        if (!match.Success || !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+            return null;
+
+        return (number, match.Groups[2].Value);
     }
 
     private static string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    [GeneratedRegex(@"^\s*(-?\d*\.?\d+)\s*([a-zA-Z%]*)\s*$")]
+    [GeneratedRegex(@"^\s*(-?\d{0,32}\.?\d{1,32})\s*([a-zA-Z%]{0,8})\s*$")]
     private static partial Regex Number();
 
     [GeneratedRegex(@"^\s*#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})\s*$")]
     private static partial Regex HexColour();
 
-    [GeneratedRegex(@"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)")]
+    // Nine digits fit an int, so the parse above cannot overflow, and a longer number is no colour.
+    [GeneratedRegex(@"rgba?\(\s*(\d{1,9})\s*,\s*(\d{1,9})\s*,\s*(\d{1,9})\s*(?:,\s*([\d.]{1,32})\s*)?\)")]
     private static partial Regex RgbColour();
 
     [GeneratedRegex(@"rect\(\s*0[a-z]*[\s,]+0[a-z]*[\s,]+0[a-z]*[\s,]+0[a-z]*\s*\)")]
