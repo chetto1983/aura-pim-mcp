@@ -1,6 +1,7 @@
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Changes.Imap;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Providers;
 using MailKit;
 using MimeKit;
 
@@ -220,6 +221,54 @@ public class ImapChangesTests
         Assert.IsTrue(signals.Bulk);
         Assert.IsTrue(signals.AuthFailed);
         Assert.IsNull(signals.WrittenTo, "bulk mail asks nothing");
+    }
+
+    private sealed class WatchingClock(Action onRead) : TimeProvider
+    {
+        public override long GetTimestamp()
+        {
+            onRead();
+            return base.GetTimestamp();
+        }
+    }
+
+    /// <summary>Asks the account something from inside a conversion, which waits forever on a gate still held.</summary>
+    [TestMethod]
+    public async Task ASnippetBeingConverted_DoesNotHoldTheAccount()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail());
+
+        var answered = 0;
+        mailbox.Provider.Clock = new WatchingClock(() =>
+        {
+            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            mailbox.Provider.StartAsync(mailbox.Account.Id, patience.Token).GetAwaiter().GetResult();
+            answered++;
+        });
+
+        Assert.AreEqual("Testo della mail", (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+        Assert.IsTrue(answered > 0, "the conversion has to have read the clock");
+    }
+
+    [TestMethod]
+    public async Task APageOfHugeMails_StopsHoldingBodiesAndStillArrives()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        var fits = (int)(ImapProviderService.MaxHeldBodyOctets / ImapProviderService.MaxSnippetBodyOctets);
+        var huge = "Parole " + new string('x', (int)ImapProviderService.MaxSnippetBodyOctets - 1024);
+
+        for (var i = 0; i <= fits; i++)
+            await mailbox.DeliverAsync(ImapMailbox.Mail($"Mail {i}", body: huge));
+
+        var batch = await mailbox.ReadAsync(cursor);
+
+        Assert.AreEqual(fits + 1, batch.Changes.Count);
+        Assert.AreEqual(fits, batch.Changes.Count(c => c.Snippet!.StartsWith("Parole", StringComparison.Ordinal)));
+        Assert.AreEqual(string.Empty, batch.Changes[^1].Snippet);
+        Assert.AreEqual(1, batch.SnippetsSkipped);
     }
 
     [TestMethod]
