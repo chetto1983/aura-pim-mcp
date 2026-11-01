@@ -115,6 +115,7 @@ internal sealed class ScriptedSource(string provider, string resource) : IChange
     public int? LastLimit { get; private set; }
     public Func<ChangesCursor, ChangesBatch>? Read { get; set; }
     public Func<ChangesCursor>? Start { get; set; }
+    public Func<ItemRef, ItemFacts?>? Item { get; set; }
 
     private string Kind => ChangesCursor.KindOf(Provider, Resource);
 
@@ -132,6 +133,9 @@ internal sealed class ScriptedSource(string provider, string resource) : IChange
         LastLimit = limit;
         return Task.FromResult(Read!(cursor));
     }
+
+    public Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken) =>
+        Task.FromResult(Item!(item));
 }
 
 /// <summary>Keeps every line written through the logging pipeline, framework ones included.</summary>

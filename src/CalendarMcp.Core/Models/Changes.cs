@@ -79,3 +79,33 @@ public sealed record ChangesPage(
     string NextCursor,
     bool HasMore,
     bool ResetRequired);
+
+/// <summary>One mail or event named to <c>POST /admin/items</c>. An event needs its calendar.</summary>
+public sealed record ItemRef(string? Id, string? CalendarId);
+
+/// <summary>A mail or event as it stands now. An event's time is in <see cref="Event"/>.</summary>
+public sealed record ItemFacts
+{
+    public required string Id { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CalendarId { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? OccurredAt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? From { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FromName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Subject { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EventFacts? Event { get; init; }
+}
+
+/// <summary>The answer of <c>POST /admin/items</c>. What no longer exists is in <see cref="Gone"/>.</summary>
+public sealed record ItemsPage(IReadOnlyList<ItemFacts> Items, IReadOnlyList<ItemRef> Gone);

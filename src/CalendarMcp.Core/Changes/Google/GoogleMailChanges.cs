@@ -71,6 +71,39 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSou
         return new ChangesBatch(changes, next is null ? cursor : At(next.Value), truncated);
     }
 
+    // The metadata format is documented as id, labels and headers, so internalDate may not come with it.
+    public async Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken)
+    {
+        using var gmail = await clients.GmailAsync(accountId, cancellationToken);
+
+        var request = gmail.Users.Messages.Get(Me, item.Id);
+        request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
+        request.MetadataHeaders = new Repeatable<string>(["From", "Subject", "Date"]);
+
+        try
+        {
+            var message = await request.ExecuteAsync(cancellationToken);
+            var header = (string name) => message.Payload?.Headers?
+                .FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
+            var (address, name) = MailSender.Read(header("From"));
+
+            return new ItemFacts
+            {
+                Id = message.Id,
+                OccurredAt = message.InternalDate is { } date
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(date)
+                    : MailSender.ReadDate(header("Date")),
+                From = address,
+                FromName = name,
+                Subject = header("Subject")
+            };
+        }
+        catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     private static ChangesCursor At(ulong history) =>
         ChangesCursor.Of(Kind, GmailHistory.Inbox, new Position(history));
 

@@ -16,6 +16,7 @@ public sealed class ChangesService(
 {
     public const int DefaultLimit = 50;
     public const int MaxLimit = 200;
+    public const int MaxItems = 50;
 
     public async Task<ChangesPage> ReadAsync(
         string? accountId, string? resource, string? cursor, int? limit, CancellationToken cancellationToken)
@@ -43,6 +44,40 @@ public sealed class ChangesService(
                 var fresh = expired.Replacement ?? await source.StartAsync(account.Id, cancellationToken);
                 return new ChangesPage([], fresh.Encode(), false, true);
             }
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads items by id for the digest and the decisions view. An item that is gone is an answer
+    /// and not a failure, so a mail deleted since the morning does not cost the digest. A provider
+    /// failure still fails the call: "unreadable" must not read as "gone".
+    /// </summary>
+    public async Task<ItemsPage> ReadItemsAsync(
+        string? accountId, string? resource, IReadOnlyList<ItemRef>? items, CancellationToken cancellationToken)
+    {
+        if (items is null)
+            throw ChangesException.InvalidRequest("invalid_items");
+        if (items.Count > MaxItems)
+            throw ChangesException.InvalidRequest("too_many_items");
+
+        var (account, source) = await ResolveAsync(accountId, resource);
+        if (items.Any(item => string.IsNullOrEmpty(item.Id) || (resource == ChangeResource.Calendar && string.IsNullOrEmpty(item.CalendarId))))
+            throw ChangesException.InvalidRequest("invalid_items");
+
+        return await GuardAsync(account.Id, resource!, async () =>
+        {
+            var found = new List<ItemFacts>();
+            var gone = new List<ItemRef>();
+
+            foreach (var item in items)
+            {
+                if (await source.ReadItemAsync(account.Id, item, cancellationToken) is { } facts)
+                    found.Add(facts);
+                else
+                    gone.Add(item);
+            }
+
+            return new ItemsPage(found, gone);
         }, cancellationToken);
     }
 

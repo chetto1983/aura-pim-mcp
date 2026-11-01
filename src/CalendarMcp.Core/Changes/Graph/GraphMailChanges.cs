@@ -93,6 +93,32 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
         }
     }
 
+    public async Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken)
+    {
+        var graph = await clients.GraphAsync(accountId, cancellationToken);
+
+        try
+        {
+            var message = await graph.Me.Messages[item.Id].GetAsync(
+                config => config.QueryParameters.Select = ["id", "subject", "from", "receivedDateTime"], cancellationToken);
+            if (message is null)
+                return null;
+
+            return new ItemFacts
+            {
+                Id = message.Id!,
+                OccurredAt = message.ReceivedDateTime,
+                From = message.From?.EmailAddress?.Address,
+                FromName = message.From?.EmailAddress?.Name,
+                Subject = message.Subject
+            };
+        }
+        catch (ApiException e) when (ProviderFailures.IsNotFound(e))
+        {
+            return null;
+        }
+    }
+
     private ChangesCursor At(Streams streams) => ChangesCursor.Of(Kind, Inbox, streams);
 
     private static async Task<Stream> OpenAsync(

@@ -92,6 +92,62 @@ public partial class ImapProviderService
         }, cancellationToken);
     }
 
+    public async Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken)
+    {
+        if (!TryParseEmailId(item.Id!, out var folderName, out var uidValidity, out var uid))
+            return null;
+
+        var cfg = await ResolveConfigAsync(accountId);
+
+        return await WithImapAsync(cfg, async client =>
+        {
+            IMailFolder folder;
+            try
+            {
+                folder = await OpenFolderAsync(client, folderName, FolderAccess.ReadOnly, cancellationToken);
+            }
+            catch (FolderNotFoundException)
+            {
+                return null;
+            }
+
+            // Another UIDVALIDITY means this UID may name a different mail now.
+            if (folder.UidValidity != uidValidity)
+                return null;
+
+            var summaries = await folder.FetchAsync(
+                [new UniqueId(uid)],
+                MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.InternalDate,
+                cancellationToken);
+            if (summaries.SingleOrDefault() is not { } summary)
+                return null;
+
+            var sender = summary.Envelope?.From.Mailboxes.FirstOrDefault();
+            return new ItemFacts
+            {
+                Id = item.Id!,
+                OccurredAt = summary.InternalDate ?? summary.Envelope?.Date,
+                From = sender?.Address,
+                FromName = string.IsNullOrEmpty(sender?.Name) ? null : sender.Name,
+                Subject = summary.Envelope?.Subject
+            };
+        }, cancellationToken);
+    }
+
+    private static bool TryParseEmailId(string id, out string folder, out uint uidValidity, out uint uid)
+    {
+        try
+        {
+            (folder, uidValidity, uid) = ParseEmailId(id);
+            return true;
+        }
+        catch (ProviderOperationException)
+        {
+            (folder, uidValidity, uid) = (string.Empty, 0, 0);
+            return false;
+        }
+    }
+
     private static ChangesCursor At(ImapAccountConfig cfg, ImapPosition position) =>
         ChangesCursor.Of(ChangesKind, cfg.InboxFolder, position);
 

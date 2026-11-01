@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Changes;
+using CalendarMcp.Core.Models;
 
 namespace CalendarMcp.HttpServer.Admin;
 
@@ -11,11 +12,19 @@ public static class ChangesEndpoints
 {
     public sealed record ChangesRequest(string? AccountId, string? Resource, string? Cursor, int? Limit);
 
+    public sealed record ItemsRequest(string? AccountId, string? Resource, List<ItemRef>? Items);
+
     public static RouteGroupBuilder MapChangesEndpoints(this RouteGroupBuilder admin)
     {
         admin.MapPost("/changes", ReadChanges);
+        admin.MapPost("/items", ReadItems);
         return admin;
     }
+
+    private static Task<IResult> ReadItems(
+        ItemsRequest request, ChangesService changes, CancellationToken cancellationToken) =>
+        AnswerAsync(async () => Results.Ok(await changes.ReadItemsAsync(
+            request.AccountId, request.Resource, request.Items, cancellationToken)));
 
     private static Task<IResult> ReadChanges(
         ChangesRequest request, ChangesService changes, CancellationToken cancellationToken) =>

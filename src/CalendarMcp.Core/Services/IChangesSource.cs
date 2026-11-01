@@ -24,6 +24,12 @@ public interface IChangesSource
     /// a change skipped. Throws <see cref="CursorExpiredException"/> when the position is gone.
     /// </summary>
     Task<ChangesBatch> ReadAsync(string accountId, ChangesCursor cursor, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sender, subject and time of one item, reading no body, or null when it no longer exists.
+    /// An item already reported by this source's <see cref="ReadAsync"/> must be readable by its id.
+    /// </summary>
+    Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken);
 }
 
 /// <summary>What a source read, and the position that covers exactly that.</summary>

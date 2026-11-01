@@ -80,6 +80,32 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
         return new ChangesBatch(changes, ChangesCursor.Of(Kind, positions), hasMore);
     }
 
+    public async Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken)
+    {
+        using var calendar = await clients.CalendarAsync(accountId, cancellationToken);
+
+        try
+        {
+            var found = await calendar.Events.Get(item.CalendarId, item.Id).ExecuteAsync(cancellationToken);
+            if (found.Status == EventChanges.Cancelled)
+                return null;
+
+            return new ItemFacts
+            {
+                Id = found.Id,
+                CalendarId = item.CalendarId,
+                OccurredAt = found.UpdatedDateTimeOffset,
+                From = found.Organizer?.Email,
+                Subject = found.Summary,
+                Event = Facts(found)
+            };
+        }
+        catch (GoogleApiException e) when (e.HttpStatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+        {
+            return null;
+        }
+    }
+
     // The account's role is read here rather than through minAccessRole, whose documentation gives
     // no order among roles. https://developers.google.com/workspace/calendar/api/v3/reference/calendarList
     private static async Task<List<string>> EditableCalendarsAsync(CalendarService calendar, CancellationToken cancellationToken)

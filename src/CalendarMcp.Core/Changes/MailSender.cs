@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using MimeKit;
+using MimeKit.Utils;
 
 namespace CalendarMcp.Core.Changes;
 
@@ -14,6 +15,9 @@ internal static partial class MailSender
 
     [GeneratedRegex(@"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+$")]
     private static partial Regex PlainAddress();
+
+    public static DateTimeOffset? ReadDate(string? date) =>
+        DateUtils.TryParse(date, out var parsed) ? parsed : null;
 
     /// <summary>The first mailbox in the header. Text that holds none comes back as the name.</summary>
     public static (string? Address, string? Name) Read(string? from)

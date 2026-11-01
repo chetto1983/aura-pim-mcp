@@ -102,6 +102,25 @@ internal sealed class GraphCalendarChanges(string provider, IGraphApiClients cli
         return new ChangesBatch(changes, ChangesCursor.Of(Kind, positions), positions.Values.Any(p => !p.RoundDone));
     }
 
+    public async Task<ItemFacts?> ReadItemAsync(string accountId, ItemRef item, CancellationToken cancellationToken)
+    {
+        var graph = await clients.GraphAsync(accountId, cancellationToken);
+
+        var found = await ReadEventAsync(graph, item.CalendarId!, item.Id!, cancellationToken);
+        if (found is null)
+            return null;
+
+        return new ItemFacts
+        {
+            Id = found.Id!,
+            CalendarId = item.CalendarId,
+            OccurredAt = found.LastModifiedDateTime,
+            From = found.Organizer?.EmailAddress?.Address,
+            Subject = found.Subject,
+            Event = Facts(found)
+        };
+    }
+
     private static async Task<IEnumerable<string>> EditableCalendarsAsync(GraphServiceClient graph, CancellationToken cancellationToken) =>
         (await GraphCalendarList.ReadAllAsync(graph, cancellationToken))
         .Where(calendar => calendar.CanEdit == true)
