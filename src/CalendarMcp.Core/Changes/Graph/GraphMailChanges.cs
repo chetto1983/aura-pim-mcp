@@ -82,10 +82,14 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
             var created = await AdvanceAsync(graph, Created, saved.Created, limit, now, rows, cancellationToken);
             var updated = await AdvanceAsync(graph, Updated, saved.Updated, limit, now, rows, cancellationToken);
 
-            var changes = await ToChangesAsync(graph, rows, cancellationToken);
+            var snippets = new SnippetPage(clock, cancellationToken);
+            var changes = await ToChangesAsync(graph, rows, snippets, cancellationToken);
             var hasMore = !deleted.RoundDone || !created.RoundDone || !updated.RoundDone;
 
-            return new ChangesBatch(changes, At(new Streams(deleted, created, updated)), hasMore);
+            return new ChangesBatch(changes, At(new Streams(deleted, created, updated)), hasMore)
+            {
+                SnippetsSkipped = snippets.Skipped
+            };
         }
         catch (ApiException e) when (GraphLinks.IsExpired(e))
         {
@@ -186,7 +190,7 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
     }
 
     private static async Task<List<Change>> ToChangesAsync(
-        GraphServiceClient graph, DeltaRows rows, CancellationToken cancellationToken)
+        GraphServiceClient graph, DeltaRows rows, SnippetPage snippets, CancellationToken cancellationToken)
     {
         var writtenTo = new WrittenToLookup(
             (address, ct) => SentToAsync(graph, address, ct),
@@ -203,7 +207,7 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
 
             var message = await ReadMessageAsync(graph, id, cancellationToken);
             if (message is not null)
-                changes.Add(await AddedAsync(message, writtenTo, cancellationToken));
+                changes.Add(await AddedAsync(message, writtenTo, snippets, cancellationToken));
         }
 
         return changes;
@@ -222,7 +226,8 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
         }
     }
 
-    private static async Task<Change> AddedAsync(Message message, WrittenToLookup writtenTo, CancellationToken cancellationToken)
+    private static async Task<Change> AddedAsync(
+        Message message, WrittenToLookup writtenTo, SnippetPage snippets, CancellationToken cancellationToken)
     {
         var header = (string name) => message.InternetMessageHeaders?
             .FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
@@ -239,7 +244,7 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
             From = address,
             FromName = message.From?.EmailAddress?.Name,
             Subject = message.Subject,
-            Snippet = MailSnippet.Of(message.Body?.Content ?? string.Empty, format),
+            Snippet = snippets.Of(() => (message.Body?.Content ?? string.Empty, format)),
             Signals = new MailSignals
             {
                 ProviderImportant = message.Importance == Importance.High,

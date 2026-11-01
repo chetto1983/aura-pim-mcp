@@ -21,8 +21,8 @@ public class HostileMailTests
 
     private readonly FakeHttp _http = new();
 
-    private ChangesPipeline Pipeline() =>
-        new([TestData.CreateAccount(id: Mine, provider: "google")], [new GoogleMailChanges(Provider(_http))]);
+    private ChangesPipeline Pipeline(TimeProvider? clock = null) =>
+        new([TestData.CreateAccount(id: Mine, provider: "google")], [new GoogleMailChanges(Provider(_http), clock)]);
 
     private static string Cursor => ChangesCursor.Of("google.mail", Inbox, new { history = 100UL }).Encode();
 
@@ -50,9 +50,9 @@ public class HostileMailTests
         }
     }
 
-    private async Task<Dictionary<string, string>> SnippetsAsync()
+    private async Task<Dictionary<string, string>> SnippetsAsync(TimeProvider? clock = null)
     {
-        await using var pim = Pipeline();
+        await using var pim = Pipeline(clock);
         var (status, body) = await pim.PostAsync("/admin/changes", new { accountId = Mine, resource = "mail", cursor = Cursor });
 
         Assert.AreEqual(200, status, "a mail must never fail its page");
@@ -164,6 +164,41 @@ public class HostileMailTests
 
         Assert.AreEqual("La mail dopo", snippets["next"]);
         Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed}");
+    }
+
+    [TestMethod]
+    public async Task APageOutOfTime_ReturnsEveryMailAndMovesItsCursor()
+    {
+        var mails = Enumerable.Range(0, 5).Select(i => ($"m{i}", "<p>Parole</p>")).ToArray();
+        Delivers(mails);
+
+        var snippets = await SnippetsAsync(new SteppingClock(SnippetPage.Allowed / 3));
+
+        CollectionAssert.AreEqual(
+            new[] { "Parole", "Parole", "Parole", string.Empty, string.Empty },
+            mails.Select(mail => snippets[mail.Item1]).ToArray());
+    }
+
+    [TestMethod]
+    public async Task ABodyGmailCannotDecode_LosesOnlyItsSnippet()
+    {
+        Delivers(("next", "<p>La mail dopo</p>"), ("broken", "<p>Parole</p>"));
+        _http.On("/users/me/messages/broken", Json(new
+        {
+            id = "broken",
+            labelIds = new[] { Inbox },
+            payload = new
+            {
+                mimeType = "text/html",
+                headers = new[] { new { name = "From", value = "Sconosciuto <x@example.com>" } },
+                body = new { data = "not base64 at all ===" }
+            }
+        }));
+
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual(string.Empty, snippets["broken"]);
+        Assert.AreEqual("La mail dopo", snippets["next"]);
     }
 
     [TestMethod]

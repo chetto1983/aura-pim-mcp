@@ -33,4 +33,8 @@ public interface IChangesSource
 }
 
 /// <summary>What a source read, and the position that covers exactly that.</summary>
-public sealed record ChangesBatch(IReadOnlyList<Change> Changes, ChangesCursor Next, bool HasMore);
+public sealed record ChangesBatch(IReadOnlyList<Change> Changes, ChangesCursor Next, bool HasMore)
+{
+    /// <summary>Mails in this batch left with no snippet because the page ran out of time. Not on the wire.</summary>
+    public int SnippetsSkipped { get; init; }
+}

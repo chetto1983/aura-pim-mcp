@@ -15,7 +15,7 @@ namespace CalendarMcp.Core.Changes.Google;
 /// (https://developers.google.com/workspace/gmail/api/guides/sync). The filter on <c>INBOX</c> is
 /// left off the request and applied here, because a filtered history cannot show a mail leaving the Inbox.
 /// </summary>
-internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSource
+internal sealed class GoogleMailChanges(IGoogleApiClients clients, TimeProvider? clock = null) : IChangesSource
 {
     private const string Me = "me";
     private const string Sent = "SENT";
@@ -48,6 +48,7 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSou
         var writtenTo = new WrittenToLookup(
             (address, ct) => SentToAsync(gmail, address, ct),
             (thread, ct) => ThreadHoldsSentAsync(gmail, thread, ct));
+        var snippets = new SnippetPage(clock ?? TimeProvider.System, cancellationToken);
 
         var changes = new List<Change>();
         foreach (var (id, type) in GmailHistory.Net(records))
@@ -62,13 +63,16 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSou
             // from messages.get is the only signal, and a mail nobody saw needs no deletion.
             var message = await ReadMessageAsync(gmail, id, cancellationToken);
             if (message is not null)
-                changes.Add(await AddedAsync(message, writtenTo, cancellationToken));
+                changes.Add(await AddedAsync(message, writtenTo, snippets, cancellationToken));
         }
 
         var truncated = page.NextPageToken is not null;
         var next = truncated ? records[^1].Id : page.HistoryId;
 
-        return new ChangesBatch(changes, next is null ? cursor : At(next.Value), truncated);
+        return new ChangesBatch(changes, next is null ? cursor : At(next.Value), truncated)
+        {
+            SnippetsSkipped = snippets.Skipped
+        };
     }
 
     // The metadata format is documented as id, labels and headers, so internalDate may not come with it.
@@ -152,14 +156,14 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSou
         }
     }
 
-    private static async Task<Change> AddedAsync(Message message, WrittenToLookup writtenTo, CancellationToken cancellationToken)
+    private static async Task<Change> AddedAsync(
+        Message message, WrittenToLookup writtenTo, SnippetPage snippets, CancellationToken cancellationToken)
     {
         // Gmail hands headers over in their order in the message, which keeps the topmost first.
         var header = (string name) => message.Payload?.Headers?
             .FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
 
         var labels = message.LabelIds ?? [];
-        var (body, format) = GoogleProviderService.GetMessageBody(message);
         var (address, name) = MailSender.Read(header("From"));
         var bulk = MailHeaderSignals.IsBulk(header);
 
@@ -171,7 +175,7 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSou
             From = address,
             FromName = name,
             Subject = header("Subject"),
-            Snippet = MailSnippet.Of(body, format),
+            Snippet = snippets.Of(() => GoogleProviderService.GetMessageBody(message)),
             Signals = new MailSignals
             {
                 ProviderImportant = labels.Contains(Important),

@@ -22,12 +22,19 @@ internal static partial class MailSnippet
     /// </summary>
     public static string Of(string body, string format)
     {
+        MailBody.WarmUp();
+        return Of(() => (body, format), new ConversionBudget(MailBody.SnippetBudget));
+    }
+
+    public static string Of(Func<(string Body, string Format)> read, ConversionBudget budget)
+    {
         try
         {
+            var (body, format) = read();
             if (body.Length > MailBody.MaxBodyLength)
                 return string.Empty;
 
-            var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body) : body;
+            var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body, budget) : body;
             return Cap(Whitespace().Replace(Clean(text), " ").Trim());
         }
         catch (Exception e) when (e is not OperationCanceledException)

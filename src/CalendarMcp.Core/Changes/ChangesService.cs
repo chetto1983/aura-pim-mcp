@@ -36,6 +36,13 @@ public sealed class ChangesService(
             {
                 var batch = await source.ReadAsync(
                     account.Id, ChangesCursor.Decode(cursor, kind), EffectiveLimit(limit), cancellationToken);
+                if (batch.SnippetsSkipped > 0)
+                {
+                    logger.LogWarning(
+                        "{Count} mails on account {AccountId} have no snippet: the page ran out of time",
+                        batch.SnippetsSkipped, account.Id);
+                }
+
                 return new ChangesPage(batch.Changes, batch.Next.Encode(), batch.HasMore, false);
             }
             catch (CursorExpiredException expired)

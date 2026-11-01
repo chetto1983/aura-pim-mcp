@@ -108,6 +108,26 @@ public class GraphMailChangesTests
     }
 
     [TestMethod]
+    public async Task APageOutOfTime_StillMovesItsCursorPastEveryMail()
+    {
+        var ids = Enumerable.Range(0, 5).Select(i => $"m{i}").ToArray();
+        Quiet().NoSentItems().On("deltatoken=created-old", Delta($"{CreatedLink}-next", ids.Select(Row).ToArray()));
+        foreach (var id in ids)
+            _http.On($"/me/messages/{id}", Message(id, contentType: "html", body: "<p>Parole</p>"));
+        var source = new GraphMailChanges(ChangesProviders.Microsoft365, Provider(_http), new SteppingClock(SnippetPage.Allowed / 3, Now));
+
+        var batch = await source.ReadAsync(Account, Cursor(), 50, default);
+
+        CollectionAssert.AreEqual(ids, batch.Changes.Select(c => c.Id).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Parole", "Parole", "Parole", string.Empty, string.Empty },
+            batch.Changes.Select(c => c.Snippet).ToArray());
+        Assert.AreEqual(2, batch.SnippetsSkipped);
+        Assert.IsFalse(batch.HasMore);
+        Assert.AreEqual($"{CreatedLink}-next", Saved(batch.Next).Created.Link);
+    }
+
+    [TestMethod]
     public async Task HtmlMail_HasASnippetWithNoHiddenText()
     {
         Quiet().NoSentItems()
