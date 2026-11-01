@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using AngleSharp.Css;
 using AngleSharp.Css.Dom;
 using AngleSharp.Dom;
-using ReverseMarkdown.Preprocessing;
 
 namespace CalendarMcp.Core.Utilities;
 
@@ -23,9 +22,13 @@ internal static partial class HiddenText
 {
     private const double OffScreenPixels = -100;
     private const double TinyFontPixels = 2;
+    private const double TinyBoxPixels = 2;
+    private const double FaintOpacity = 0.1;
     private const double DefaultFontPixels = 16;
     private const int SameColourDistance = 12;
     private static readonly Rgb PageBackground = new(255, 255, 255);
+    private static readonly string[] Margins = ["margin-left", "margin-right", "margin-top", "margin-bottom"];
+    private static readonly string[] Offsets = ["left", "right", "top", "bottom"];
 
     /// <summary>
     /// What a person reads a mail on. The engine's default device has no width at all, which
@@ -104,12 +107,14 @@ internal static partial class HiddenText
         var background = Background(element, Value) ?? above.Background;
 
         var hides = Value("display") == "none"
-            || IsZero(Value("opacity"))
-            || InlineStyle.Has(element, "mso-hide", "all")
-            || IsClippedBox(Value)
+            || IsFaint(Value("opacity"))
+            || Value("mso-hide") == "all"
+            || IsClippedBox(Value, font)
+            || IsClippedAway(Value("clip-path"), font)
             || IsOffScreen(Value, font);
 
-        var unseen = hides || font <= TinyFontPixels || visibility is "hidden" or "collapse" || BlendsIn(color, background);
+        var unseen = hides || font <= TinyFontPixels || visibility is "hidden" or "collapse" || BlendsIn(color, background)
+            || IsPixel(element, Value, font);
 
         return new Look(hides, unseen, font, visibility, color, background);
     }
@@ -140,16 +145,47 @@ internal static partial class HiddenText
         return Pixels(value, above) ?? above;
     }
 
-    private static bool IsClippedBox(Func<string, string?> value)
+    private static bool IsFaint(string? opacity) =>
+        ReadNumber(opacity) is { } number && (number.Unit == "%" ? number.Value / 100 : number.Value) <= FaintOpacity;
+
+    private static bool IsTiny(string? length, double font) => Pixels(length, font) <= TinyBoxPixels;
+
+    private static bool IsClippedBox(Func<string, string?> value, double font)
     {
         var clipped = value("overflow") is "hidden" or "clip"
             || value("overflow-x") is "hidden" or "clip"
             || value("overflow-y") is "hidden" or "clip";
 
-        return clipped && (IsZero(value("height")) || IsZero(value("max-height"))
-            || IsZero(value("width")) || IsZero(value("max-width")));
+        return clipped && (IsTiny(value("height"), font) || IsTiny(value("max-height"), font)
+            || IsTiny(value("width"), font) || IsTiny(value("max-width"), font));
     }
 
+    /// <summary>An <c>inset()</c> whose opposite sides meet, in its one to four sides as CSS shorthand gives them.</summary>
+    private static bool IsClippedAway(string? clipPath, double font)
+    {
+        var sides = InsetClip().Match(clipPath ?? string.Empty).Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (sides.Length == 0)
+            return false;
+
+        var (top, right, bottom, left) = sides.Length switch
+        {
+            1 => (0, 0, 0, 0),
+            2 => (0, 1, 0, 1),
+            3 => (0, 1, 2, 1),
+            _ => (0, 1, 2, 3)
+        };
+
+        double Percent(int side) => ReadNumber(sides[side]) is { Unit: "%" } share
+            ? share.Value
+            : Pixels(sides[side], font) >= Reader.ViewPortWidth ? 100 : 0;
+
+        return Percent(top) + Percent(bottom) >= 100 || Percent(left) + Percent(right) >= 100;
+    }
+
+    /// <summary>
+    /// A margin only moves a box from where it would be, so it has to outrun the whole screen to prove
+    /// anything, where an offset on something positioned has less to go: layouts overlap with both.
+    /// </summary>
     private static bool IsOffScreen(Func<string, string?> value, double font)
     {
         if (Pixels(value("text-indent"), font) <= OffScreenPixels)
@@ -158,9 +194,18 @@ internal static partial class HiddenText
         if (ZeroClip().IsMatch(value("clip") ?? string.Empty))
             return true;
 
-        return value("position") is "absolute" or "fixed"
-            && (Pixels(value("left"), font) <= OffScreenPixels || Pixels(value("top"), font) <= OffScreenPixels);
+        if (Margins.Any(margin => Pixels(value(margin), font) <= -Reader.ViewPortWidth))
+            return true;
+
+        return value("position") is "absolute" or "fixed" or "relative"
+            && (Offsets.Any(offset => Pixels(value(offset), font) <= OffScreenPixels)
+                || Pixels(value("left"), font) >= Reader.ViewPortWidth);
     }
+
+    private static bool IsPixel(IElement element, Func<string, string?> value, double font) =>
+        element.LocalName == "img"
+        && (IsTiny(value("width") ?? element.GetAttribute("width"), font)
+            || IsTiny(value("height") ?? element.GetAttribute("height"), font));
 
     private static string? Background(IElement element, Func<string, string?> value)
     {
@@ -208,8 +253,6 @@ internal static partial class HiddenText
 
         static int FromHex(Match match, int group) => Convert.ToInt32(match.Groups[group].Value, 16);
     }
-
-    private static bool IsZero(string? value) => ReadNumber(value) is { Value: 0 };
 
     /// <summary>A declared length in pixels, or null when it is not one. The engine resolves none of these in a declared value.</summary>
     private static double? Pixels(string? value, double fontPixels)
@@ -261,4 +304,7 @@ internal static partial class HiddenText
 
     [GeneratedRegex(@"rect\(\s*0[a-z]*[\s,]+0[a-z]*[\s,]+0[a-z]*[\s,]+0[a-z]*\s*\)")]
     private static partial Regex ZeroClip();
+
+    [GeneratedRegex(@"^\s*inset\(\s*([^()]*?)\s*(?:round\b[^()]*)?\)", RegexOptions.IgnoreCase)]
+    private static partial Regex InsetClip();
 }

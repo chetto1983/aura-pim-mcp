@@ -122,7 +122,7 @@ public class MailBodyPreferenceTests
     [TestMethod]
     public void Gmail_TextOfNothingButInvisibleCharacters_IsBlank()
     {
-        var message = Gmail(new MessagePart { MimeType = "multipart/alternative", Parts = [Part("text/plain", "​‍ "), Part("text/html", "<p>rich</p>")] });
+        var message = Gmail(new MessagePart { MimeType = "multipart/alternative", Parts = [Part("text/plain", "\u200b\u200d "), Part("text/html", "<p>rich</p>")] });
 
         Assert.AreEqual(("<p>rich</p>", "html"), GoogleProviderService.GetMessageBody(message));
     }

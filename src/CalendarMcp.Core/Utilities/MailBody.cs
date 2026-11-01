@@ -79,8 +79,10 @@ public static partial class MailBody
     /// </summary>
     public static (string Body, string Format) ForModel(string body, string format)
     {
+        if (body.Length > MaxBodyLength)
+            return (TooLarge, OmittedFormat);
         if (format != HtmlFormat)
-            return (body, format);
+            return (StripInvisibleCharacters(body), format);
 
         try
         {
@@ -284,8 +286,11 @@ public static partial class MailBody
 
     internal static string StripInvisibleCharacters(string text) => InvisibleCharacters().Replace(text, string.Empty);
 
-    // Format characters and the Unicode tag block, which render as nothing and still reach a model.
-    [GeneratedRegex(@"\p{Cf}|\uDB40[\uDC00-\uDC7F]")]
+    // Format characters and what Unicode calls Default_Ignorable_Code_Point (DerivedCoreProperties.txt),
+    // which render as nothing and still reach a model. The tag block spells whole instructions, and
+    // variation selectors can carry a byte each. The surrogate pairs are what \p{Cf} cannot see above
+    // the first plane: U+E0000 to U+E0FFF, then the shorthand and musical format controls.
+    [GeneratedRegex(@"\p{Cf}|[\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u3164\uFE00-\uFE0F\uFFA0\uFFF0-\uFFF8]|[\uDB40-\uDB43][\uDC00-\uDFFF]|\uD82F[\uDCA0-\uDCA3]|\uD834[\uDD73-\uDD7A]")]
     private static partial Regex InvisibleCharacters();
 
     [GeneratedRegex(@"\s+")]
