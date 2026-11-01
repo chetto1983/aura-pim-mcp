@@ -104,14 +104,16 @@ public static partial class MailBody
     public static string ToMarkdown(string html)
     {
         WarmUp();
-        return ToMarkdown(html, new ConversionBudget(DetailsBudget));
+        var budget = new ConversionBudget(DetailsBudget);
+        return ConversionThread.Run(() => ToMarkdown(html, budget), budget);
     }
 
     /// <summary>The same reading as Markdown, with no syntax and no link targets.</summary>
     public static string ToPlainText(string html)
     {
         WarmUp();
-        return ToPlainText(html, new ConversionBudget(SnippetBudget));
+        var budget = new ConversionBudget(SnippetBudget);
+        return ConversionThread.Run(() => ToPlainText(html, budget), budget);
     }
 
     /// <summary>

@@ -96,6 +96,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<EmailPrompts>();
         services.AddSingleton<ContactPrompts>();
 
+        services.AddHostedService<ConversionThreadLogging>();
+
         return services;
     }
 }

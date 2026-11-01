@@ -25,22 +25,17 @@ public class MailBodyBoundsTests
 
     private static void OnASmallStack(Action action)
     {
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception e)
-            {
-                failure = e;
-            }
-        }, SmallStack);
+        var usual = ConversionThread.StackBytes;
+        ConversionThread.StackBytes = SmallStack;
 
-        thread.Start();
-        thread.Join();
-        Assert.IsNull(failure, failure?.ToString());
+        try
+        {
+            action();
+        }
+        finally
+        {
+            ConversionThread.StackBytes = usual;
+        }
     }
 
     public static IEnumerable<object[]> DepthsAroundTheLimit =>

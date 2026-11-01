@@ -34,7 +34,9 @@ internal static partial class MailSnippet
             if (body.Length > MailBody.MaxBodyLength)
                 return string.Empty;
 
-            var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body, budget) : body;
+            var text = format == MailBody.HtmlFormat
+                ? ConversionThread.Run(() => MailBody.ToPlainText(body, budget), budget)
+                : body;
             return Cap(Whitespace().Replace(Clean(text), " ").Trim());
         }
         catch (Exception e) when (e is not OperationCanceledException)

@@ -15,6 +15,9 @@ internal readonly struct ConversionBudget(TimeSpan allowed, CancellationToken ca
 
     private readonly long _deadline = Stopwatch.GetTimestamp() + (long)(allowed.TotalSeconds * Stopwatch.Frequency);
 
+    /// <summary>What is left of the time, and nothing below zero.</summary>
+    public TimeSpan Left => TimeSpan.FromSeconds(Math.Max(_deadline - Stopwatch.GetTimestamp(), 0) / (double)Stopwatch.Frequency);
+
     public void Check()
     {
         caller.ThrowIfCancellationRequested();
