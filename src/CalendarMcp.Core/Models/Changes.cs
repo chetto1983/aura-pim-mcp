@@ -52,6 +52,7 @@ public sealed record Change
     public string? CalendarId { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonConverter(typeof(UtcInstantConverter))]
     public DateTimeOffset? OccurredAt { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -92,6 +93,7 @@ public sealed record ItemFacts
     public string? CalendarId { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonConverter(typeof(UtcInstantConverter))]
     public DateTimeOffset? OccurredAt { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

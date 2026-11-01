@@ -200,6 +200,8 @@ public class ImapCondStoreTests
         {
             uidValidity = ChangesCursor.Decode(start.Encode(), "imap.mail").Folder<Saved>("INBOX").UidValidity,
             lastUid = uid,
+            boundUid = uid,
+            modSeq = (ulong?)null,
             known = uid.ToString()
         });
 
@@ -209,6 +211,24 @@ public class ImapCondStoreTests
 
         Assert.AreEqual(0, first.Changes.Count, "with no position in the mod-sequences there is nothing to compare");
         Assert.AreEqual(0, (await mailbox.ReadAsync(first.Next)).Changes.Count);
+    }
+
+    // \Seen cannot show how a folder was opened, because BODY.PEEK keeps it by itself. \Recent can: a
+    // read-write session takes it from a mail and EXAMINE must not (RFC 3501 sections 2.3.2 and 6.3.2).
+    [TestMethod]
+    public async Task WatchingAMailbox_OpensEveryFolderReadOnly()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);
+        await mailbox.DropAsync("INBOX", ImapMailbox.Mail("Prima"));
+        await mailbox.DropAsync(ImapMailbox.SentFolder, ImapMailbox.Mail("Inviata"));
+
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DropAsync("INBOX", ImapMailbox.Mail("Seconda"));
+        var batch = await mailbox.ReadAsync(cursor);
+        await mailbox.Provider.ReadItemAsync(mailbox.Account.Id, new ItemRef(batch.Changes.Single().Id, null), default);
+
+        Assert.AreEqual(2, await mailbox.RecentInAsync("INBOX"));
+        Assert.AreEqual(1, await mailbox.RecentInAsync(ImapMailbox.SentFolder));
     }
 
     private sealed record Saved(uint UidValidity);

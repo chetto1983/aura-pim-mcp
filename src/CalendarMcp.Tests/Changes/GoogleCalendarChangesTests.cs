@@ -47,7 +47,7 @@ public class GoogleCalendarChangesTests
 
     private static ChangesCursor Cursor(params (string Id, string Sync)[] calendars) => ChangesCursor.Of(
         "google.calendar",
-        calendars.Select(c => new KeyValuePair<string, object>(c.Id, new { sync = c.Sync, since = Now.AddHours(-1) })));
+        calendars.Select(c => new KeyValuePair<string, object>(c.Id, new { sync = c.Sync, page = (string?)null, since = Now.AddHours(-1) })));
 
     private sealed record Saved(string Sync, string? Page);
 
@@ -342,5 +342,17 @@ public class GoogleCalendarChangesTests
             () => Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default));
 
         Assert.AreEqual("provider_transient", ProviderFailures.Classify(failure, default)!.Error);
+    }
+
+    [TestMethod]
+    public async Task ACalendarWithNoSyncToken_IsRefusedRatherThanReadWhole()
+    {
+        _http.On(List, Calendars(Calendar("mine"))).On(Events("mine"), Json(new { items = new[] { Item("old") }, nextSyncToken = "s" }));
+        var forged = ChangesCursor.Of("google.calendar", "mine", new { page = (string?)null, since = Now });
+
+        var failure = await Assert.ThrowsExactlyAsync<ChangesException>(() => Source.ReadAsync(Account, forged, 50, default));
+
+        Assert.AreEqual("invalid_cursor", failure.Error);
+        Assert.AreEqual(0, _http.CountOf(Events("mine")), "a listing with no token is the whole calendar");
     }
 }

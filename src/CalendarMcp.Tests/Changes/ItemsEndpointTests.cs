@@ -24,13 +24,16 @@ public class ItemsEndpointTests
     [TestMethod]
     public async Task AnItemThatIsGone_IsAnAnswerNotAFailure()
     {
-        var mail = Mail(item => item.Id == "here" ? new ItemFacts { Id = "here", From = "a@example.com", Subject = "Fattura" } : null);
+        var mail = Mail(item => item.Id == "here"
+            ? new ItemFacts { Id = "here", From = "a@example.com", Subject = "Fattura", OccurredAt = new DateTimeOffset(2026, 10, 31, 15, 47, 0, TimeSpan.FromHours(1)) }
+            : null);
         await using var pim = new ChangesPipeline([Account(Mine, "google")], [mail]);
 
         var (status, body) = await pim.PostAsync("/admin/items", Ask("mail", new { id = "here" }, new { id = "deleted" }));
 
         Assert.AreEqual(200, status);
         Assert.AreEqual("a@example.com", body.GetProperty("items")[0].GetProperty("from").GetString());
+        Assert.AreEqual("2026-10-31T14:47:00Z", body.GetProperty("items")[0].GetProperty("occurredAt").GetString());
         Assert.AreEqual("deleted", body.GetProperty("gone")[0].GetProperty("id").GetString());
     }
 

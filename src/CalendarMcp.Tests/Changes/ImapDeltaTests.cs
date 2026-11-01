@@ -1,5 +1,10 @@
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Changes.Imap;
+using CalendarMcp.Core.Providers;
+using CalendarMcp.Core.Security;
+using CalendarMcp.Tests.Helpers;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CalendarMcp.Tests.Changes;
 
@@ -125,5 +130,27 @@ public class ImapDeltaTests
         Assert.AreEqual(3, cut.Uids.Count);
         Assert.IsFalse(cut.HasMore);
         Assert.AreEqual(12UL, cut.NextModSeq);
+    }
+
+    [TestMethod]
+    public async Task APositionWithNoKnownSet_IsRefusedBeforeAnyServerIsAsked()
+    {
+        var account = TestData.CreateAccount(id: "imap", provider: "imap", providerConfig: new Dictionary<string, string>
+        {
+            ["imapHost"] = "imap.invalid",
+            ["smtpHost"] = "imap.invalid",
+            ["username"] = "someone@example.com",
+            ["password"] = "secret",
+            ["inboxFolder"] = "INBOX"
+        });
+        await using var provider = new ImapProviderService(
+            new SingleAccountRegistry(account),
+            new PasswordProtector(new EphemeralDataProtectionProvider()),
+            NullLogger<ImapProviderService>.Instance);
+        var forged = ChangesCursor.Of("imap.mail", "INBOX", new { uidValidity = 1, lastUid = 5, boundUid = 5, modSeq = (ulong?)null });
+
+        var failure = await Assert.ThrowsExactlyAsync<ChangesException>(() => provider.ReadAsync(account.Id, forged, 50, default));
+
+        Assert.AreEqual("invalid_cursor", failure.Error);
     }
 }

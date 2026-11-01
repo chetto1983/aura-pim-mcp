@@ -417,7 +417,7 @@ public class ImapChangesTests
     public async Task AGarbledKnownSet_IsRefusedBeforeTheServerIsAsked()
     {
         await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
-        var forged = ChangesCursor.Of("imap.mail", "INBOX", new { uidValidity = 1, lastUid = 0, known = "1:4294967295" });
+        var forged = ChangesCursor.Of("imap.mail", "INBOX", new ImapPosition(1, 0, 0, null, "1:4294967295"));
 
         var failure = await Assert.ThrowsExactlyAsync<ChangesException>(() => mailbox.ReadAsync(forged));
 

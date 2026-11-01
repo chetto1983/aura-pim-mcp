@@ -29,10 +29,11 @@ public class GraphMailChangesTests
 
     private sealed record Streams(Stream Deleted, Stream Created, Stream Updated);
 
-    private static ChangesCursor Cursor(string? created = null, string? updated = null, string? deleted = null, DateTimeOffset? openedAt = null)
+    private static ChangesCursor Cursor(
+        string? created = null, string? updated = null, string? deleted = null, DateTimeOffset? openedAt = null, string kind = Kind)
     {
         var at = openedAt ?? Now.AddHours(-2);
-        return ChangesCursor.Of(Kind, Folder, new Streams(
+        return ChangesCursor.Of(kind, Folder, new Streams(
             new Stream(deleted ?? DeletedLink, null, at, true),
             new Stream(created ?? CreatedLink, null, at, true),
             new Stream(updated ?? UpdatedLink, null, at, true)));
@@ -264,6 +265,31 @@ public class GraphMailChangesTests
         await Assert.ThrowsExactlyAsync<ChangesException>(() => Source.ReadAsync(Account, forged, 50, default));
 
         Assert.AreEqual(0, _http.Requests.Count);
+    }
+
+    [TestMethod]
+    public async Task ACursorWithAStreamMissing_IsRefusedBeforeAnyRequest()
+    {
+        var forged = ChangesCursor.Of(Kind, Folder, new { Deleted = new Stream(DeletedLink, null, Now, true) });
+
+        var failure = await Assert.ThrowsExactlyAsync<ChangesException>(() => Source.ReadAsync(Account, forged, 50, default));
+
+        Assert.AreEqual("invalid_cursor", failure.Error);
+        Assert.AreEqual(0, _http.Requests.Count);
+    }
+
+    [TestMethod]
+    public async Task OutlookCom_IsReadThroughItsOwnProvider()
+    {
+        Quiet().NoSentItems()
+            .On("deltatoken=created-old", Delta(CreatedLink, Row("m1")))
+            .On("/me/messages/m1", Message("m1"));
+        var outlook = new GraphMailChanges(ChangesProviders.Outlook, GraphFixtures.Outlook(_http), _clock);
+
+        var batch = await outlook.ReadAsync(Account, Cursor(kind: "outlook.mail"), 50, default);
+
+        Assert.AreEqual("m1", batch.Changes.Single().Id);
+        Assert.AreEqual("outlook.mail", batch.Next.Kind);
     }
 
     [TestMethod]

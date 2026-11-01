@@ -101,9 +101,12 @@ internal sealed class ImapMailbox : IAsyncDisposable
         await root.CreateAsync(name, true);
     }
 
+    private async Task<IMailFolder> FolderAsync(string name) =>
+        name == "INBOX" ? _world.Inbox : await _world.GetFolderAsync(name);
+
     private async Task<IMailFolder> OpenAsync(string name, FolderAccess access)
     {
-        var folder = name == "INBOX" ? _world.Inbox : await _world.GetFolderAsync(name);
+        var folder = await FolderAsync(name);
         await folder.OpenAsync(access);
         return folder;
     }
@@ -131,6 +134,18 @@ internal sealed class ImapMailbox : IAsyncDisposable
         await folder.AppendAsync(new AppendRequest(message));
 
         return (await folder.SearchAsync(MailKit.Search.SearchQuery.All)).Max(uid => uid.Id);
+    }
+
+    /// <summary>Puts a mail into a folder without selecting it, so no session has taken its \Recent yet.</summary>
+    public async Task DropAsync(string name, MimeMessage message) =>
+        await (await FolderAsync(name)).AppendAsync(new AppendRequest(message));
+
+    /// <summary>How many mails still carry \Recent. STATUS leaves the flag alone (RFC 3501 section 6.3.10).</summary>
+    public async Task<int> RecentInAsync(string name)
+    {
+        var folder = await FolderAsync(name);
+        await folder.StatusAsync(StatusItems.Recent);
+        return folder.Recent;
     }
 
     /// <summary>Fills the watched folder in one MULTIAPPEND and answers the UIDs, oldest first.</summary>

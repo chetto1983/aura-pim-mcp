@@ -9,6 +9,8 @@ public class ChangesCursorTests
 {
     private sealed record State(string Position);
 
+    private sealed record Paged(string Position, string? Page);
+
     private static string Forge(string json) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(json));
 
     [TestMethod]
@@ -77,5 +79,38 @@ public class ChangesCursorTests
         var read = ChangesCursor.Decode(Forge("""{"v":1,"k":"google.mail","f":{"INBOX":3}}"""), "google.mail");
 
         Assert.ThrowsExactly<ChangesException>(() => read.Folder<State>("INBOX"));
+    }
+
+    [TestMethod]
+    [DataRow("""{"k":"google.mail","f":{}}""")]
+    [DataRow("""{"v":1,"f":{}}""")]
+    [DataRow("""{"v":1,"k":"google.mail"}""")]
+    [DataRow("""{"v":null,"k":"google.mail","f":{}}""")]
+    [DataRow("""{"v":1,"k":null,"f":{}}""")]
+    [DataRow("""{"v":1,"k":"google.mail","f":null}""")]
+    public void AnEnvelopeWithAFieldMissing_IsTheCallersError(string json)
+    {
+        var failure = Assert.ThrowsExactly<ChangesException>(() => ChangesCursor.Decode(Forge(json), "google.mail"));
+
+        Assert.AreEqual("invalid_cursor", failure.Error);
+    }
+
+    [TestMethod]
+    [DataRow("""{"v":1,"k":"google.mail","f":{"INBOX":{}}}""")]
+    [DataRow("""{"v":1,"k":"google.mail","f":{"INBOX":{"position":null}}}""")]
+    public void AFolderWithAFieldMissing_IsTheCallersError(string json)
+    {
+        var read = ChangesCursor.Decode(Forge(json), "google.mail");
+
+        Assert.AreEqual("invalid_cursor", Assert.ThrowsExactly<ChangesException>(() => read.Folder<State>("INBOX")).Error);
+        Assert.AreEqual("invalid_cursor", Assert.ThrowsExactly<ChangesException>(() => read.Folders<State>()).Error);
+    }
+
+    [TestMethod]
+    public void ANullThePositionAllows_SurvivesTheRoundTrip()
+    {
+        var read = ChangesCursor.Decode(ChangesCursor.Of("google.mail", "INBOX", new Paged("a", null)).Encode(), "google.mail");
+
+        Assert.IsNull(read.Folder<Paged>("INBOX").Page);
     }
 }

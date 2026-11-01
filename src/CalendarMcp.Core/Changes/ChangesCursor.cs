@@ -1,6 +1,5 @@
 using System.Buffers.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace CalendarMcp.Core.Changes;
 
@@ -17,9 +16,16 @@ public sealed class ChangesCursor
 {
     private const int CurrentVersion = 1;
 
+    /// <summary>
+    /// A position read back with a field gone would carry a null its type rules out, and to a source
+    /// a sync token of null is a full resync, not an error. So nothing is optional here, a nullable
+    /// field included, and nulls are written out for that reason:
+    /// https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/required-properties
+    /// </summary>
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true
     };
 
     private readonly IReadOnlyDictionary<string, JsonElement> _folders;
@@ -70,8 +76,6 @@ public sealed class ChangesCursor
             throw ChangesException.InvalidCursor(e);
         }
 
-        if (wire.V is null || wire.K is null || wire.F is null)
-            throw ChangesException.InvalidCursor();
         if (wire.V != CurrentVersion)
             throw new CursorExpiredException();
         if (wire.K != expectedKind)
@@ -92,5 +96,5 @@ public sealed class ChangesCursor
         }
     }
 
-    private sealed record Wire(int? V, string? K, IReadOnlyDictionary<string, JsonElement>? F);
+    private sealed record Wire(int V, string K, IReadOnlyDictionary<string, JsonElement> F);
 }

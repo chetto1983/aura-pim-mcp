@@ -11,14 +11,18 @@ internal static class GraphFixtures
 {
     public const string Base = "https://graph.microsoft.com/v1.0";
 
+    private static SingleAccountRegistry Registry() => new(
+        TestData.CreateAccount(id: "m365", providerConfig: new Dictionary<string, string>
+        {
+            ["tenantId"] = "tenant",
+            ["clientId"] = "client"
+        }));
+
     public static M365ProviderService Provider(FakeHttp http) =>
-        new(NullLogger<M365ProviderService>.Instance, new StaticTokenAuthentication(), new SingleAccountRegistry(
-            TestData.CreateAccount(id: "m365", providerConfig: new Dictionary<string, string>
-            {
-                ["tenantId"] = "tenant",
-                ["clientId"] = "client"
-            })))
-        { Transport = http };
+        new(NullLogger<M365ProviderService>.Instance, new StaticTokenAuthentication(), Registry()) { Transport = http };
+
+    public static OutlookComProviderService Outlook(FakeHttp http) =>
+        new(NullLogger<OutlookComProviderService>.Instance, new StaticTokenAuthentication(), Registry()) { Transport = http };
 
     public static string Json(object body) => JsonSerializer.Serialize(body);
 

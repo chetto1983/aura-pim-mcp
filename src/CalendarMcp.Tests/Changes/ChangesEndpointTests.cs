@@ -61,13 +61,38 @@ public class ChangesEndpointTests
         Assert.AreEqual(200, status);
         var changes = body.GetProperty("changes");
         Assert.AreEqual("added", changes[0].GetProperty("type").GetString());
-        Assert.AreEqual("2026-10-31T14:47:00+00:00", changes[0].GetProperty("occurredAt").GetString());
+        Assert.AreEqual("2026-10-31T14:47:00Z", changes[0].GetProperty("occurredAt").GetString());
         Assert.AreEqual(JsonValueKind.Null, changes[0].GetProperty("signals").GetProperty("writtenTo").ValueKind,
             "null is a fact here, so it has to be written");
         Assert.IsFalse(changes[1].TryGetProperty("subject", out _), "a deleted row carries its id alone");
         Assert.IsFalse(changes[1].TryGetProperty("signals", out _));
         Assert.IsTrue(body.GetProperty("hasMore").GetBoolean());
         Assert.AreEqual(mail.Position("next").Encode(), body.GetProperty("nextCursor").GetString());
+    }
+
+    [TestMethod]
+    public async Task AnInstantWithAnOffset_IsWrittenInUtc()
+    {
+        var mail = new ScriptedSource(ChangesProviders.Google, ChangeResource.Mail);
+        mail.Read = _ => new ChangesBatch(
+        [
+            new Change { Type = ChangeType.Added, Id = "m1", OccurredAt = new DateTimeOffset(2026, 10, 31, 16, 47, 0, TimeSpan.FromHours(2)) }
+        ], mail.Position("next"), false);
+        await using var pim = new ChangesPipeline([Account(Mine, "google")], [mail]);
+
+        var (_, body) = await pim.PostAsync("/admin/changes", Ask(cursor: mail.Position("old").Encode()));
+
+        Assert.AreEqual("2026-10-31T14:47:00Z", body.GetProperty("changes")[0].GetProperty("occurredAt").GetString());
+    }
+
+    [TestMethod]
+    public void AWrittenInstant_ReadsBack()
+    {
+        var change = new Change { Type = ChangeType.Added, Id = "m1", OccurredAt = new DateTimeOffset(2026, 10, 31, 14, 47, 0, TimeSpan.Zero) };
+
+        var read = JsonSerializer.Deserialize<Change>(JsonSerializer.Serialize(change));
+
+        Assert.AreEqual(change.OccurredAt, read!.OccurredAt);
     }
 
     [TestMethod]
