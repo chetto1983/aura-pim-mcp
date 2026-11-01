@@ -8,6 +8,7 @@ using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Identity.Client;
 using static CalendarMcp.Tests.Changes.GmailFixtures;
 
 namespace CalendarMcp.Tests.Changes;
@@ -98,7 +99,7 @@ public class RealMailboxFailureTests
     public async Task ABlipDuringATokenRefresh_IsNotARevokedGrant()
     {
         var blip = await StartWithAuthenticationAsync(new FailingTokenAuthentication(new HttpRequestException("reset")));
-        var revoked = await StartWithAuthenticationAsync(new FailingTokenAuthentication(null));
+        var revoked = await StartWithAuthenticationAsync(new FailingTokenAuthentication(new MsalUiRequiredException("invalid_grant", "revoked")));
 
         Assert.AreEqual((503, "provider_transient"), blip);
         Assert.AreEqual((502, "provider_auth"), revoked);
@@ -178,11 +179,14 @@ public class RealMailboxFailureTests
         .OnHistory("startHistoryId=100", new { historyId = "200", history = new[] { new { id = "150", messagesAdded = new[] { Added("m1", Inbox) } } } })
         .On("/users/me/messages/m1", Message("m1", from: "Lucia Bianchi <lucia@example.com>", headers: [("In-Reply-To", "<mine@example.com>")]));
 
-    private sealed class FailingTokenAuthentication(Exception? failure) : IM365AuthenticationService
+    /// <summary>MSAL fails as <paramref name="failure"/>, and the real service decides what that means.</summary>
+    private sealed class FailingTokenAuthentication(Exception failure) : IM365AuthenticationService
     {
+        private readonly M365AuthenticationService _real = new(NullLogger<M365AuthenticationService>.Instance);
+
         public Task<string?> GetTokenSilentlyAsync(
             string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>
-            failure is null ? Task.FromResult<string?>(null) : Task.FromException<string?>(failure);
+            _real.NullWhenGrantIsGoneAsync(() => Task.FromException<string?>(failure), accountId);
 
         public Task<string> AuthenticateInteractiveAsync(
             string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>

@@ -99,7 +99,7 @@ public class M365AuthenticationService : IM365AuthenticationService
     {
         var app = await GetOrCreateAppAsync(tenantId, clientId, accountId);
 
-        try
+        return await NullWhenGrantIsGoneAsync(async () =>
         {
             var accounts = await app.GetAccountsAsync();
             if (!accounts.Any())
@@ -114,9 +114,17 @@ public class M365AuthenticationService : IM365AuthenticationService
 
             _logger.LogDebug("✓ Silent authentication successful for account {AccountId}", accountId);
             return result.AccessToken;
+        }, accountId);
+    }
+
+    // Only this exception says the grant is gone. Null reads as "reconnect the account", so a
+    // network blip during a refresh must not end here: it would pause a person's watch.
+    internal async Task<string?> NullWhenGrantIsGoneAsync(Func<Task<string?>> acquire, string accountId)
+    {
+        try
+        {
+            return await acquire();
         }
-        // Only this exception says the grant is gone. Null reads as "reconnect the account", so a
-        // network blip during a refresh must not end here: it would pause a person's watch.
         catch (MsalUiRequiredException)
         {
             _logger.LogWarning("Silent authentication failed for account {AccountId}. Interactive authentication required.", accountId);

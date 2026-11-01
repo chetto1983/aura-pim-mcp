@@ -39,6 +39,7 @@ public class ProviderFailuresTests
         [new MsalUiRequiredException("invalid_grant", "revoked"), "provider_auth"],
         [new AuthenticationException("bad password"), "provider_auth"],
         [new CryptographicException("the key is not in the key ring"), "provider_auth"],
+        [new FolderNotFoundException("INBOX", "no such folder"), "provider_auth"],
         [TokenEndpoint(HttpStatusCode.BadRequest), "provider_auth"],
         [Google(HttpStatusCode.Unauthorized), "provider_auth"],
         [new ApiException { ResponseStatusCode = 401 }, "provider_auth"],
@@ -51,6 +52,7 @@ public class ProviderFailuresTests
         [Google(HttpStatusCode.Forbidden, "rateLimitExceeded"), "provider_transient"],
         [Google(HttpStatusCode.Forbidden, "userRateLimitExceeded"), "provider_transient"],
         [Google(HttpStatusCode.Forbidden, "dailyLimitExceeded"), "provider_transient"],
+        [Google(HttpStatusCode.Forbidden, "quotaExceeded"), "provider_transient"],
         [Google(HttpStatusCode.TooManyRequests), "provider_transient"],
         [Google(HttpStatusCode.InternalServerError), "provider_transient"],
         [Google(HttpStatusCode.ServiceUnavailable), "provider_transient"],
@@ -67,6 +69,8 @@ public class ProviderFailuresTests
         [new SocketException(), "provider_transient"],
         [new ImapProtocolException("bye"), "provider_transient"],
         [new ServiceNotConnectedException(), "provider_transient"],
+        [new ImapCommandException(ImapCommandResponse.No, "EXAMINE failed"), "provider_transient"],
+        [new SslHandshakeException("handshake failed", new IOException("reset")), "provider_transient"],
     ];
 
     [TestMethod]
