@@ -51,6 +51,7 @@ public static class ServiceCollectionExtensions
             ChangesProviders.Microsoft365, provider.GetRequiredService<IM365ProviderService>(), TimeProvider.System));
         services.AddSingleton<IChangesSource>(provider => new GraphCalendarChanges(
             ChangesProviders.Outlook, provider.GetRequiredService<IOutlookComProviderService>(), TimeProvider.System));
+        services.AddSingleton<IChangesSource>(provider => provider.GetRequiredService<IImapProviderService>());
 
         // DataProtection + PasswordProtector for at-rest encryption of provider passwords
         services.AddCalendarMcpDataProtection();

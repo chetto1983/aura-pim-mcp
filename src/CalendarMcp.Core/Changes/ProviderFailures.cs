@@ -36,6 +36,7 @@ internal static class ProviderFailures
         ProviderOperationException => ChangesException.ProviderAuth(failure),
         MsalUiRequiredException => ChangesException.ProviderAuth(failure),
         AuthenticationException => ChangesException.ProviderAuth(failure),
+        FolderNotFoundException => ChangesException.ProviderAuth(failure),
 
         TokenResponseException token => FromStatus(failure, (int?)token.StatusCode),
         GoogleApiException google => FromGoogle(google),

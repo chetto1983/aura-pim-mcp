@@ -1,3 +1,7 @@
+# The IMAP changes tests need real servers: GreenMail, and Dovecot for CONDSTORE and real passwords.
+# They read PIM_TEST_GREENMAIL and PIM_TEST_DOVECOT as host:port. An unset one fails the test here,
+# because CI is set, and leaves it inconclusive on a developer's machine. To run them locally, use the
+# two `docker run` lines below, then set the variables.
 name: CI Build
 
 on:
@@ -28,5 +32,18 @@ jobs:
       - name: Build solution
         run: dotnet build calendar-mcp.slnx --configuration Release --no-restore
 
+      - name: Start the IMAP test servers
+        run: |
+          docker run -d --name pim-greenmail -p 3143:3143 greenmail/standalone:2.1.15
+          docker run -d --name pim-dovecot -p 31143:31143 -e USER_PASSWORD='{PLAIN}secret' \
+            -v "$PWD/src/CalendarMcp.Tests/TestData/Dovecot/test.conf:/etc/dovecot/conf.d/test.conf:ro" \
+            dovecot/dovecot:2.4.5
+          for port in 3143 31143; do
+            timeout 60 bash -c "until (echo > /dev/tcp/localhost/$port) 2>/dev/null; do sleep 1; done"
+          done
+
       - name: Run tests
+        env:
+          PIM_TEST_GREENMAIL: localhost:3143
+          PIM_TEST_DOVECOT: localhost:31143
         run: dotnet test calendar-mcp.slnx --configuration Release --no-build --verbosity normal
