@@ -27,6 +27,9 @@ public partial class ImapProviderService
     /// </summary>
     internal const long MaxHeldBodyOctets = 16 * MaxSnippetBodyOctets;
 
+    /// <summary>Each part read is a round trip, and a mail can hold any number of blank ones.</summary>
+    private const int MaxBodyFetches = 8;
+
     /// <summary>The newest sent mails checked by their recipient lists, since SEARCH only matches substrings.</summary>
     private const int MaxSentCandidates = 20;
 
@@ -34,6 +37,11 @@ public partial class ImapProviderService
     private const int MaxThreadReferences = 10;
 
     private static readonly string ChangesKind = ChangesCursor.KindOf(ChangesProviders.Imap, ChangeResource.Mail);
+
+    private static readonly MailParts.Shape<BodyPart> SummaryParts = new(
+        part => part.ContentType.MimeType,
+        part => part is BodyPartBasic basic && (basic.IsAttachment || basic.FileName is not null),
+        part => part is BodyPartMultipart multipart ? multipart.BodyParts : []);
 
     internal TimeProvider Clock { get; set; } = TimeProvider.System;
 
@@ -109,7 +117,9 @@ public partial class ImapProviderService
         var bodies = read.Added.ToDictionary(mail => mail.Change.Id, mail => mail.Body);
 
         var changes = read.Changes
-            .Select(change => bodies.GetValueOrDefault(change.Id) is { } body ? change with { Snippet = snippets.Of(body) } : change)
+            .Select(change => bodies.GetValueOrDefault(change.Id) is { } body
+                ? change with { Snippet = snippets.Of(() => (body.Body, body.Format)) }
+                : change)
             .ToList();
 
         return new ChangesBatch(changes, read.Next, read.HasMore)
@@ -242,21 +252,16 @@ public partial class ImapProviderService
         var held = 0L;
         foreach (var summary in summaries.OrderBy(s => s.UniqueId.Id))
         {
-            var part = summary.TextBody is { Octets: > 0 } text ? text : summary.HtmlBody;
-            var readable = part is not null and not { Octets: > MaxSnippetBodyOctets };
-            var fits = readable && held + part!.Octets <= MaxHeldBodyOctets;
+            var (body, leftOut) = await ReadBodyAsync(folder, summary, MaxHeldBodyOctets - held, cancellationToken);
+            held += body?.Octets ?? 0;
 
-            var body = fits ? await ReadBodyAsync(folder, summary, part!, cancellationToken) : null;
-            held += fits ? part!.Octets : 0;
-
-            added.Add(ToAdded(cfg, folder.UidValidity, summary, body, leftOut: readable && !fits));
+            added.Add(ToAdded(cfg, folder.UidValidity, summary, body, leftOut));
         }
 
         return added;
     }
 
-    private static AddedMail ToAdded(
-        ImapAccountConfig cfg, uint uidValidity, IMessageSummary summary, Func<(string Body, string Format)>? body, bool leftOut)
+    private static AddedMail ToAdded(ImapAccountConfig cfg, uint uidValidity, IMessageSummary summary, MailText? body, bool leftOut)
     {
         // HeaderList's indexer answers the first match, which on a delivered mail is the topmost.
         var header = (string name) => summary.Headers?[name];
@@ -299,25 +304,56 @@ public partial class ImapProviderService
         return references.Distinct().ToList();
     }
 
+    /// <summary>
+    /// The first part of the mail that holds anything, in the order of <see cref="MailParts"/>. Over
+    /// the cap there is no snippet, and a body with no room left on the page is left out of it.
+    /// </summary>
+    private static async Task<(MailText? Body, bool LeftOut)> ReadBodyAsync(
+        IMailFolder folder, IMessageSummary summary, long room, CancellationToken cancellationToken)
+    {
+        if (summary.Body is null)
+            return (null, false);
+
+        var candidates = MailParts.BodyCandidates(summary.Body, SummaryParts).OfType<BodyPartText>();
+        foreach (var part in candidates.Take(MaxBodyFetches))
+        {
+            if (part.Octets > MaxSnippetBodyOctets)
+                return (null, false);
+            if (part.Octets > room)
+                return (null, true);
+            if (part.Octets == 0)
+                continue;
+
+            var text = await ReadPartAsync(folder, summary, part, cancellationToken);
+            if (!MailParts.IsBlank(text))
+                return (new MailText(text, MailParts.FormatOf(part.ContentType.MimeType), part.Octets), false);
+        }
+
+        return (null, false);
+    }
+
     // GetBodyPartAsync would decode this for free, but it asks for a part and its MIME headers in one
     // FETCH and reads an empty body from a server that answers them the other way round, as GreenMail
     // does and as RFC 9051 allows. The part's description is already in hand from BODYSTRUCTURE.
-    private static async Task<Func<(string Body, string Format)>> ReadBodyAsync(
+    private static async Task<string> ReadPartAsync(
         IMailFolder folder, IMessageSummary summary, BodyPartText part, CancellationToken cancellationToken)
     {
         // A single-part mail's body has no specifier of its own, and an empty section is the whole message.
         var section = part.PartSpecifier.Length == 0 ? "TEXT" : part.PartSpecifier;
+        using var content = await folder.GetStreamAsync(summary.UniqueId, section, cancellationToken);
 
-        var held = new MemoryStream((int)part.Octets);
-        using (var content = await folder.GetStreamAsync(summary.UniqueId, section, cancellationToken))
-            await content.CopyToAsync(held, cancellationToken);
-        held.Position = 0;
+        try
+        {
+            MimeUtils.TryParse(part.ContentTransferEncoding, out ContentEncoding encoding);
+            var body = new TextPart(part.ContentType.MediaSubtype) { Content = new MimeContent(content, encoding) };
+            body.ContentType.Charset = part.ContentType.Charset;
 
-        MimeUtils.TryParse(part.ContentTransferEncoding, out ContentEncoding encoding);
-        var body = new TextPart(part.ContentType.MediaSubtype) { Content = new MimeContent(held, encoding) };
-        body.ContentType.Charset = part.ContentType.Charset;
-
-        return () => (body.Text, body.IsHtml ? MailBody.HtmlFormat : "text");
+            return body.Text;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return string.Empty;
+        }
     }
 
     // Sent is opened only now: a connection has one selected folder, and this ends the read of the Inbox.
@@ -418,9 +454,10 @@ public partial class ImapProviderService
         return at > 0 && at < reference.Length - 1;
     }
 
+    private sealed record MailText(string Body, string Format, uint Octets);
+
     private sealed record AddedMail(
-        Change Change, string? Sender, bool Bulk, IReadOnlyList<string> References,
-        Func<(string Body, string Format)>? Body, bool LeftOut);
+        Change Change, string? Sender, bool Bulk, IReadOnlyList<string> References, MailText? Body, bool LeftOut);
 
     private sealed record ReadPage(List<Change> Changes, List<AddedMail> Added, ChangesCursor Next, bool HasMore);
 }

@@ -70,6 +70,82 @@ public class MailBodyPreferenceTests
     }
 
     [TestMethod]
+    public void Gmail_TextTrailingTheHtml_IsAFooterAndNotTheBody()
+    {
+        var message = Gmail(new MessagePart
+        {
+            MimeType = "multipart/mixed",
+            Parts = [Part("text/html", "<p>rich</p>"), Part("text/plain", "To unsubscribe from this list")]
+        });
+
+        Assert.AreEqual(("<p>rich</p>", "html"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_TextLeadingTheHtml_IsTheBody()
+    {
+        var message = Gmail(new MessagePart
+        {
+            MimeType = "multipart/mixed",
+            Parts = [Part("text/plain", "plain"), Part("text/html", "<p>a footer</p>")]
+        });
+
+        Assert.AreEqual(("plain", "text"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_AnAlternativeInsideMixed_StillPrefersItsPlainPart()
+    {
+        var message = Gmail(new MessagePart
+        {
+            MimeType = "multipart/mixed",
+            Parts =
+            [
+                new MessagePart { MimeType = "multipart/alternative", Parts = [Part("text/html", "<p>rich</p>"), Part("text/plain", "plain")] },
+                Part("text/plain", "To unsubscribe from this list")
+            ]
+        });
+
+        Assert.AreEqual(("plain", "text"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    [DataRow("multipart/alternative")]
+    [DataRow("multipart/mixed")]
+    public void Gmail_ABlankTextPart_IsNoTextPart(string container)
+    {
+        var message = Gmail(new MessagePart { MimeType = container, Parts = [Part("text/plain", " \r\n\t \r\n"), Part("text/html", "<p>rich</p>")] });
+
+        Assert.AreEqual(("<p>rich</p>", "html"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_TextOfNothingButInvisibleCharacters_IsBlank()
+    {
+        var message = Gmail(new MessagePart { MimeType = "multipart/alternative", Parts = [Part("text/plain", "​‍ "), Part("text/html", "<p>rich</p>")] });
+
+        Assert.AreEqual(("<p>rich</p>", "html"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_EveryPartBlank_IsEmptyText()
+    {
+        var message = Gmail(new MessagePart { MimeType = "multipart/mixed", Parts = [Part("text/plain", "  "), Part("text/html", " ")] });
+
+        Assert.AreEqual((string.Empty, "text"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_PartsNestedPastAnyRealMail_AreNotWalked()
+    {
+        var part = Part("text/plain", "plain");
+        for (var i = 0; i < 100_000; i++)
+            part = new MessagePart { MimeType = "multipart/mixed", Parts = [part] };
+
+        Assert.AreEqual((string.Empty, "text"), GoogleProviderService.GetMessageBody(Gmail(part)));
+    }
+
+    [TestMethod]
     public void Gmail_NoBody_IsEmptyText()
     {
         Assert.AreEqual((string.Empty, "text"), GoogleProviderService.GetMessageBody(new Message { Id = "m1" }));
@@ -107,6 +183,72 @@ public class MailBodyPreferenceTests
         var message = new MimeMessage { Body = new BodyBuilder { HtmlBody = "<p>rich</p>" }.ToMessageBody() };
 
         Assert.AreEqual(("<p>rich</p>", "html"), ImapProviderService.ExtractBody(message));
+    }
+
+    private static MimeMessage Tree(string subtype, params MimeEntity[] parts)
+    {
+        var multipart = new Multipart(subtype);
+        foreach (var part in parts)
+            multipart.Add(part);
+
+        return new MimeMessage { Body = multipart };
+    }
+
+    private static TextPart Text(string subtype, string text) => new(subtype) { Text = text };
+
+    [TestMethod]
+    public void Imap_TextTrailingTheHtml_IsAFooterAndNotTheBody()
+    {
+        var message = Tree("mixed", Text("html", "<p>rich</p>"), Text("plain", "To unsubscribe from this list"));
+
+        Assert.AreEqual(("<p>rich</p>", "html"), ImapProviderService.ExtractBody(message));
+    }
+
+    [TestMethod]
+    public void Imap_TextLeadingTheHtml_IsTheBody()
+    {
+        var message = Tree("mixed", Text("plain", "plain"), Text("html", "<p>a footer</p>"));
+
+        Assert.AreEqual(("plain", "text"), ImapProviderService.ExtractBody(message));
+    }
+
+    [TestMethod]
+    [DataRow("alternative")]
+    [DataRow("mixed")]
+    public void Imap_ABlankTextPart_IsNoTextPart(string subtype)
+    {
+        var message = Tree(subtype, Text("plain", " \r\n\t \r\n"), Text("html", "<p>rich</p>"));
+
+        Assert.AreEqual(("<p>rich</p>", "html"), ImapProviderService.ExtractBody(message));
+    }
+
+    [TestMethod]
+    public void Imap_ATextAttachment_IsNotTheBody()
+    {
+        var attached = Text("plain", "attached notes");
+        attached.FileName = "notes.txt";
+        var message = Tree("mixed", attached, Text("html", "<p>rich</p>"));
+
+        Assert.AreEqual(("<p>rich</p>", "html"), ImapProviderService.ExtractBody(message));
+    }
+
+    [TestMethod]
+    public void Imap_FlowedText_IsStillUnflowed()
+    {
+        var flowed = Text("plain", "una riga \r\nsola\r\n");
+        flowed.ContentType.Format = "flowed";
+
+        Assert.AreEqual("una riga sola", ImapProviderService.ExtractBody(new MimeMessage { Body = flowed }).Body.Trim());
+    }
+
+    [TestMethod]
+    public void Imap_FlowedTextWithDelSp_DropsTheSpace()
+    {
+        var flowed = Text("plain", "una ri \r\nga sola\r\n");
+        flowed.ContentType.Format = "flowed";
+        flowed.ContentType.Parameters.Add("delsp", "yes");
+
+        Assert.AreEqual("una riga sola", ImapProviderService.ExtractBody(new MimeMessage { Body = flowed }).Body.Trim());
     }
 
     [TestMethod]

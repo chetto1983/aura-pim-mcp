@@ -435,6 +435,73 @@ public class ImapChangesTests
         Assert.AreEqual("provider_transient", ProviderFailures.Classify(failure, default)!.Error);
     }
 
+    private static MimeMessage WithParts(string subtype, params MimeEntity[] parts)
+    {
+        var multipart = new Multipart(subtype);
+        foreach (var part in parts)
+            multipart.Add(part);
+
+        var message = ImapMailbox.Mail();
+        message.Body = multipart;
+        return message;
+    }
+
+    [TestMethod]
+    public async Task ATextPartTrailingTheHtml_IsNotTheSnippetOnBothServers()
+    {
+        foreach (var server in new[] { ImapServers.GreenMail, ImapServers.Dovecot })
+        {
+            await using var mailbox = await ImapMailbox.OpenAsync(server);
+            var cursor = await mailbox.StartAsync();
+
+            await mailbox.DeliverAsync(WithParts(
+                "mixed", new TextPart("html") { Text = "<p>La fattura</p>" }, new TextPart("plain") { Text = "To unsubscribe from this list" }));
+
+            Assert.AreEqual("La fattura", (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("alternative")]
+    [DataRow("mixed")]
+    public async Task ABlankTextPart_IsPassedOverOnBothServers(string subtype)
+    {
+        foreach (var server in new[] { ImapServers.GreenMail, ImapServers.Dovecot })
+        {
+            await using var mailbox = await ImapMailbox.OpenAsync(server);
+            var cursor = await mailbox.StartAsync();
+
+            await mailbox.DeliverAsync(WithParts(
+                subtype, new TextPart("plain") { Text = " \r\n \r\n" }, new TextPart("html") { Text = "<p>La fattura</p>" }));
+
+            Assert.AreEqual("La fattura", (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+        }
+    }
+
+    [TestMethod]
+    public async Task AnAlternativeInsideMixed_StillGivesItsPlainPart()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        var alternative = new MultipartAlternative { new TextPart("plain") { Text = "La fattura" }, new TextPart("html") { Text = "<p>Altro</p>" } };
+
+        await mailbox.DeliverAsync(WithParts("mixed", alternative, new TextPart("plain") { Text = "To unsubscribe from this list" }));
+
+        Assert.AreEqual("La fattura", (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+    }
+
+    [TestMethod]
+    public async Task AFloodOfBlankParts_CostsOnlyItsSnippet()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        var blanks = Enumerable.Range(0, 40).Select(_ => (MimeEntity)new TextPart("plain") { Text = " " }).ToArray();
+
+        await mailbox.DeliverAsync(WithParts("mixed", [.. blanks, new TextPart("plain") { Text = "Nascosta dietro" }]));
+
+        Assert.AreEqual(string.Empty, (await mailbox.ReadAsync(cursor)).Changes.Single().Snippet);
+    }
+
     [TestMethod]
     public async Task AnEncodedBody_IsDecodedForItsSnippet()
     {

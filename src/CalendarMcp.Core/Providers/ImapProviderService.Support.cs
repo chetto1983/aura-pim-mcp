@@ -4,6 +4,7 @@ using CalendarMcp.Core.Utilities;
 using MailKit;
 using MailKit.Net.Imap;
 using MimeKit;
+using MimeKit.Text;
 
 namespace CalendarMcp.Core.Providers;
 
@@ -143,13 +144,37 @@ public partial class ImapProviderService
         };
     }
 
+    private static readonly MailParts.Shape<MimeEntity> MimeParts = new(
+        part => part.ContentType.MimeType,
+        part => part.IsAttachment || part is MimePart { FileName: not null },
+        part => part is Multipart multipart ? multipart : []);
+
     internal static (string Body, string Format) ExtractBody(MimeMessage m)
     {
-        if (m.TextBody is { Length: > 0 } text)
-            return (text, "text");
-        if (m.HtmlBody is { Length: > 0 } html)
-            return (html, MailBody.HtmlFormat);
+        if (m.Body is null)
+            return (string.Empty, "text");
+
+        foreach (var part in MailParts.BodyCandidates(m.Body, MimeParts).OfType<TextPart>())
+        {
+            var text = Unflowed(part);
+            if (!MailParts.IsBlank(text))
+                return (text, MailParts.FormatOf(part.ContentType.MimeType));
+        }
+
         return (string.Empty, "text");
+    }
+
+    // What MimeMessage.TextBody does for format=flowed, whose helper MimeKit keeps internal.
+    private static string Unflowed(TextPart part)
+    {
+        if (!part.IsFlowed)
+            return part.Text;
+
+        var converter = new FlowedToText();
+        if (part.ContentType.Parameters.TryGetValue("delsp", out string? delsp))
+            converter.DeleteSpace = string.Equals(delsp, "yes", StringComparison.OrdinalIgnoreCase);
+
+        return converter.Convert(part.Text);
     }
 
     private static string? HeaderValue(HeaderList? headers, string name)

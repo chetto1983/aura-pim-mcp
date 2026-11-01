@@ -1542,46 +1542,33 @@ public partial class GoogleProviderService : IGoogleProviderService
             .ToList();
     }
 
+    // A part with a filename is an attachment, even when a small .txt comes inline in body.data.
+    private static readonly MailParts.Shape<MessagePart> GmailParts = new(
+        part => part.MimeType,
+        part => !string.IsNullOrEmpty(part.Filename),
+        part => part.Parts ?? []);
+
     /// <summary>
-    /// The mail's text/plain part, otherwise its HTML, with the format it really is. The format
-    /// cannot come from the top-level MIME type: an alternative message says multipart.
+    /// The first part of the mail that holds anything, in the order of <see cref="MailParts"/>, with
+    /// the format it really is. The format cannot come from the top-level MIME type: an alternative
+    /// message says multipart.
     /// </summary>
     internal static (string Body, string Format) GetMessageBody(Message message)
     {
         if (message.Payload == null)
             return (string.Empty, "text");
 
-        if (GetBodyFromParts(message.Payload, "text/plain") is { } text)
-            return (text, "text");
-        if (GetBodyFromParts(message.Payload, "text/html") is { } html)
-            return (html, Utilities.MailBody.HtmlFormat);
+        foreach (var part in MailParts.BodyCandidates(message.Payload, GmailParts))
+        {
+            if (part.Body?.Data is not { } data)
+                continue;
+
+            var text = DecodeBase64Url(data);
+            if (!MailParts.IsBlank(text))
+                return (text, MailParts.FormatOf(part.MimeType));
+        }
 
         return (string.Empty, "text");
-    }
-
-    // A part with a filename is an attachment, and a forwarded mail is its own message: neither is
-    // this mail's body, even when a small .txt comes inline in body.data.
-    private static string? GetBodyFromParts(MessagePart part, string mimeType)
-    {
-        if (!string.IsNullOrEmpty(part.Filename) || part.MimeType == "message/rfc822")
-            return null;
-
-        if (part.MimeType == mimeType && part.Body?.Data != null)
-        {
-            return DecodeBase64Url(part.Body.Data);
-        }
-
-        if (part.Parts != null)
-        {
-            foreach (var childPart in part.Parts)
-            {
-                var result = GetBodyFromParts(childPart, mimeType);
-                if (result != null)
-                    return result;
-            }
-        }
-
-        return null;
     }
 
     private static string DecodeBase64Url(string base64Url)
