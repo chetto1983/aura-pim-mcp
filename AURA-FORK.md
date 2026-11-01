@@ -15,7 +15,9 @@ file says the fork does not have, this file wins.
 
 1. **Dependencies ahead of upstream.** The fork carries newer packages than upstream 1.9.0
    (Microsoft.Graph 6.5, Kiota.Abstractions 2.0 -- which also closes GHSA-7j59-v9qr-6fq9 -- MSAL
-   4.88, Google APIs 1.75/1.76, OpenTelemetry 1.18, Serilog 10, MSTest 4.3). MailKit 4.18.2 and
+   4.88, Google APIs 1.75/1.76, OpenTelemetry 1.18, Serilog 10, MSTest 4.3), and two upstream
+   has not at all: ReverseMarkdown 6.3.0 and AngleSharp.Css 1.3.0, both MIT, pinned exactly because
+   `HiddenText` and the pipeline in `MailBody` lean on their behaviour. MailKit 4.18.2 and
    Microsoft.Extensions.* / DataProtection 10.0.13 bring System.Security.Cryptography.Pkcs and
    .Xml to 10.0.13, closing GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-r955-8q5j-3h83,
    GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. The HTTP server takes Xml from the ASP.NET
@@ -107,6 +109,45 @@ file says the fork does not have, this file wins.
    `calendar-mcp-cli reauth` or "the client that manages this server's accounts", not at
    upstream's admin UI; `k8s/deployment.yaml` runs `ghcr.io/chetto1983/aura-pim-mcp`.
 
+7. **Three read fixes.** Each corrects what a model reads.
+   - `search_emails` on Gmail filters by exact instants (`GmailQuery`, epoch seconds), because a date
+     in a Gmail query means midnight Pacific.
+   - `get_calendar_events` with no calendar id reads every calendar (`AllCalendars`); naming
+     `primary` still reads the default one. A calendar that fails is named in `warnings`
+     (`PartialCalendarRead`), and the call fails only when all do. Calendar lists follow their pages
+     (`GraphCalendarList`).
+   - A mail body prefers `text/plain` on Gmail and IMAP. HTML-only mail reaches the model as
+     Markdown at the tool edge (`GetEmailDetailsTool` calling `Utilities/MailBody`): `Body` stays
+     what the provider holds, and `bodyFormat` says `text` or `markdown`. `MailBody` runs ReverseMarkdown
+     after a preprocessing pipeline: `HiddenText` drops what a reader cannot see, with AngleSharp.Css
+     computing the cascade, `LayoutTables` flattens tables that only place things, and tracking
+     parameters leave links. A Gmail mail's format now comes from the part it was read from.
+
+8. **The changes contract: `POST /admin/changes` and `POST /admin/items`.** What Aura's mail and
+   calendar watch reads, under the same bearer and tenant as `/admin`. It is not an MCP action, so
+   the model never sees it, and it reads and changes nothing. The PIM stays stateless: the cursor
+   is Aura's. The contract is pinned in Aura's `docs/superpowers/specs/2026-10-31-mail-calendar-watch-design.md`,
+   section 5.1, and the behaviour of each provider in the plan `2026-11-01-pim-changes-contract.md`.
+   - **`Changes/` holds it all.** `ChangesService` owns what holds for every provider: tenant,
+     permission, empty and expired cursors, limits, and naming a failure (`ProviderFailures`, the only
+     place that maps a provider's exception). A provider implements `IChangesSource`. A provider with
+     no source answers `422 unsupported_resource`, which is CalDAV, ICS and JSON today.
+   - **Sources read through seams, not through `IProviderService`.** `IGoogleApiClients` and
+     `IGraphApiClients` hand a source an authenticated client; `ImapProviderService.Changes.cs` is a
+     partial, because IMAP has one pooled connection per account. Each provider gained a small
+     `.Clients.cs`, and `GoogleProviderService`, `M365ProviderService` and `OutlookComProviderService`
+     became `partial`.
+   - **A failure says nothing about a grant unless it does.** `M365AuthenticationService.GetTokenSilentlyAsync`
+     no longer turns every exception into null, and `GoogleProviderService.GetCredentialAsync` no
+     longer takes a token endpoint's 5xx for a revoked grant, because `provider_auth` pauses a watch.
+   - **An unsigned cursor is untrusted input.** Every field of a position is required by the
+     serializer's options, so a damaged one is `invalid_cursor` before a source sees it. A delta link
+     passes `GraphLinks.Checked` before it is followed, because `BearerTokenAuthenticationProvider`
+     puts the account's token on any host. A cursor is never logged, and neither is a provider's
+     exception message.
+   - **Tests reach real servers.** GreenMail and Dovecot run in CI (`.github/workflows/ci.yml`,
+     `PIM_TEST_GREENMAIL`, `PIM_TEST_DOVECOT`); under `CI` an unset variable fails the test.
+
 ## Build / run (sidecar)
 
 ```bash
@@ -150,5 +191,18 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   exact-type check), `[DataTestMethod]` becomes `[TestMethod]`.
 - `ImapProviderService` is split into partials (`.cs`, `.Folders.cs`, `.Support.cs`) to stay
   under 600 lines; upstream edits to the tail of their single file land in `.Support.cs` by hand.
+  `.Changes.cs` is the fork's own and has no upstream counterpart.
+- A provider or `Utilities` file upstream changes near a fork edit: keep these on any conflict,
+  because they look like small edits and carry the contract. `GoogleProviderService.cs`:
+  `partial`, `GetMessageBody` preferring `text/plain` and answering the format, `GetBodyFromParts`
+  skipping attachments and forwarded messages, the `TokenResponseException` filter, `Transport`.
+  `M365ProviderService.cs` and `OutlookComProviderService.cs`: `partial`, `Transport`,
+  `CreateGraphClient`. `M365AuthenticationService.cs`: no catch-all returning null.
+  `ImapProviderService.Support.cs`: `ExtractBody` with text first. `GetEmailDetailsTool.cs`:
+  `MailBody.ForModel`.
+- A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
+  `ChangesProviders`, and `ChangesRegistrationTests` lists every source.
+- Upstream's `IProviderServices.cs`: the fork's provider interfaces also inherit
+  `IGoogleApiClients`, `IGraphApiClients` and `IChangesSource`.
 - Tests from upstream run against a bound tenant: configs need a `TenantId`, account ids use
   `TenantIdentity.AccountId(...)`.
