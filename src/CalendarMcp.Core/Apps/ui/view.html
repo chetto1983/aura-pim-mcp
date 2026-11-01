@@ -343,11 +343,9 @@
   }
 
   /**
-   * Whether a body is markup. The payload cannot answer this: the sidecar reports
-   * bodyFormat:"text" for messages whose body is a complete HTML document (measured
-   * 2026-08-23 against the live mailbox -- a Google security alert and two GitHub CI
-   * notices all claimed "text" while carrying <!DOCTYPE html>), so the field is not
-   * usable as a discriminator and the content has to be sniffed instead.
+   * Whether a body is markup. This sniffs the content because not every payload names
+   * its format: an event description can be HTML with no field saying so. get_email_details
+   * returns text or Markdown, which pass through here unchanged.
    */
   function looksLikeHtml(s) {
     return /<\s*(!doctype|html|head|body|table|div|p|br|span|a|img)[\s>/]/i.test(s);

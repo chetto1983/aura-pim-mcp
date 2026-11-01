@@ -41,10 +41,11 @@ public class EmailMessage
     public List<string> Cc { get; init; } = new();
     
     /// <summary>
-    /// Email body content
+    /// Email body content, as the provider holds it: the text/plain part when there is one,
+    /// otherwise the HTML. What a model reads goes through <see cref="Utilities.MailBody.ForModel"/>.
     /// </summary>
     public string Body { get; init; } = string.Empty;
-    
+
     /// <summary>
     /// Body format: "html" or "text"
     /// </summary>

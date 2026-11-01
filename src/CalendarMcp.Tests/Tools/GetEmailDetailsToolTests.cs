@@ -114,6 +114,40 @@ public class GetEmailDetailsToolTests
     }
 
     [TestMethod]
+    [DataRow("<p>Fattura <a href=\"https://example.com/f?utm_source=mail\">qui</a></p>", "html",
+        "Fattura [qui](https://example.com/f)", "markdown")]
+    [DataRow("Fattura allegata.", "text", "Fattura allegata.", "text")]
+    public async Task GetEmailDetails_TheModelReadsMarkdownOrTheTextPart(
+        string body, string format, string expectedBody, string expectedFormat)
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var email = new EmailMessage { Id = "email-1", AccountId = "acc-1", Body = body, BodyFormat = format };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(account));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetEmailDetailsAsync("acc-1", "email-1", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<EmailMessage?>(email));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        var tool = new GetEmailDetailsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetEmailDetailsTool>.Instance);
+
+        var doc = JsonDocument.Parse(await tool.GetEmailDetails("acc-1", "email-1"));
+
+        Assert.AreEqual(expectedBody, doc.RootElement.GetProperty("body").GetString());
+        Assert.AreEqual(expectedFormat, doc.RootElement.GetProperty("bodyFormat").GetString());
+
+        regExp.Verify();
+        factExp.Verify();
+        provExp.Verify();
+    }
+
+    [TestMethod]
     public async Task GetEmailDetails_AuthenticationRequired_SurfacesReauthMessage()
     {
         // The actionable re-auth message must reach the client, not the generic "Failed to get email details."

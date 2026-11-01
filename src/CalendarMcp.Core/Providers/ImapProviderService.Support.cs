@@ -143,12 +143,12 @@ public partial class ImapProviderService
         };
     }
 
-    private static (string Body, string Format) ExtractBody(MimeMessage m)
+    internal static (string Body, string Format) ExtractBody(MimeMessage m)
     {
-        if (m.HtmlBody is { Length: > 0 } html)
-            return (html, "html");
         if (m.TextBody is { Length: > 0 } text)
             return (text, "text");
+        if (m.HtmlBody is { Length: > 0 } html)
+            return (html, MailBody.HtmlFormat);
         return (string.Empty, "text");
     }
 

@@ -1470,8 +1470,7 @@ public class GoogleProviderService : IGoogleProviderService
             receivedDate = DateTimeOffset.FromUnixTimeMilliseconds(internalMs).UtcDateTime;
 
         // Get body
-        var body = includeBody ? GetMessageBody(message) : (message.Snippet ?? string.Empty);
-        var bodyFormat = includeBody && message.Payload?.MimeType?.Contains("html") == true ? "html" : "text";
+        var (body, bodyFormat) = includeBody ? GetMessageBody(message) : (message.Snippet ?? string.Empty, "text");
 
         // Extract unsubscribe headers
         var listUnsubscribe = GetHeader(headers, "List-Unsubscribe");
@@ -1542,21 +1541,30 @@ public class GoogleProviderService : IGoogleProviderService
             .ToList();
     }
 
-    private static string GetMessageBody(Message message)
+    /// <summary>
+    /// The mail's text/plain part, otherwise its HTML, with the format it really is. The format
+    /// cannot come from the top-level MIME type: an alternative message says multipart.
+    /// </summary>
+    internal static (string Body, string Format) GetMessageBody(Message message)
     {
         if (message.Payload == null)
-            return string.Empty;
+            return (string.Empty, "text");
 
-        // Try to get HTML body first, then plain text
-        var body = GetBodyFromParts(message.Payload, "text/html") 
-                ?? GetBodyFromParts(message.Payload, "text/plain")
-                ?? string.Empty;
+        if (GetBodyFromParts(message.Payload, "text/plain") is { } text)
+            return (text, "text");
+        if (GetBodyFromParts(message.Payload, "text/html") is { } html)
+            return (html, Utilities.MailBody.HtmlFormat);
 
-        return body;
+        return (string.Empty, "text");
     }
 
+    // A part with a filename is an attachment, and a forwarded mail is its own message: neither is
+    // this mail's body, even when a small .txt comes inline in body.data.
     private static string? GetBodyFromParts(MessagePart part, string mimeType)
     {
+        if (!string.IsNullOrEmpty(part.Filename) || part.MimeType == "message/rfc822")
+            return null;
+
         if (part.MimeType == mimeType && part.Body?.Data != null)
         {
             return DecodeBase64Url(part.Body.Data);
