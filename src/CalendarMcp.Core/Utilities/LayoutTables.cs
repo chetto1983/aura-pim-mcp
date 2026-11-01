@@ -24,7 +24,9 @@ internal static class LayoutTables
 
     private static void FlattenTable(IHtmlTableElement table, ConversionBudget budget)
     {
-        foreach (var cell in table.Rows.SelectMany(row => row.Cells).ToList())
+        // A caption is not a row, so it is the one text of a table that no cell carries.
+        var blocks = new[] { table.Caption }.OfType<IElement>().Concat(table.Rows.SelectMany(row => row.Cells)).ToList();
+        foreach (var cell in blocks)
         {
             budget.Check();
 

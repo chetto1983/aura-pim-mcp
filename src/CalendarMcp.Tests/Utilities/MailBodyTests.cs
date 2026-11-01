@@ -254,6 +254,20 @@ public class MailBodyTests
     }
 
     [TestMethod]
+    [DataRow("""<table role="presentation"><caption>Il titolo</caption><tr><td>Il corpo</td></tr></table>""", "a presentation table")]
+    [DataRow("""<table><caption>Il titolo</caption><tr><td>Il corpo</td></tr></table>""", "a table of one cell")]
+    [DataRow("""<table><caption><b>Il titolo</b></caption><tr><td><table><tr><td>Il corpo</td></tr></table></td></tr></table>""", "tables in tables")]
+    public void AFlattenedTable_KeepsItsCaptionAheadOfItsCells(string html, string layout)
+    {
+        foreach (var text in new[] { MailBody.ToMarkdown(html), MailBody.ToPlainText(html) })
+        {
+            var caption = text.IndexOf("Il titolo", StringComparison.Ordinal);
+
+            Assert.IsTrue(caption >= 0 && caption < text.IndexOf("Il corpo", StringComparison.Ordinal), $"{layout}: {text}");
+        }
+    }
+
+    [TestMethod]
     public void InvisibleCharacters_AreRemoved()
     {
         // Zero-width marks and Unicode tag characters render as nothing and still reach a model.
