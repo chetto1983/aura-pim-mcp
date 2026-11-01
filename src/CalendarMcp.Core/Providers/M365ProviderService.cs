@@ -13,7 +13,7 @@ namespace CalendarMcp.Core.Providers;
 /// <summary>
 /// Microsoft 365 provider service with MSAL authentication integration
 /// </summary>
-public class M365ProviderService : IM365ProviderService
+public partial class M365ProviderService : IM365ProviderService
 {
     private readonly ILogger<M365ProviderService> _logger;
     private readonly IM365AuthenticationService _authService;

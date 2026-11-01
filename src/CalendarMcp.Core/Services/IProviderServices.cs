@@ -5,7 +5,7 @@ namespace CalendarMcp.Core.Services;
 /// <summary>
 /// Microsoft 365 provider service for organizational accounts
 /// </summary>
-public interface IM365ProviderService : IProviderService
+public interface IM365ProviderService : IProviderService, IGraphApiClients
 {
 }
 
@@ -19,7 +19,7 @@ public interface IGoogleProviderService : IProviderService, IGoogleApiClients
 /// <summary>
 /// Outlook.com provider service for personal Microsoft accounts
 /// </summary>
-public interface IOutlookComProviderService : IProviderService
+public interface IOutlookComProviderService : IProviderService, IGraphApiClients
 {
 }
 

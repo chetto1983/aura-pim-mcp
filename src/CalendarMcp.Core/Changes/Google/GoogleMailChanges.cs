@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Net;
-using System.Text.RegularExpressions;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
@@ -16,7 +15,7 @@ namespace CalendarMcp.Core.Changes.Google;
 /// (https://developers.google.com/workspace/gmail/api/guides/sync). The filter on <c>INBOX</c> is
 /// left off the request and applied here, because a filtered history cannot show a mail leaving the Inbox.
 /// </summary>
-internal sealed partial class GoogleMailChanges(IGoogleApiClients clients) : IChangesSource
+internal sealed class GoogleMailChanges(IGoogleApiClients clients) : IChangesSource
 {
     private const string Me = "me";
     private const string Sent = "SENT";
@@ -158,7 +157,7 @@ internal sealed partial class GoogleMailChanges(IGoogleApiClients clients) : ICh
     // text, so an address that needs quoting is not put into a query at all.
     private static async Task<bool?> SentToAsync(GmailService gmail, string address, CancellationToken cancellationToken)
     {
-        if (!PlainAddress().IsMatch(address))
+        if (!MailSender.IsPlainAddress(address))
             return null;
 
         var request = gmail.Users.Messages.List(Me);
@@ -185,9 +184,6 @@ internal sealed partial class GoogleMailChanges(IGoogleApiClients clients) : ICh
             return null;
         }
     }
-
-    [GeneratedRegex(@"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+$")]
-    private static partial Regex PlainAddress();
 
     private sealed record Position(ulong History);
 }

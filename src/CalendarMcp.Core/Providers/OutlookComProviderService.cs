@@ -14,7 +14,7 @@ namespace CalendarMcp.Core.Providers;
 /// Outlook.com provider service for personal Microsoft accounts.
 /// Uses Microsoft Graph SDK with MSAL (consumers/common tenant).
 /// </summary>
-public class OutlookComProviderService : IOutlookComProviderService
+public partial class OutlookComProviderService : IOutlookComProviderService
 {
     private readonly ILogger<OutlookComProviderService> _logger;
     private readonly IM365AuthenticationService _authService;
