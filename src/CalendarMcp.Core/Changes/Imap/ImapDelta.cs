@@ -58,6 +58,7 @@ internal static class ImapDelta
     /// <summary>
     /// The UIDs of a compact set. The set comes from an unsigned cursor, so its size is checked
     /// before anything is expanded: <c>1:4294967295</c> must not become four billion numbers.
+    /// A UID starts at 1, and MailKit's <see cref="MailKit.UniqueId"/> throws on 0.
     /// </summary>
     public static IReadOnlyList<uint> Expand(string compact)
     {
@@ -74,7 +75,7 @@ internal static class ImapDelta
             var last = first;
             if (ends.Length == 2 && !uint.TryParse(ends[1], CultureInfo.InvariantCulture, out last))
                 throw ChangesException.InvalidCursor();
-            if (last < first || last - first >= KnownWindow || uids.Count + (last - first) >= KnownWindow)
+            if (first == 0 || last < first || last - first >= KnownWindow || uids.Count + (last - first) >= KnownWindow)
                 throw ChangesException.InvalidCursor();
 
             for (var offset = 0u; offset <= last - first; offset++)

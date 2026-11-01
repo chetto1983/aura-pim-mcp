@@ -68,8 +68,12 @@ public sealed class ChangesService(
             throw ChangesException.InvalidRequest("too_many_items");
 
         var (account, source) = await ResolveAsync(accountId, resource);
-        if (items.Any(item => string.IsNullOrEmpty(item.Id) || (resource == ChangeResource.Calendar && string.IsNullOrEmpty(item.CalendarId))))
+        if (items.Any(item => item is null
+                || string.IsNullOrWhiteSpace(item.Id)
+                || (resource == ChangeResource.Calendar && string.IsNullOrWhiteSpace(item.CalendarId))))
+        {
             throw ChangesException.InvalidRequest("invalid_items");
+        }
 
         return await GuardAsync(account.Id, resource!, async () =>
         {

@@ -70,6 +70,10 @@ public partial class ImapProviderService
         var saved = cursor.Folder<ImapPosition>(cfg.InboxFolder);
         var known = ImapDelta.Expand(saved.Known);
 
+        // New mail is what follows this UID, and nothing can follow the last one there is.
+        if (saved.LastUid == uint.MaxValue)
+            throw ChangesException.InvalidCursor();
+
         var read = await WithImapAsync(cfg, async client =>
         {
             var folder = await OpenFolderAsync(client, cfg.InboxFolder, FolderAccess.ReadOnly, cancellationToken);
@@ -132,6 +136,8 @@ public partial class ImapProviderService
     {
         if (!TryParseEmailId(item.Id!, out var folderName, out var uidValidity, out var uid))
             return null;
+        if (uid == 0)
+            throw ChangesException.InvalidRequest("invalid_items");
 
         var cfg = await ResolveConfigAsync(accountId);
 
