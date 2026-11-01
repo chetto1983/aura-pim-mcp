@@ -23,7 +23,7 @@ internal static class EventChanges
 
     public static string Date(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    public static EventFacts Facts(string start, string end, string status, bool organizerIsSelf, string? myResponse) => new()
+    public static EventFacts Facts(string start, string? end, string status, bool organizerIsSelf, string? myResponse) => new()
     {
         Start = start,
         End = end,
@@ -34,6 +34,6 @@ internal static class EventChanges
     };
 
     /// <summary>A hash of start, end and status: exactly what makes a change worth telling a person.</summary>
-    public static string Fingerprint(string start, string end, string status) =>
+    public static string Fingerprint(string start, string? end, string status) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{start}|{end}|{status}")));
 }

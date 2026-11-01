@@ -35,7 +35,7 @@ public sealed record MailSignals
 public sealed record EventFacts
 {
     public required string Start { get; init; }
-    public required string End { get; init; }
+    public string? End { get; init; }
     public required string Status { get; init; }
     public bool OrganizerIsSelf { get; init; }
     public string? MyResponse { get; init; }

@@ -40,6 +40,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ChangesService>();
         services.AddSingleton<IChangesSource>(provider =>
             new GoogleMailChanges(provider.GetRequiredService<IGoogleProviderService>()));
+        services.AddSingleton<IChangesSource>(provider =>
+            new GoogleCalendarChanges(provider.GetRequiredService<IGoogleProviderService>(), TimeProvider.System));
 
         // DataProtection + PasswordProtector for at-rest encryption of provider passwords
         services.AddCalendarMcpDataProtection();
