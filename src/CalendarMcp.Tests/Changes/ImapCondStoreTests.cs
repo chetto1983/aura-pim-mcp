@@ -11,6 +11,25 @@ public class ImapCondStoreTests
     private static string Types(IEnumerable<Change> changes) => string.Join(' ', changes.Select(c => c.Type));
 
     [TestMethod]
+    public async Task ASenderWithNoAddress_IsTheNameAlone()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);
+        var cursor = await mailbox.StartAsync();
+        var mail = ImapMailbox.Mail("Senza indirizzo");
+        mail.Headers["From"] = "Solo Nome";
+
+        await mailbox.DeliverAsync(mail);
+        var added = (await mailbox.ReadAsync(cursor)).Changes.Single();
+
+        Assert.IsNull(added.From, "the server's placeholder names nobody");
+        Assert.AreEqual("Solo Nome", added.FromName);
+
+        var item = await mailbox.Provider.ReadItemAsync(mailbox.Account.Id, new ItemRef(added.Id, null), default);
+        Assert.IsNull(item!.From, "an item reads as the change did");
+        Assert.AreEqual("Solo Nome", item.FromName);
+    }
+
+    [TestMethod]
     public async Task AFlagChangeOnOldMail_IsUpdated()
     {
         await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);

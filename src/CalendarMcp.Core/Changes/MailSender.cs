@@ -30,4 +30,16 @@ internal static partial class MailSender
 
         return (null, from);
     }
+
+    /// <summary>
+    /// A mailbox from an IMAP envelope. A From with no address arrives as the server's placeholder,
+    /// which names nobody, so it reads as the name alone, as a header with no mailbox does.
+    /// </summary>
+    public static (string? Address, string? Name) ReadEnvelope(MailboxAddress? mailbox)
+    {
+        var name = string.IsNullOrEmpty(mailbox?.Name) ? null : mailbox.Name;
+        return (mailbox?.Address == MissingMailbox ? null : mailbox?.Address, name);
+    }
+
+    private const string MissingMailbox = "MISSING_MAILBOX";
 }

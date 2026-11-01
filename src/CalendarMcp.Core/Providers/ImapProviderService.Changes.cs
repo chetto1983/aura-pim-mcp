@@ -122,13 +122,13 @@ public partial class ImapProviderService
             if (summaries.SingleOrDefault() is not { } summary)
                 return null;
 
-            var sender = summary.Envelope?.From.Mailboxes.FirstOrDefault();
+            var (from, fromName) = MailSender.ReadEnvelope(summary.Envelope?.From.Mailboxes.FirstOrDefault());
             return new ItemFacts
             {
                 Id = item.Id!,
                 OccurredAt = summary.InternalDate ?? summary.Envelope?.Date,
-                From = sender?.Address,
-                FromName = string.IsNullOrEmpty(sender?.Name) ? null : sender.Name,
+                From = from,
+                FromName = fromName,
                 Subject = summary.Envelope?.Subject
             };
         }, cancellationToken);
@@ -225,7 +225,7 @@ public partial class ImapProviderService
         // HeaderList's indexer answers the first match, which on a delivered mail is the topmost.
         var header = (string name) => summary.Headers?[name];
 
-        var sender = summary.Envelope?.From.Mailboxes.FirstOrDefault();
+        var (from, fromName) = MailSender.ReadEnvelope(summary.Envelope?.From.Mailboxes.FirstOrDefault());
         var bulk = MailHeaderSignals.IsBulk(header);
         var references = ThreadReferences(header);
         var thread = references.FirstOrDefault() ?? summary.Envelope?.MessageId;
@@ -235,8 +235,8 @@ public partial class ImapProviderService
             Type = ChangeType.Added,
             Id = FormatEmailId(cfg.InboxFolder, folder.UidValidity, summary.UniqueId.Id),
             OccurredAt = summary.InternalDate ?? summary.Envelope?.Date,
-            From = sender?.Address,
-            FromName = string.IsNullOrEmpty(sender?.Name) ? null : sender.Name,
+            From = from,
+            FromName = fromName,
             Subject = summary.Envelope?.Subject,
             Snippet = await ReadSnippetAsync(folder, summary, cancellationToken),
             Signals = new MailSignals
@@ -248,7 +248,7 @@ public partial class ImapProviderService
             }
         };
 
-        return new AddedMail(change, sender?.Address, bulk, references);
+        return new AddedMail(change, from, bulk, references);
     }
 
     private static List<string> ThreadReferences(Func<string, string?> header)
