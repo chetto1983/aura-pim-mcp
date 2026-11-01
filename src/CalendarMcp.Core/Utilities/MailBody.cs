@@ -31,8 +31,11 @@ public static partial class MailBody
     public const int MaxBodyLength = 1024 * 1024;
 
     /// <summary>
-    /// The deepest tree converted, counting the root as one. Mail layouts stay under a hundred, and the
-    /// Markdown reader recurses four frames a level, so this also leaves it most of any thread's stack.
+    /// The deepest tree converted, counting the root as one. Mail layouts stay under a hundred. The
+    /// Markdown reader recurses four frames a level, and at each one <c>TextContent</c> recurses over
+    /// what is below it. At this depth that measured 507 KB of stack at worst, in a fresh process, on
+    /// code the JIT had just instrumented and with the JIT itself on the same stack. A pool thread in
+    /// the image has 8 MiB, which comes from <c>ulimit -s</c> and is 2 MiB when that is unlimited.
     /// </summary>
     internal const int MaxDepth = 256;
 

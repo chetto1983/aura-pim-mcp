@@ -145,7 +145,7 @@ public class CssShapeTests
             + $"--v{CssShape.MaxVariables - 2}:1px}}p{{width:var(--v0)}}</style>"],
     ];
 
-    /// <summary>The limits are worth what the engine survives at them, on half the smallest stack a pool thread gets.</summary>
+    /// <summary>The limits are worth what the engine survives at them, on the stack the conversion's tests use.</summary>
     [TestMethod]
     [DynamicData(nameof(ShapesAtTheLimit))]
     public void WhatPassesTheCheck_DoesNotOverflowTheEngine(string html)
@@ -166,7 +166,7 @@ public class CssShapeTests
             {
                 failure = e;
             }
-        }, 512 * 1024);
+        }, MailBodyBoundsTests.SmallStack);
 
         thread.Start();
         thread.Join();

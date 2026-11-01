@@ -11,7 +11,13 @@ namespace CalendarMcp.Tests.Utilities;
 [TestClass]
 public class MailBodyBoundsTests
 {
-    private const int SmallStack = 256 * 1024;
+    /// <summary>
+    /// An eighth of the 8 MiB a pool thread has in the image, and 1.7 times the 591 KB the worst mail needs
+    /// in a fresh process. The need moves with the tier the code has reached, and the JIT runs on this
+    /// stack too, so anything under that worst case passes only once the code has warmed up: 256 KB did,
+    /// until the one run that reached a deep mail first and overflowed.
+    /// </summary>
+    internal const int SmallStack = 1024 * 1024;
 
     /// <summary>html is 1 and body is 2, so this many wrappers put what follows at this depth plus 3.</summary>
     private static string Nested(int wrappers, string inner) =>
@@ -93,8 +99,12 @@ public class MailBodyBoundsTests
         ["<ul><li>"],
         ["<table><tbody><tr><td>"],
         ["<b>"],
-        ["<a href=\"https://a.example.com/\">"],
+        // A link closes the link before it, unless a scope marker stands between them.
+        ["<a href=\"https://a.example.com/\"><object>"],
         ["<dl><dd>"],
+        ["<div>"],
+        ["<section id=\"c\">"],
+        ["<blockquote><ul><li>"],
     ];
 
     /// <summary>ReverseMarkdown's <c>ReadChildren</c> and its writers recurse, each level with its own reader.</summary>
