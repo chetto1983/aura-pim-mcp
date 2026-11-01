@@ -48,6 +48,9 @@ public static partial class MailBody
     internal const string TooDeep =
         "The body of this mail is nested too deeply to read, so it is left out. The other fields are unaffected.";
 
+    internal const string TooIntricate =
+        "The styles of this mail would take too long to work out, so its body is left out. The other fields are unaffected.";
+
     /// <summary>A snippet is one of a page of them, and the classifier reading it can do without.</summary>
     internal static readonly TimeSpan SnippetBudget = TimeSpan.FromMilliseconds(500);
 

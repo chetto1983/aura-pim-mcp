@@ -70,11 +70,14 @@ internal static partial class HiddenText
     /// beside it instead of inside it (<c>HtmlParserOptions.MaximumDepth</c>), so the tree can no longer
     /// be trusted to say what a hidden ancestor contains: <c>display:none</c> on the last level
     /// would lose its children to the visible level above. Nothing short of refusing covers that.
-    /// A value that would paste more than <see cref="MaxPasted"/> is refused the same way.
+    /// A value that would paste more than <see cref="MaxPasted"/> is refused the same way, and so is a
+    /// sheet <see cref="SelectorCost"/> finds could not be matched in time.
     /// </exception>
     public static void Remove(IElement root, ConversionBudget budget)
     {
         var styles = root.Owner!.DefaultView!.GetStyleCollection(Reader);
+        SelectorCost.Check(root, styles, budget);
+
         var unseen = new List<IChildNode>();
         var pending = new Stack<(INode Node, Look Above, int Depth)>();
         pending.Push((root, Look.Page, 1));
