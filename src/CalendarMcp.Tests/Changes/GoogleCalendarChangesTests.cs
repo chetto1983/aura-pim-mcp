@@ -176,6 +176,105 @@ public class GoogleCalendarChangesTests
         Assert.IsNull(change.Event);
     }
 
+    private FakeHttp Listing(params object[] rows) => _http
+        .On(List, Calendars(Calendar("mine")))
+        .On(Events("mine"), Json(new { items = rows, nextSyncToken = "new" }));
+
+    private static object Bare(string id) => new { id, status = "cancelled" };
+
+    private static object Instance(string id, string series) => new
+    {
+        id,
+        status = "cancelled",
+        recurringEventId = series,
+        originalStartTime = new { dateTime = "2026-11-02T09:00:00Z" }
+    };
+
+    private int Reads(string id) => _http.Urls.Count(url => url.Contains($"/events/{id}", StringComparison.Ordinal));
+
+    [TestMethod]
+    public async Task ADeletedEvent_IsReadForWhatItsRowLeftOut()
+    {
+        Listing(Bare("e1")).On($"{Events("mine")}/e1", Json(Item("e1", status: "cancelled")));
+
+        var change = (await Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default)).Changes.Single();
+
+        Assert.AreEqual(ChangeType.Deleted, change.Type);
+        Assert.AreEqual("Riunione", change.Subject);
+        Assert.AreEqual("capo@example.com", change.From);
+        Assert.AreEqual("2026-11-02T08:00:00Z", change.Event!.Start);
+        Assert.AreEqual(EventChanges.Cancelled, change.Event.Status);
+    }
+
+    [TestMethod]
+    public async Task ACancelledInstance_TakesItsTitleFromItsSeriesAndKeepsItsOwnStart()
+    {
+        Listing(Instance("e1_20261102", "e1"))
+            .On($"{Events("mine")}/e1_20261102", Json(Instance("e1_20261102", "e1")))
+            .On(request => FakeHttp.Url(request).EndsWith($"{Events("mine")}/e1", StringComparison.Ordinal), _ => FakeHttp.Json(Json(Item("e1", start: "2026-01-05T09:00:00Z"))));
+
+        var change = (await Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default)).Changes.Single();
+
+        Assert.AreEqual(ChangeType.Deleted, change.Type);
+        Assert.AreEqual("Riunione", change.Subject);
+        Assert.AreEqual("capo@example.com", change.From);
+        Assert.AreEqual("2026-11-02T09:00:00Z", change.Event!.Start, "the series' first date is not this instance's");
+    }
+
+    [TestMethod]
+    public async Task ASeriesCancelledWhole_IsReadOnce()
+    {
+        Listing(Instance("e1_1", "e1"), Instance("e1_2", "e1"), Instance("e1_3", "e1"))
+            .On(request => FakeHttp.Url(request).EndsWith($"{Events("mine")}/e1", StringComparison.Ordinal), _ => FakeHttp.Json(Json(Item("e1"))));
+
+        var batch = await Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default);
+
+        Assert.IsTrue(batch.Changes.All(change => change.Subject == "Riunione"));
+        Assert.AreEqual(1, _http.Urls.Count(url => url.EndsWith("/events/e1", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task ACancelledRowThatHasItAll_IsNotRead()
+    {
+        Listing(Item("e1", status: "cancelled"));
+
+        var change = (await Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default)).Changes.Single();
+
+        Assert.AreEqual("Riunione", change.Subject);
+        Assert.AreEqual(0, Reads("e1"));
+    }
+
+    /// <summary>The reference warns that a cancelled event "will eventually disappear", and a row is worth more than a title.</summary>
+    [TestMethod]
+    [DataRow(HttpStatusCode.NotFound)]
+    [DataRow(HttpStatusCode.Gone)]
+    [DataRow(HttpStatusCode.Forbidden)]
+    [DataRow(HttpStatusCode.InternalServerError)]
+    public async Task ARowThatCannotBeRead_StaysAsItWasAndThePageGoesOn(HttpStatusCode status)
+    {
+        Listing(Bare("e1"), Item("e2", created: "2026-11-01T11:30:00Z")).On($"{Events("mine")}/e1", Json(new { error = new { code = (int)status, message = "no" } }), status);
+
+        var batch = await Source.ReadAsync(Account, Cursor(("mine", "old")), 50, default);
+
+        Assert.AreEqual(2, batch.Changes.Count);
+        Assert.AreEqual(ChangeType.Deleted, batch.Changes[0].Type);
+        Assert.IsNull(batch.Changes[0].Subject);
+        Assert.IsNull(batch.Changes[0].Event);
+        Assert.AreEqual("new", SavedOf(batch.Next, "mine").Sync);
+    }
+
+    [TestMethod]
+    public async Task ACalendarEmptiedAtOnce_ReadsNoMoreThanAPageCanWaitFor()
+    {
+        var rows = Enumerable.Range(0, GoogleCalendarChanges.MaxEventReads + 40).Select(i => Bare($"e{i}")).ToArray();
+        Listing(rows).On(request => FakeHttp.Url(request).Contains($"{Events("mine")}/e", StringComparison.Ordinal), _ => FakeHttp.Json(Json(Item("x"))));
+
+        var batch = await Source.ReadAsync(Account, Cursor(("mine", "old")), ChangesService.MaxLimit, default);
+
+        Assert.AreEqual(rows.Length, batch.Changes.Count);
+        Assert.AreEqual(GoogleCalendarChanges.MaxEventReads, batch.Changes.Count(change => change.Subject is not null));
+    }
+
     [TestMethod]
     public async Task ACancelledInstance_KeepsTheStartItLost()
     {

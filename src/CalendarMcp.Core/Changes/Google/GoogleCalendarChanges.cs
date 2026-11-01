@@ -14,6 +14,12 @@ namespace CalendarMcp.Core.Changes.Google;
 /// </summary>
 internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvider clock) : IChangesSource
 {
+    /// <summary>
+    /// The most events one page reads to fill in cancelled rows. A calendar emptied at once lists
+    /// hundreds of them, each read a round trip, and a page has 60 s. The rest stay as listed.
+    /// </summary>
+    internal const int MaxEventReads = 50;
+
     // Page size is a parameter the sync guide wants unchanged between a listing and its token.
     // Holding it at the contract's largest limit keeps every token resumable under every limit.
     private const int PageSize = ChangesService.MaxLimit;
@@ -46,6 +52,7 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
 
         var positions = new Dictionary<string, Position>();
         var changes = new List<Change>();
+        var reads = new EventReads(calendar);
         var hasMore = false;
 
         foreach (var id in await EditableCalendarsAsync(calendar, cancellationToken))
@@ -64,7 +71,7 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
             {
                 try
                 {
-                    positions[id] = await ReadCalendarAsync(calendar, id, position, limit, now, changes, cancellationToken);
+                    positions[id] = await ReadCalendarAsync(calendar, id, position, limit, now, changes, reads, cancellationToken);
                     hasMore |= positions[id].Page is not null;
                 }
                 catch (GoogleApiException e) when (e.HttpStatusCode == HttpStatusCode.Gone)
@@ -145,7 +152,7 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
 
     private static async Task<Position> ReadCalendarAsync(
         CalendarService calendar, string id, Position position, int limit, DateTimeOffset now,
-        List<Change> changes, CancellationToken cancellationToken)
+        List<Change> changes, EventReads reads, CancellationToken cancellationToken)
     {
         var request = Listing(calendar, id);
         request.SyncToken = position.Sync;
@@ -154,7 +161,11 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
         while (true)
         {
             var page = await request.ExecuteAsync(cancellationToken);
-            changes.AddRange((page.Items ?? []).Select(item => ToChange(id, item, position.Since)));
+            foreach (var item in page.Items ?? [])
+            {
+                await reads.FillInAsync(id, item, cancellationToken);
+                changes.Add(ToChange(id, item, position.Since));
+            }
 
             if (page.NextPageToken is null)
                 return new Position(page.NextSyncToken ?? throw ChangesException.ProviderTransient(), null, now);
@@ -220,4 +231,66 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
     };
 
     private sealed record Position(string Sync, string? Page, DateTimeOffset Since);
+
+    /// <summary>
+    /// A cancelled row says little, and a deletion is what a person most needs told. On the events
+    /// reference, "Deleted events are only guaranteed to have the id field populated" and "Cancelled
+    /// exceptions are only guaranteed to have values for the id, recurringEventId and
+    /// originalStartTime fields", while of status it says "The get method always returns them". It also
+    /// warns "Such cancelled events will eventually disappear", so a read that fails changes nothing.
+    /// https://developers.google.com/workspace/calendar/api/v3/reference/events
+    /// </summary>
+    private sealed class EventReads(CalendarService calendar)
+    {
+        private readonly Dictionary<(string Calendar, string Id), Event?> _read = [];
+
+        public async Task FillInAsync(string calendarId, Event row, CancellationToken cancellationToken)
+        {
+            if (row.Status != EventChanges.Cancelled || (row.Start is not null && row.Summary is not null))
+                return;
+
+            if (await ReadAsync(calendarId, row.Id, cancellationToken) is { } self)
+            {
+                row.Start ??= self.Start;
+                row.End ??= self.End;
+                row.UpdatedRaw ??= self.UpdatedRaw;
+                CopyTheEventsTitle(from: self, to: row);
+            }
+
+            // The series gives its title and people. Its dates are its first instance's, not this one's.
+            if (row.Summary is null && row.RecurringEventId is { } series
+                && await ReadAsync(calendarId, series, cancellationToken) is { } parent)
+            {
+                CopyTheEventsTitle(from: parent, to: row);
+            }
+        }
+
+        private static void CopyTheEventsTitle(Event from, Event to)
+        {
+            to.Summary ??= from.Summary;
+            to.Organizer ??= from.Organizer;
+            to.Attendees ??= from.Attendees;
+        }
+
+        private async Task<Event?> ReadAsync(string calendarId, string id, CancellationToken cancellationToken)
+        {
+            if (_read.TryGetValue((calendarId, id), out var known))
+                return known;
+            if (_read.Count >= MaxEventReads)
+                return null;
+
+            Event? found = null;
+            try
+            {
+                found = await calendar.Events.Get(calendarId, id).ExecuteAsync(cancellationToken);
+            }
+            catch (Exception e) when (e is GoogleApiException or HttpRequestException or TaskCanceledException
+                                      && !cancellationToken.IsCancellationRequested)
+            {
+                // The row stays as it was listed, which is all it ever promised.
+            }
+
+            return _read[(calendarId, id)] = found;
+        }
+    }
 }
