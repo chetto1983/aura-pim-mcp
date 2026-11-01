@@ -378,6 +378,40 @@ public class ImapChangesTests
         Assert.IsFalse((await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo);
     }
 
+    /// <summary>
+    /// Anyone can put anything in References, and SEARCH HEADER matches a substring, so a stranger's
+    /// <c>b@example.com</c> would find the account's <c>ab@example.com</c> in Sent and read as a person
+    /// it has written to. A reference without a local part and a domain would find still more.
+    /// </summary>
+    [TestMethod]
+    [DataRow("original@example.com", true, "the id itself")]
+    [DataRow("riginal@example.com", false, "the tail of the id")]
+    [DataRow("original@example.co", false, "the head of the id")]
+    [DataRow("iginal@examp", false, "the middle of the id")]
+    [DataRow("ORIGINAL@EXAMPLE.COM", false, "another case, which an id does not ignore")]
+    [DataRow("unrelated@example.com", false, "nothing in Sent")]
+    [DataRow("@example.com", false, "no local part")]
+    [DataRow("original@", false, "no domain")]
+    [DataRow("@", false, "neither")]
+    [DataRow("example", false, "no at sign")]
+    public async Task WrittenTo_MatchesAReferenceExactlyOnBothServers(string reference, bool expected, string why)
+    {
+        foreach (var server in new[] { ImapServers.GreenMail, ImapServers.Dovecot })
+        {
+            await using var mailbox = await ImapMailbox.OpenAsync(server);
+            var mine = ImapMailbox.Mail(from: "io@example.com", to: "lista@example.com");
+            mine.MessageId = "original@example.com";
+            await mailbox.SendAsync(mine);
+            var cursor = await mailbox.StartAsync();
+
+            var reply = ImapMailbox.Mail("Re: Fattura", from: "sconosciuto@example.com");
+            reply.Headers.Add("References", $"<{reference}>");
+            await mailbox.DeliverAsync(reply);
+
+            Assert.AreEqual(expected, (await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo, why);
+        }
+    }
+
     [TestMethod]
     public async Task AWatchedFolderThatIsGone_IsAHardFailure()
     {

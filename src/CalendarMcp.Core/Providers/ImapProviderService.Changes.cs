@@ -392,11 +392,30 @@ public partial class ImapProviderService
         if (sent is null)
             return null;
 
-        var query = references
+        var ids = references.Where(IsMessageId).ToHashSet(StringComparer.Ordinal);
+        if (ids.Count == 0)
+            return false;
+
+        var query = ids
             .Select(id => (SearchQuery)SearchQuery.HeaderContains("Message-Id", id))
             .Aggregate((left, right) => left.Or(right));
 
-        return (await sent.SearchAsync(query, cancellationToken)).Count > 0;
+        // SEARCH HEADER matches a substring, and References is the sender's to write, so a hit proves
+        // nothing until the id itself is compared. RFC 9051 section 6.4.4.
+        var found = await sent.SearchAsync(query, cancellationToken);
+        if (found.Count == 0)
+            return false;
+
+        var candidates = found.TakeLast(MaxSentCandidates).ToList();
+        var summaries = await sent.FetchAsync(candidates, MessageSummaryItems.Envelope, cancellationToken);
+
+        return summaries.Any(summary => summary.Envelope?.MessageId is { } id && ids.Contains(id));
+    }
+
+    private static bool IsMessageId(string reference)
+    {
+        var at = reference.IndexOf('@');
+        return at > 0 && at < reference.Length - 1;
     }
 
     private sealed record AddedMail(
