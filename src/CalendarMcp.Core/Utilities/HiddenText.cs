@@ -26,6 +26,19 @@ internal static partial class HiddenText
     private const double FaintOpacity = 0.1;
     private const double DefaultFontPixels = 16;
     private const int SameColourDistance = 12;
+
+    /// <summary>
+    /// The longest a value may get once its var() are replaced. The engine pastes variables in as
+    /// text, up to 1 MiB, and only then parses what came out, and calc() recurses on every bracket and
+    /// every term of it. <see cref="CssShape"/> saw the pieces, and nothing can interrupt the parse, so
+    /// 560 bytes of variables that each paste the next one twice overflowed an 8 MiB stack. Text of this
+    /// length needs 591 KB at worst, all of it brackets, in a fresh process on the coldest code.
+    /// </summary>
+    internal const int MaxPasted = 2048;
+
+    /// <summary>What the engine can add around a pasted value to keep it from merging with its neighbours.</summary>
+    private const int PasteSeparators = 8;
+
     private static readonly Rgb PageBackground = new(255, 255, 255);
     private static readonly string[] Margins = ["margin-left", "margin-right", "margin-top", "margin-bottom"];
     private static readonly string[] Offsets = ["left", "right", "top", "bottom"];
@@ -46,9 +59,9 @@ internal static partial class HiddenText
     private readonly record struct Rgb(int Red, int Green, int Blue);
 
     /// <summary>What an element hands down, and whether its own text can be seen.</summary>
-    private sealed record Look(bool HidesItsContent, bool IsUnseen, double FontPixels, string? Visibility, string? Color, string? Background)
+    private sealed record Look(bool HidesItsContent, bool IsUnseen, double FontPixels, string? Visibility, string? Color, string? Background, int LongestVariable)
     {
-        public static readonly Look Page = new(false, false, DefaultFontPixels, null, null, null);
+        public static readonly Look Page = new(false, false, DefaultFontPixels, null, null, null, 0);
     }
 
     /// <summary>Everything is judged before anything goes: a removed <c>&lt;style&gt;</c> rule cannot judge what follows it.</summary>
@@ -57,6 +70,7 @@ internal static partial class HiddenText
     /// beside it instead of inside it (<c>HtmlParserOptions.MaximumDepth</c>), so the tree can no longer
     /// be trusted to say what a hidden ancestor contains: <c>display:none</c> on the last level
     /// would lose its children to the visible level above. Nothing short of refusing covers that.
+    /// A value that would paste more than <see cref="MaxPasted"/> is refused the same way.
     /// </exception>
     public static void Remove(IElement root, ConversionBudget budget)
     {
@@ -98,7 +112,9 @@ internal static partial class HiddenText
 
     private static Look Read(IElement element, IStyleCollection styles, Look above)
     {
-        var style = Cascaded(element, styles);
+        var declared = styles.ComputeExplicitStyle(element);
+        var longestVariable = LongestVariable(declared, above.LongestVariable);
+        var style = Cascaded(element, declared, styles, longestVariable);
         string? Value(string property) => Nullable(style.GetPropertyValue(property));
 
         var font = FontPixels(Value("font-size"), above.FontPixels);
@@ -116,22 +132,53 @@ internal static partial class HiddenText
         var unseen = hides || font <= TinyFontPixels || visibility is "hidden" or "collapse" || BlendsIn(color, background)
             || IsPixel(element, Value, font);
 
-        return new Look(hides, unseen, font, visibility, color, background);
+        return new Look(hides, unseen, font, visibility, color, background, longestVariable);
     }
 
     // Only the engine can work out var() and calc(), at the price of the element's whole ancestor
-    // chain, so it is asked only about an element that needs it.
-    private static ICssStyleDeclaration Cascaded(IElement element, IStyleCollection styles)
+    // chain, so it is asked only about an element that needs it. It works out every value of every
+    // one of them, so every value is checked, and this walk has reached the ancestors first.
+    private static ICssStyleDeclaration Cascaded(IElement element, ICssStyleDeclaration declared, IStyleCollection styles, int longestVariable)
     {
-        var declared = styles.ComputeExplicitStyle(element);
+        var needsTheEngine = false;
 
         foreach (var property in declared)
         {
-            if (ComputedFunction().IsMatch(property.Value))
-                return styles.ComputeDeclarations(element);
+            if (Pasted(property.Value, longestVariable) > MaxPasted)
+                throw new UnconvertibleMailException(MailBody.TooDeep);
+
+            needsTheEngine |= ComputedFunction().IsMatch(property.Value);
         }
 
-        return declared;
+        return needsTheEngine ? styles.ComputeDeclarations(element) : declared;
+    }
+
+    /// <summary>
+    /// The longest text a var() can paste at this element. What comes down from the ancestors is
+    /// already worked out, but variables declared here can paste each other in any order, so each
+    /// pass settles one more link, and a chain has no more links than there are variables pasting.
+    /// </summary>
+    private static int LongestVariable(ICssStyleDeclaration declared, int above)
+    {
+        var variables = declared
+            .Where(property => property.Name.StartsWith("--", StringComparison.Ordinal))
+            .Select(property => (Length: property.Value.Length + PasteSeparators, Pastes: Substitution().Count(property.Value)))
+            .ToList();
+
+        var longest = variables.Select(variable => variable.Length).Append(above).Max();
+        var pasting = variables.Where(variable => variable.Pastes > 0).ToList();
+
+        for (var link = 0; link < pasting.Count && longest <= MaxPasted; link++)
+            longest = pasting.Select(variable => variable.Length + (variable.Pastes * longest)).Append(longest).Max();
+
+        return longest;
+    }
+
+    /// <summary>How long a value gets if each of its var() pastes the longest variable there is, or 0 if none can.</summary>
+    private static int Pasted(string value, int longestVariable)
+    {
+        var pasted = Substitution().Count(value) * longestVariable;
+        return pasted == 0 ? 0 : value.Length + pasted;
     }
 
     private static string? Inherited(string? own, string? above) =>
@@ -291,6 +338,10 @@ internal static partial class HiddenText
 
     [GeneratedRegex(@"\b(?:var|calc|min|max|clamp)\(", RegexOptions.IgnoreCase)]
     private static partial Regex ComputedFunction();
+
+    // An escape can spell var, which the engine reads as the function, so every one counts as a paste.
+    [GeneratedRegex(@"var\(|\\", RegexOptions.IgnoreCase)]
+    private static partial Regex Substitution();
 
     [GeneratedRegex(@"^\s*(-?\d{0,32}\.?\d{1,32})\s*([a-zA-Z%]{0,8})\s*$")]
     private static partial Regex Number();

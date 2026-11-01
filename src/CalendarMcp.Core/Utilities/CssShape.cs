@@ -25,7 +25,10 @@ internal static class CssShape
     /// <summary>The longest selector, prelude or value. Half of what overflows a 1 MiB stack, at two characters a term.</summary>
     public const int MaxRun = 4096;
 
-    /// <summary>Substituting one variable into another is recursion too.</summary>
+    /// <summary>
+    /// Substituting one variable into another is recursion too. This limit is per text, and a mail can
+    /// have any number of them, so what variables grow into is <see cref="HiddenText.MaxPasted"/>'s to stop.
+    /// </summary>
     public const int MaxVariables = 256;
 
     private const int Unreached = -1;

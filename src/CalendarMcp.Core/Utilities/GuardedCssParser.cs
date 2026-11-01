@@ -5,9 +5,10 @@ using AngleSharp.Dom;
 namespace CalendarMcp.Core.Utilities;
 
 /// <summary>
-/// The one door CSS comes through: style sheets, inline styles and substituted variables all ask the
-/// browsing context for an <see cref="ICssParser"/>, and text here is already decoded, so an entity
-/// cannot hide a bracket. Only what passes <see cref="CssShape"/> reaches the engine.
+/// The door CSS comes through: style sheets, inline styles and variables pasted into a shorthand all
+/// ask the browsing context for an <see cref="ICssParser"/>, and text here is already decoded, so an
+/// entity cannot hide a bracket. Only what passes <see cref="CssShape"/> reaches the engine, except
+/// a variable pasted into a longhand, which goes straight to its parser: see <see cref="HiddenText.MaxPasted"/>.
 /// </summary>
 /// <remarks>
 /// A failure inside a style element does not propagate: the element's task is completed, which

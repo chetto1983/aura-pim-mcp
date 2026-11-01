@@ -155,9 +155,10 @@ file says the fork does not have, this file wins.
    - **One mail never blocks a page, and conversion is bounded.** A page is all or nothing and is
      replayed from the same cursor when it fails, so a mail whose body cannot be converted arrives with an
      empty snippet, and `get_email_details` answers its metadata and says the body could not be
-     converted, never raw HTML. Every body goes through one cap of 1 MiB, a depth limit, and a time
-     budget of 500 ms for a snippet and 3 s for the tool; a page spends at most 30 s on snippets, then
-     the rest arrive empty. IMAP converts after it releases the account's gate.
+     converted, never raw HTML. Every body goes through one cap of 1 MiB, a depth limit, a limit on the
+     text CSS variables paste, and a time budget of 500 ms for a snippet and 3 s for the tool; a page
+     spends at most 30 s on snippets, then the rest arrive empty. IMAP converts after it releases the
+     account's gate.
    - **Forged input is a 400.** A cursor or item that can never work answers `invalid_cursor` or
      `invalid_items` before a server is asked; a cursor for another `inboxFolder` is expired instead.
      A stored password that cannot be decrypted is `provider_auth`.

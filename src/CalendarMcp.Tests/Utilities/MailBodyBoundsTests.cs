@@ -141,6 +141,82 @@ public class MailBodyBoundsTests
         });
     }
 
+    private static string Variables(int links, string value) =>
+        ":root{" + string.Concat(Enumerable.Range(0, links).Select(i => $"--a{i}:{string.Format(value, $"var(--a{i + 1})")};")) + $"--a{links}:1px}}";
+
+    public static IEnumerable<object[]> VariablesThatGrowWhenPasted =>
+    [
+        ["each link doubling", $"""<style>{Variables(17, "{0} + {0}")}</style><p style="width:calc(var(--a0))">Parole</p>"""],
+        ["a long sum pasted over and over",
+            $"<style>:root{{--t:{string.Join('+', Enumerable.Repeat("1px", 900))}}}</style>"
+            + $"""<p style="width:calc({string.Join('+', Enumerable.Repeat("var(--t)", 128))})">Parole</p>"""],
+        ["brackets along a chain", $"""<style>{Variables(250, Repeated("(", 120) + "{0}" + Repeated(")", 120))}</style><p style="width:calc(var(--a0))">Parole</p>"""],
+        ["min() along a chain", $"""<style>{Variables(250, Repeated("min(1px,", 120) + "{0}" + Repeated(")", 120))}</style><p style="width:var(--a0)">Parole</p>"""],
+        ["a chain across style elements, which each get their own limit on variables",
+            $"<style>{Variables(200, Repeated("(", 120) + "{0}" + Repeated(")", 120))}</style><style>:root{{--a200:var(--b0)}}</style>"
+            + $"""<style>{Variables(200, Repeated("(", 120) + "{0}" + Repeated(")", 120)).Replace("--a", "--b", StringComparison.Ordinal)}</style><p style="width:calc(var(--a0))">Parole</p>"""],
+        ["a long variable pasted through a shorthand, which the declared style shows in pieces",
+            $"<style>:root{{--t:{string.Join('+', Enumerable.Repeat("1px", 900))}}}</style>"
+            + $"""<p style="width:calc(1px);margin:calc({string.Join('+', Enumerable.Repeat("var(--t)", 128))})">Parole</p>"""],
+        ["var spelled with an escape", $"""<style>{Variables(17, "{0} + {0}").Replace("var", "v\\61r", StringComparison.Ordinal)}</style><p style="width:calc(1px + v\61r(--a0))">Parole</p>"""],
+        ["variables declared on the way down", $"""<div style="--a1:calc({Repeated("1+", 1000)}1)"><div style="--a0:var(--a1)+var(--a1)+var(--a1)+var(--a1)"><p style="width:calc(var(--a0)+var(--a0)+var(--a0)+var(--a0))">Parole</p></div></div>"""],
+        ["brackets that only pair up once pasted", $"""<div style="--o:calc(1px + {Repeated("(", 120)}"><p style="width:{Repeated("var(--o) ", 40)}">Parole</p></div>"""],
+    ];
+
+    /// <summary>The engine pastes variables in as text and parses the result, past every check on the pieces.</summary>
+    [TestMethod]
+    [DynamicData(nameof(VariablesThatGrowWhenPasted))]
+    public void VariablesThatGrowWhenPasted_AreRefusedOnASmallStack(string shape, string html)
+    {
+        OnASmallStack(() =>
+        {
+            var (body, format) = MailBody.ForModel(html, MailBody.HtmlFormat);
+
+            Assert.AreEqual(MailBody.OmittedFormat, format, shape);
+            StringAssert.Contains(body, "nested too deeply", shape);
+            Assert.AreEqual(string.Empty, MailSnippet.Of(html, MailBody.HtmlFormat), shape);
+        });
+    }
+
+    [TestMethod]
+    public void OrdinaryVariables_AreStillWorkedOut()
+    {
+        const string html = """
+            <style>:root{--brand:#123456;--ink:var(--brand);--muted:var(--ink);--gap:calc(var(--unit) * 2);--unit:4px;--off:none}</style>
+            <p style="color:var(--muted);margin:var(--gap) 0;box-shadow:0 0 var(--gap) var(--ink),0 0 var(--unit) var(--brand)">Parole</p>
+            <p style="display:var(--off)">SECRET</p>
+            <p style="display:var(--missing, none)">SECRET</p>
+            """;
+
+        var (body, format) = MailBody.ForModel(html, MailBody.HtmlFormat);
+
+        Assert.AreEqual(MailBody.MarkdownFormat, format);
+        StringAssert.Contains(body, "Parole");
+        Assert.IsFalse(body.Contains("SECRET", StringComparison.Ordinal));
+    }
+
+    /// <summary>A variable no var() pastes anywhere costs the engine nothing, and an escape in a font name is not a var().</summary>
+    [TestMethod]
+    public void LongTextThatIsNotPasted_IsLeftAlone()
+    {
+        var html = $$"""<style>:root{--long:{{Repeated("a", 3000)}}}</style><p style="font-family:\5FAE\8F6F\96C5\9ED1,{{Repeated("a", 3000)}}">Parole</p>""";
+
+        Assert.AreEqual(MailBody.MarkdownFormat, MailBody.ForModel(html, MailBody.HtmlFormat).Format);
+    }
+
+    /// <summary>
+    /// What the limit lets through has to fit too. Brackets that close only at the end of the attribute
+    /// add up from one paste to the next, which is as deep as this much text gets.
+    /// </summary>
+    [TestMethod]
+    public void TextUpToThePasteLimit_ReadsOnASmallStack()
+    {
+        var open = "calc(1px + " + Repeated("(", 120);
+        var html = $"""<div style="--o:{open}"><p style="width:{Repeated("var(--o) ", (HiddenText.MaxPasted - 16) / (open.Length + 17))}">Parole</p></div>""";
+
+        OnASmallStack(() => Assert.AreEqual(MailBody.MarkdownFormat, MailBody.ForModel(html, MailBody.HtmlFormat).Format));
+    }
+
     [TestMethod]
     public void APreInsideTheLimit_IsAnOrdinaryPre()
     {
