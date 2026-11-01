@@ -12,7 +12,7 @@ public interface IM365ProviderService : IProviderService
 /// <summary>
 /// Google Workspace provider service
 /// </summary>
-public interface IGoogleProviderService : IProviderService
+public interface IGoogleProviderService : IProviderService, IGoogleApiClients
 {
 }
 

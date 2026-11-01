@@ -26,7 +26,7 @@ namespace CalendarMcp.Core.Providers;
 /// <summary>
 /// Google Workspace/Gmail provider service with OAuth 2.0 authentication integration
 /// </summary>
-public class GoogleProviderService : IGoogleProviderService
+public partial class GoogleProviderService : IGoogleProviderService
 {
     private readonly ILogger<GoogleProviderService> _logger;
     private readonly IAccountRegistry _accountRegistry;

@@ -1,4 +1,5 @@
 using CalendarMcp.Core.Changes;
+using CalendarMcp.Core.Changes.Google;
 using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Providers.Dav;
@@ -37,6 +38,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDavProviderService, DavProviderService>();
         services.AddSingleton<IProviderServiceFactory, ProviderServiceFactory>();
         services.AddSingleton<ChangesService>();
+        services.AddSingleton<IChangesSource>(provider =>
+            new GoogleMailChanges(provider.GetRequiredService<IGoogleProviderService>()));
 
         // DataProtection + PasswordProtector for at-rest encryption of provider passwords
         services.AddCalendarMcpDataProtection();
