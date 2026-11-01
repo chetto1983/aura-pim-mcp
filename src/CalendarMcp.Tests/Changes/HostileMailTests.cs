@@ -3,6 +3,7 @@ using System.Text;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Changes.Google;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Utilities;
 using CalendarMcp.Tests.Helpers;
 using static CalendarMcp.Tests.Changes.GmailFixtures;
 
@@ -60,6 +61,109 @@ public class HostileMailTests
         return body.GetProperty("changes").EnumerateArray().ToDictionary(
             change => change.GetProperty("id").GetString()!,
             change => change.GetProperty("snippet").GetString()!);
+    }
+
+    private const int JustUnderTheCap = MailBody.MaxBodyLength - 16;
+
+    private static string Flood(string unit, int length = JustUnderTheCap) =>
+        string.Concat(Enumerable.Repeat(unit, length / unit.Length));
+
+    private static string Chain(string call) =>
+        "<style>:root{" + string.Concat(Enumerable.Range(0, 8000).Select(i => $"--v{i}:calc({call}(--v{i + 1}) + 1px);"))
+        + "--v8000:1px}p{width:" + call + "(--v0)}</style><p>Parole</p>";
+
+    public static IEnumerable<object[]> MailsTooDeepToRead =>
+    [
+        ["unclosed inline tags, no text", Flood("<i>")],
+        ["unclosed blocks, no text", Flood("<section>")],
+        ["text at every level", Flood("<div>x")],
+        ["text at the bottom alone", Flood("<div>", 200_000) + "Parole"],
+        ["tables in tables", Flood("<table><tr><td>")],
+        ["svg", Flood("<svg><g>")],
+        ["a few thousand levels", Flood("<b>", 12_000) + "Parole"],
+        ["tags the parser recurses on", Flood("<pre>")],
+    ];
+
+    /// <summary>The first thing a hostile mail tries: a stack overflow cannot be caught, and it takes every tenant with it.</summary>
+    [TestMethod]
+    [DynamicData(nameof(MailsTooDeepToRead))]
+    public async Task AMailTooDeepToRead_ArrivesWithNoSnippet(string shape, string html)
+    {
+        Delivers(("deep", html), ("next", "<p>La mail dopo</p>"));
+
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual(string.Empty, snippets["deep"], shape);
+        Assert.AreEqual("La mail dopo", snippets["next"]);
+    }
+
+    public static IEnumerable<object[]> StylesheetsThatKillTheEngine =>
+    [
+        ["nested @media", $"<style>{Flood("@media screen{", 400_000)}</style>"],
+        ["nested @supports", $"<style>{Flood("@supports (color:red){", 400_000)}</style>"],
+        ["nested @layer", $"<style>{Flood("@layer a{", 400_000)}</style>"],
+        ["nested rules", $"<style>{Flood("p{&", 400_000)}</style>"],
+        ["nested :has()", $"<style>{Flood(":has(", 400_000)}a{{color:red}}</style>"],
+        ["nested calc()", $"<style>p{{width:{Flood("calc(", 400_000)}1px}}</style>"],
+        ["brackets in calc()", $"<style>p{{width:calc({Flood("(", 400_000)}1px}}</style>"],
+        ["calc() with no nesting at all", $"<style>p{{width:calc({Flood("1px+", 400_000)}1px)}}</style>"],
+        ["a comment closing nothing", $"<style>p{{width:{Flood("calc(/*)*/", 400_000)}1px}}</style>"],
+        ["a string closing nothing", $"<style>p{{width:{Flood("calc(\")\"", 400_000)}1px}}</style>"],
+        ["an inline style", $"""<p style="width:{Flood("calc(", 400_000)}1px">Parole</p>"""],
+        ["an inline style in entities", $"""<p style="width:{Flood("calc&#40;", 400_000)}1px">Parole</p>"""],
+        ["a media attribute", $$"""<style media="{{Flood("(", 400_000)}}">p{color:red}</style>"""],
+        ["a chain of variables", Chain("var")],
+        ["a chain of escaped variables", Chain("v\\61r")],
+    ];
+
+    /// <summary>The HTML parser's depth limit does not reach CSS. Each of these aborts the process at this size unguarded.</summary>
+    [TestMethod]
+    [DynamicData(nameof(StylesheetsThatKillTheEngine))]
+    public async Task AStylesheetThatWouldKillTheEngine_ArrivesWithNoSnippet(string shape, string html)
+    {
+        Delivers(("hostile", $"{html}<p>Parole</p>"), ("next", "<p>La mail dopo</p>"));
+
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual(string.Empty, snippets["hostile"], shape);
+        Assert.AreEqual("La mail dopo", snippets["next"]);
+    }
+
+    [TestMethod]
+    public async Task ABodyOverTheCap_ArrivesWithNoSnippet_OnAProviderWithNoCapOfItsOwn()
+    {
+        Delivers(("huge", $"<p>Parole</p>{Flood("x", MailBody.MaxBodyLength + 1)}"), ("next", "<p>La mail dopo</p>"));
+
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual(string.Empty, snippets["huge"]);
+        Assert.AreEqual("La mail dopo", snippets["next"]);
+    }
+
+    [TestMethod]
+    public async Task ManyCssRules_StayInsideThePage()
+    {
+        var rules = string.Concat(Enumerable.Range(0, 40_000).Select(i => $".c{i}{{color:red}}\n"));
+        var paragraphs = Flood("<p>x</p>", 100_000);
+        Delivers(("rules", $"<style>{rules}</style>{paragraphs}<p>Parole</p>"), ("next", "<p>La mail dopo</p>"));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual("La mail dopo", snippets["next"]);
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed}");
+    }
+
+    [TestMethod]
+    public async Task AFloodOfBrackets_StaysInsideThePage()
+    {
+        Delivers(("brackets", $"<p>{Flood("[")}</p>"), ("next", "<p>La mail dopo</p>"));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var snippets = await SnippetsAsync();
+
+        Assert.AreEqual("La mail dopo", snippets["next"]);
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed}");
     }
 
     [TestMethod]

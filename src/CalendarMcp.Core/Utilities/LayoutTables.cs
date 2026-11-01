@@ -10,10 +10,10 @@ namespace CalendarMcp.Core.Utilities;
 /// </summary>
 internal static class LayoutTables
 {
-    public static void Flatten(IElement root)
+    public static void Flatten(IElement root, ConversionBudget budget)
     {
         foreach (var table in root.QuerySelectorAll("table").OfType<IHtmlTableElement>().Where(IsLayout).ToList())
-            FlattenTable(table);
+            FlattenTable(table, budget);
     }
 
     private static bool IsLayout(IHtmlTableElement table) =>
@@ -22,10 +22,12 @@ internal static class LayoutTables
         || table.Rows.Length < 2
         || table.Rows.All(row => row.Cells.Length < 2);
 
-    private static void FlattenTable(IHtmlTableElement table)
+    private static void FlattenTable(IHtmlTableElement table, ConversionBudget budget)
     {
         foreach (var cell in table.Rows.SelectMany(row => row.Cells).ToList())
         {
+            budget.Check();
+
             var block = table.Owner!.CreateElement("div");
             while (cell.FirstChild is { } child)
                 block.AppendChild(child);

@@ -24,6 +24,9 @@ internal static partial class MailSnippet
     {
         try
         {
+            if (body.Length > MailBody.MaxBodyLength)
+                return string.Empty;
+
             var text = format == MailBody.HtmlFormat ? MailBody.ToPlainText(body) : body;
             return Cap(Whitespace().Replace(Clean(text), " ").Trim());
         }
@@ -53,18 +56,20 @@ internal static partial class MailSnippet
         return text[..end].TrimEnd();
     }
 
-    [GeneratedRegex(@"!?\[([^\]]*)\]\([^)\s]*\)")]
+    // NonBacktracking throughout: every text here is the sender's, and an unclosed [ made the first of
+    // these quadratic, 17 s on a megabyte of them.
+    [GeneratedRegex(@"!?\[([^\]]*)\]\([^)\s]*\)", RegexOptions.NonBacktracking)]
     private static partial Regex MarkdownLink();
 
-    [GeneratedRegex(@"<?(?:(?:https?|ftp|mailto):|www\.)[^\s>]+>?", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<?(?:(?:https?|ftp|mailto):|www\.)[^\s>]+>?", RegexOptions.IgnoreCase | RegexOptions.NonBacktracking)]
     private static partial Regex BareUrl();
 
-    [GeneratedRegex(@"^[ \t]*(?:>+[ \t]*|#{1,6}[ \t]+|[-*+][ \t]+)", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^[ \t]*(?:>+[ \t]*|#{1,6}[ \t]+|[-*+][ \t]+)", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
     private static partial Regex LineMarker();
 
-    [GeneratedRegex(@"\*\*|__|``?")]
+    [GeneratedRegex(@"\*\*|__|``?", RegexOptions.NonBacktracking)]
     private static partial Regex Emphasis();
 
-    [GeneratedRegex(@"\s+")]
+    [GeneratedRegex(@"\s+", RegexOptions.NonBacktracking)]
     private static partial Regex Whitespace();
 }

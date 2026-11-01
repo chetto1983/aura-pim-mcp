@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using AngleSharp.Css;
 using AngleSharp.Css.Dom;
 using AngleSharp.Dom;
 using ReverseMarkdown.Preprocessing;
@@ -7,77 +8,136 @@ using ReverseMarkdown.Preprocessing;
 namespace CalendarMcp.Core.Utilities;
 
 /// <summary>
-/// Removes text the person reading a mail cannot see, because a model would still read it. Text is
-/// judged node by node, walking up its ancestors, because email layouts set <c>font-size:0</c> on
-/// a wrapper and reset it on the children: removing the wrapper would delete a visible column.
-/// AngleSharp.Css resolves the cascade, including <c>&lt;style&gt;</c> rules, but not inheritance,
-/// so the walk supplies that.
+/// Removes text the person reading a mail cannot see, because a model would still read it. One walk
+/// from the top hands each element what its ancestors said, because email layouts set
+/// <c>font-size:0</c> on a wrapper and reset it on the children: removing the wrapper would delete a
+/// visible column.
 /// </summary>
+/// <remarks>
+/// <see cref="StyleCollectionExtensions.ComputeExplicitStyle"/> and not <c>ComputeCurrentStyle</c>: the
+/// second builds a new rule index and computes the whole ancestor chain for every call, which measured
+/// about 300 ms on a 62 KB newsletter and 5 s on 500 levels. The first costs a millisecond or two on
+/// that newsletter, and leaves inheritance to this walk, which needs it anyway.
+/// </remarks>
 internal static partial class HiddenText
 {
     private const double OffScreenPixels = -100;
+    private const double TinyFontPixels = 2;
+    private const double DefaultFontPixels = 16;
     private const int SameColourDistance = 12;
     private static readonly Rgb PageBackground = new(255, 255, 255);
 
+    /// <summary>
+    /// What a person reads a mail on. The engine's default device has no width at all, which
+    /// answers <c>max-width</c> rules as true and cannot resolve a percentage.
+    /// </summary>
+    private static readonly DefaultRenderDevice Reader = new()
+    {
+        ViewPortWidth = 1024,
+        ViewPortHeight = 768,
+        DeviceWidth = 1024,
+        DeviceHeight = 768,
+        IsScripting = false
+    };
+
     private readonly record struct Rgb(int Red, int Green, int Blue);
 
-    /// <summary>What one element says, for itself and for whatever it inherits downward.</summary>
-    private sealed record Look(bool HidesItsContent, string? FontSize, string? Visibility, string? Color, string? Background);
-
-    public static void Remove(IElement root)
+    /// <summary>What an element hands down, and whether its own text can be seen.</summary>
+    private sealed record Look(bool HidesItsContent, bool IsUnseen, double FontPixels, string? Visibility, string? Color, string? Background)
     {
-        var looks = new Dictionary<IElement, Look>();
-
-        // Everything is judged before anything goes. A <style> computes to display:none, so
-        // removing its text along the way would empty the cascade for every later node.
-        var hiddenTexts = root.Descendants<IText>()
-            .Where(text => !string.IsNullOrWhiteSpace(text.Data) && IsHidden(text.ParentElement, looks))
-            .ToList();
-        var hiddenImages = root.QuerySelectorAll("img[alt]")
-            .Where(image => IsHidden(image, looks))
-            .ToList();
-
-        foreach (var text in hiddenTexts)
-            text.Remove();
-        foreach (var image in hiddenImages)
-            image.Remove();
+        public static readonly Look Page = new(false, false, DefaultFontPixels, null, null, null);
     }
 
-    private static bool IsHidden(IElement? start, Dictionary<IElement, Look> looks)
+    /// <summary>Everything is judged before anything goes: a removed <c>&lt;style&gt;</c> rule cannot judge what follows it.</summary>
+    /// <exception cref="UnconvertibleMailException">
+    /// The tree reaches the parser's depth limit. Past it, the parser attaches an element's children
+    /// beside it instead of inside it (<c>HtmlParserOptions.MaximumDepth</c>), so the tree can no longer
+    /// be trusted to say what a hidden ancestor contains: <c>display:none</c> on the last level
+    /// would lose its children to the visible level above. Nothing short of refusing covers that.
+    /// </exception>
+    public static void Remove(IElement root, ConversionBudget budget)
     {
-        string? fontSize = null, visibility = null, color = null, background = null;
+        var styles = root.Owner!.DefaultView!.GetStyleCollection(Reader);
+        var unseen = new List<IChildNode>();
+        var pending = new Stack<(INode Node, Look Above, int Depth)>();
+        pending.Push((root, Look.Page, 1));
 
-        for (var element = start; element is not null; element = element.ParentElement)
+        while (pending.TryPop(out var item))
         {
-            if (!looks.TryGetValue(element, out var look))
-                looks[element] = look = Read(element);
+            budget.Check();
+            var (node, above, depth) = item;
 
-            if (look.HidesItsContent)
-                return true;
+            if (node is IText text)
+            {
+                if (above.IsUnseen && !string.IsNullOrWhiteSpace(text.Data))
+                    unseen.Add(text);
+            }
+            else if (node is IElement element)
+            {
+                if (depth >= MailBody.MaxDepth)
+                    throw new UnconvertibleMailException(MailBody.TooDeep);
 
-            fontSize ??= look.FontSize;
-            visibility ??= look.Visibility;
-            color ??= look.Color;
-            background ??= look.Background;
+                var look = above.HidesItsContent ? above : Read(element, styles, above);
+                if (look.IsUnseen && element.LocalName == "img" && element.HasAttribute("alt"))
+                    unseen.Add(element);
+
+                foreach (var child in element.ChildNodes)
+                    pending.Push((child, look, depth + 1));
+            }
         }
 
-        return IsTiny(fontSize)
-            || visibility is "hidden" or "collapse"
-            || BlendsIn(color, background);
+        foreach (var node in unseen)
+        {
+            budget.Check();
+            node.Remove();
+        }
     }
 
-    private static Look Read(IElement element)
+    private static Look Read(IElement element, IStyleCollection styles, Look above)
     {
-        var style = element.ComputeCurrentStyle();
+        var style = Cascaded(element, styles);
         string? Value(string property) => Nullable(style.GetPropertyValue(property));
+
+        var font = FontPixels(Value("font-size"), above.FontPixels);
+        var visibility = Inherited(Value("visibility"), above.Visibility);
+        var color = Inherited(Value("color"), above.Color);
+        var background = Background(element, Value) ?? above.Background;
 
         var hides = Value("display") == "none"
             || IsZero(Value("opacity"))
             || InlineStyle.Has(element, "mso-hide", "all")
             || IsClippedBox(Value)
-            || IsOffScreen(Value);
+            || IsOffScreen(Value, font);
 
-        return new Look(hides, Value("font-size"), Value("visibility"), Value("color"), Background(element, Value));
+        var unseen = hides || font <= TinyFontPixels || visibility is "hidden" or "collapse" || BlendsIn(color, background);
+
+        return new Look(hides, unseen, font, visibility, color, background);
+    }
+
+    // Only the engine can work out var() and calc(), at the price of the element's whole ancestor
+    // chain, so it is asked only about an element that needs it.
+    private static ICssStyleDeclaration Cascaded(IElement element, IStyleCollection styles)
+    {
+        var declared = styles.ComputeExplicitStyle(element);
+
+        foreach (var property in declared)
+        {
+            if (ComputedFunction().IsMatch(property.Value))
+                return styles.ComputeDeclarations(element);
+        }
+
+        return declared;
+    }
+
+    private static string? Inherited(string? own, string? above) =>
+        own is null or "inherit" or "unset" or "revert" or "revert-layer" or "currentcolor" ? above : own;
+
+    private static double FontPixels(string? value, double above)
+    {
+        if (ReadNumber(value) is { Unit: "%" } percent)
+            return percent.Value * above / 100;
+
+        return Pixels(value, above) ?? above;
     }
 
     private static bool IsClippedBox(Func<string, string?> value)
@@ -90,21 +150,21 @@ internal static partial class HiddenText
             || IsZero(value("width")) || IsZero(value("max-width")));
     }
 
-    private static bool IsOffScreen(Func<string, string?> value)
+    private static bool IsOffScreen(Func<string, string?> value, double font)
     {
-        if (Pixels(value("text-indent")) <= OffScreenPixels)
+        if (Pixels(value("text-indent"), font) <= OffScreenPixels)
             return true;
 
         if (ZeroClip().IsMatch(value("clip") ?? string.Empty))
             return true;
 
         return value("position") is "absolute" or "fixed"
-            && (Pixels(value("left")) <= OffScreenPixels || Pixels(value("top")) <= OffScreenPixels);
+            && (Pixels(value("left"), font) <= OffScreenPixels || Pixels(value("top"), font) <= OffScreenPixels);
     }
 
     private static string? Background(IElement element, Func<string, string?> value)
     {
-        if (element.HasAttribute("background") || value("background-image") is not (null or "none"))
+        if (element.HasAttribute("background") || value("background-image")?.Contains('(') == true)
             return "image";
 
         var colour = value("background-color") ?? element.GetAttribute("bgcolor");
@@ -149,22 +209,30 @@ internal static partial class HiddenText
         static int FromHex(Match match, int group) => Convert.ToInt32(match.Groups[group].Value, 16);
     }
 
-    private static bool IsTiny(string? fontSize)
-    {
-        if (ReadNumber(fontSize) is not { } size)
-            return false;
-
-        return size.Unit.ToLowerInvariant() switch
-        {
-            "em" or "rem" => size.Value <= 0.1,
-            "%" => size.Value <= 10,
-            _ => size.Value <= 1
-        };
-    }
-
     private static bool IsZero(string? value) => ReadNumber(value) is { Value: 0 };
 
-    private static double Pixels(string? value) => ReadNumber(value) is { Unit: "" or "px" } number ? number.Value : 0;
+    /// <summary>A declared length in pixels, or null when it is not one. The engine resolves none of these in a declared value.</summary>
+    private static double? Pixels(string? value, double fontPixels)
+    {
+        if (ReadNumber(value) is not { } length)
+            return null;
+
+        return length.Unit.ToLowerInvariant() switch
+        {
+            "" or "px" => length.Value,
+            "pt" => length.Value * 96 / 72,
+            "pc" => length.Value * 16,
+            "in" => length.Value * 96,
+            "cm" => length.Value * 96 / 2.54,
+            "mm" => length.Value * 96 / 25.4,
+            "em" => length.Value * fontPixels,
+            "ex" or "ch" => length.Value * fontPixels / 2,
+            "rem" => length.Value * DefaultFontPixels,
+            "%" or "vw" => length.Value * Reader.ViewPortWidth / 100,
+            "vh" => length.Value * Reader.ViewPortHeight / 100,
+            _ => null
+        };
+    }
 
     // An attribute reaches this unparsed and unchecked, so its text is anyone's. The parse must not throw.
     private static (double Value, string Unit)? ReadNumber(string? value)
@@ -177,6 +245,9 @@ internal static partial class HiddenText
     }
 
     private static string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    [GeneratedRegex(@"\b(?:var|calc|min|max|clamp)\(", RegexOptions.IgnoreCase)]
+    private static partial Regex ComputedFunction();
 
     [GeneratedRegex(@"^\s*(-?\d{0,32}\.?\d{1,32})\s*([a-zA-Z%]{0,8})\s*$")]
     private static partial Regex Number();
