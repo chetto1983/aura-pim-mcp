@@ -216,6 +216,20 @@ public sealed class GetCalendarEventsTool(
                     var events = await provider.GetCalendarEventsAsync(
                         account.Id, calendarId, queryStart, queryEnd, fetchCount, CancellationToken.None);
 
+                    if (events is PartialCalendarRead partial)
+                    {
+                        lock (warnings)
+                        {
+                            warnings.AddRange(partial.Unread.Select(unread => new
+                            {
+                                accountId = account.Id,
+                                calendarId = unread.CalendarId,
+                                warning = $"Calendar '{unread.CalendarName}' could not be read, so its events are missing: " +
+                                          ToolGuard.DescribeAccountFailure(unread.Failure, "events")
+                            }));
+                        }
+                    }
+
                     // Keep only events on the requested local days, then apply count per account.
                     return events
                         .Where(e => OverlapsWindow(TimeZoneHelper.GetEffectiveRange(e, tz), windowStart, windowEnd))

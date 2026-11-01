@@ -17,6 +17,36 @@ public class GetCalendarEventsToolTests
     private const string TestTimeZone = "America/Chicago";
 
     [TestMethod]
+    public async Task GetCalendarEvents_OneCalendarUnreadable_ShowsTheRestAndWarnsAboutIt()
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var read = TestData.CreateEvent(id: "ev1", accountId: "acc-1", subject: "Meeting",
+            start: new DateTime(2025, 1, 10, 15, 0, 0, DateTimeKind.Utc),
+            end: new DateTime(2025, 1, 10, 16, 0, 0, DateTimeKind.Utc));
+        var partial = new PartialCalendarRead(
+            [read], [new UnreadCalendar("cal-team", "Team", new InvalidOperationException("boom"))]);
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1").ReturnValue(Task.FromResult<AccountInfo?>(account));
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetCalendarEventsAsync(
+            "acc-1", Arg.Any<string?>(), Arg.Any<DateTime?>(), Arg.Any<DateTime?>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<CalendarEvent>>(partial));
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+        var tool = new GetCalendarEventsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetCalendarEventsTool>.Instance);
+
+        var doc = JsonDocument.Parse(await tool.GetCalendarEvents(TestTimeZone, Start, End, "acc-1"));
+
+        Assert.AreEqual(1, doc.RootElement.GetProperty("events").GetArrayLength());
+        var warning = doc.RootElement.GetProperty("warnings")[0];
+        Assert.AreEqual("cal-team", warning.GetProperty("calendarId").GetString());
+        StringAssert.Contains(warning.GetProperty("warning").GetString(), "Calendar 'Team' could not be read");
+    }
+
+    [TestMethod]
     public async Task GetCalendarEvents_InvalidTimeZone_ThrowsMcpException()
     {
         var regExp = new IAccountRegistryCreateExpectations();

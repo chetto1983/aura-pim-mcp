@@ -19,6 +19,8 @@ public class M365ProviderService : IM365ProviderService
     private readonly IM365AuthenticationService _authService;
     private readonly IAccountRegistry _accountRegistry;
 
+    internal HttpMessageHandler? Transport { get; init; }
+
     private static readonly string[] DefaultScopes = Constants.M365Scopes.Default;
 
     public M365ProviderService(
@@ -84,6 +86,9 @@ public class M365ProviderService : IM365ProviderService
 
         return token;
     }
+
+    private GraphServiceClient CreateGraphClient(BearerTokenAuthenticationProvider auth) =>
+        Transport is null ? new GraphServiceClient(auth) : new GraphServiceClient(new HttpClient(Transport), auth);
 
     public async Task<IEnumerable<EmailMessage>> GetEmailsAsync(
         string accountId, 
@@ -570,29 +575,21 @@ public class M365ProviderService : IM365ProviderService
         try
         {
             var authProvider = new BearerTokenAuthenticationProvider(token);
-            var graphClient = new GraphServiceClient(authProvider);
-
-            var calendars = await graphClient.Me.Calendars.GetAsync(config =>
-            {
-                config.QueryParameters.Select = ["id", "name", "owner", "canEdit", "isDefaultCalendar", "hexColor"];
-            }, cancellationToken);
+            var graphClient = CreateGraphClient(authProvider);
 
             var result = new List<CalendarInfo>();
-            if (calendars?.Value != null)
+            foreach (var calendar in await GraphCalendarList.ReadAllAsync(graphClient, cancellationToken))
             {
-                foreach (var calendar in calendars.Value)
+                result.Add(new CalendarInfo
                 {
-                    result.Add(new CalendarInfo
-                    {
-                        Id = calendar.Id ?? string.Empty,
-                        AccountId = accountId,
-                        Name = calendar.Name ?? string.Empty,
-                        Owner = calendar.Owner?.Address ?? string.Empty,
-                        CanEdit = calendar.CanEdit ?? false,
-                        IsDefault = calendar.IsDefaultCalendar ?? false,
-                        Color = calendar.HexColor
-                    });
-                }
+                    Id = calendar.Id ?? string.Empty,
+                    AccountId = accountId,
+                    Name = calendar.Name ?? string.Empty,
+                    Owner = calendar.Owner?.Address ?? string.Empty,
+                    CanEdit = calendar.CanEdit ?? false,
+                    IsDefault = calendar.IsDefaultCalendar ?? false,
+                    Color = calendar.HexColor
+                });
             }
 
             _logger.LogInformation("Retrieved {Count} calendars from M365 account {AccountId}", result.Count, accountId);
@@ -610,15 +607,23 @@ public class M365ProviderService : IM365ProviderService
         string? calendarId = null, 
         DateTime? startDate = null, 
         DateTime? endDate = null, 
-        int count = 50, 
+        int count = 50,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(calendarId))
+        {
+            return await AllCalendars.ReadAsync(
+                await ListCalendarsAsync(accountId, cancellationToken),
+                id => GetCalendarEventsAsync(accountId, id, startDate, endDate, count, cancellationToken),
+                count);
+        }
+
         var token = await GetAccessTokenAsync(accountId, cancellationToken);
 
         try
         {
             var authProvider = new BearerTokenAuthenticationProvider(token);
-            var graphClient = new GraphServiceClient(authProvider);
+            var graphClient = CreateGraphClient(authProvider);
 
             // Default to today and next 30 days if not specified
             var start = startDate ?? DateTime.UtcNow.Date;
@@ -627,8 +632,8 @@ public class M365ProviderService : IM365ProviderService
             // Use CalendarView for date range queries (it expands recurring events)
             Microsoft.Graph.Models.EventCollectionResponse? events;
 
-            // Graph has no "primary" id; treat the default-calendar aliases like an omitted
-            // calendarId — mirrors GetCalendarEventDetailsAsync and CreateEventAsync below.
+            // Graph has no "primary" id; the default-calendar aliases go to its own route,
+            // mirroring GetCalendarEventDetailsAsync and CreateEventAsync below.
             if (CalendarIdAliases.IsDefaultCalendar(calendarId))
             {
                 // Query the default calendar

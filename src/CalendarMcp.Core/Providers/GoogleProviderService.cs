@@ -7,6 +7,7 @@ using Google.Apis.Calendar.v3;
 using Google.Apis.Calendar.v3.Data;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
+using Google.Apis.Http;
 using Google.Apis.PeopleService.v1;
 using Google.Apis.PeopleService.v1.Data;
 using Google.Apis.Services;
@@ -30,6 +31,8 @@ public class GoogleProviderService : IGoogleProviderService
     private readonly ILogger<GoogleProviderService> _logger;
     private readonly IAccountRegistry _accountRegistry;
 
+    internal GoogleTransport? Transport { get; init; }
+
     private static readonly string[] DefaultScopes = Constants.GoogleScopes.Default;
 
     private const string PersonFields = "names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,metadata";
@@ -45,8 +48,11 @@ public class GoogleProviderService : IGoogleProviderService
     /// <summary>
     /// Get Google credential for an account
     /// </summary>
-    private async Task<UserCredential> GetCredentialAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<IConfigurableHttpClientInitializer> GetCredentialAsync(string accountId, CancellationToken cancellationToken)
     {
+        if (Transport is not null)
+            return Transport.Credential;
+
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
         {
@@ -121,32 +127,29 @@ public class GoogleProviderService : IGoogleProviderService
         return Configuration.ConfigurationPaths.GetGoogleCredentialsDirectory(accountId);
     }
 
-    private GmailService CreateGmailService(UserCredential credential)
+    private BaseClientService.Initializer ClientInitializer(IConfigurableHttpClientInitializer credential)
     {
-        return new GmailService(new BaseClientService.Initializer
+        var initializer = new BaseClientService.Initializer
         {
             HttpClientInitializer = credential,
             ApplicationName = "CalendarMcp"
-        });
+        };
+        if (Transport is not null)
+        {
+            initializer.HttpClientFactory = Transport.HttpClientFactory;
+            initializer.DefaultExponentialBackOffPolicy = ExponentialBackOffPolicy.None;
+        }
+        return initializer;
     }
 
-    private CalendarService CreateCalendarService(UserCredential credential)
-    {
-        return new CalendarService(new BaseClientService.Initializer
-        {
-            HttpClientInitializer = credential,
-            ApplicationName = "CalendarMcp"
-        });
-    }
+    private GmailService CreateGmailService(IConfigurableHttpClientInitializer credential) =>
+        new(ClientInitializer(credential));
 
-    private PeopleServiceService CreatePeopleService(UserCredential credential)
-    {
-        return new PeopleServiceService(new BaseClientService.Initializer
-        {
-            HttpClientInitializer = credential,
-            ApplicationName = "CalendarMcp"
-        });
-    }
+    private CalendarService CreateCalendarService(IConfigurableHttpClientInitializer credential) =>
+        new(ClientInitializer(credential));
+
+    private PeopleServiceService CreatePeopleService(IConfigurableHttpClientInitializer credential) =>
+        new(ClientInitializer(credential));
 
     /// <summary>
     /// Narrows a Gmail message list to one folder (alias or label ID). Without a folder the
@@ -661,25 +664,32 @@ public class GoogleProviderService : IGoogleProviderService
         try
         {
             var service = CreateCalendarService(credential);
-            var request = service.CalendarList.List();
-            var response = await request.ExecuteAsync(cancellationToken);
+            var result = new List<CalendarInfo>();
+            string? pageToken = null;
+            do
+            {
+                var request = service.CalendarList.List();
+                request.PageToken = pageToken;
+                var response = await request.ExecuteAsync(cancellationToken);
 
-            if (response.Items == null || response.Items.Count == 0)
+                result.AddRange((response.Items ?? []).Select(cal => new CalendarInfo
+                {
+                    Id = cal.Id,
+                    AccountId = accountId,
+                    Name = cal.Summary ?? string.Empty,
+                    Owner = cal.Id, // Google uses calendar ID as identifier
+                    CanEdit = cal.AccessRole == "owner" || cal.AccessRole == "writer",
+                    IsDefault = cal.Primary ?? false,
+                    Color = cal.BackgroundColor
+                }));
+                pageToken = response.NextPageToken;
+            } while (pageToken is not null);
+
+            if (result.Count == 0)
             {
                 _logger.LogInformation("No calendars found for Google account {AccountId}", accountId);
                 return Enumerable.Empty<CalendarInfo>();
             }
-
-            var result = response.Items.Select(cal => new CalendarInfo
-            {
-                Id = cal.Id,
-                AccountId = accountId,
-                Name = cal.Summary ?? string.Empty,
-                Owner = cal.Id, // Google uses calendar ID as identifier
-                CanEdit = cal.AccessRole == "owner" || cal.AccessRole == "writer",
-                IsDefault = cal.Primary ?? false,
-                Color = cal.BackgroundColor
-            }).ToList();
 
             _logger.LogInformation("Retrieved {Count} calendars from Google account {AccountId}", result.Count, accountId);
             return result;
@@ -696,9 +706,17 @@ public class GoogleProviderService : IGoogleProviderService
         string? calendarId = null, 
         DateTime? startDate = null, 
         DateTime? endDate = null, 
-        int count = 50, 
+        int count = 50,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(calendarId))
+        {
+            return await AllCalendars.ReadAsync(
+                await ListCalendarsAsync(accountId, cancellationToken),
+                id => GetCalendarEventsAsync(accountId, id, startDate, endDate, count, cancellationToken),
+                count);
+        }
+
         var credential = await GetCredentialAsync(accountId, cancellationToken);
 
         try
@@ -708,7 +726,7 @@ public class GoogleProviderService : IGoogleProviderService
             // Default to today and next 30 days if not specified
             var start = startDate ?? DateTime.UtcNow.Date;
             var end = endDate ?? DateTime.UtcNow.Date.AddDays(30);
-            var targetCalendarId = calendarId ?? "primary";
+            var targetCalendarId = calendarId;
 
             var request = service.Events.List(targetCalendarId);
             request.TimeMinDateTimeOffset = new DateTimeOffset(start, TimeSpan.Zero);
