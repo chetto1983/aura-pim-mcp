@@ -107,6 +107,18 @@ public class GmailHistoryTests
     }
 
     [TestMethod]
+    public void ALabelRowWithNoMessage_CostsNothingElseOnThePage()
+    {
+        var damaged = new History
+        {
+            LabelsAdded = [new HistoryLabelAdded { LabelIds = [Inbox] }],
+            LabelsRemoved = [new HistoryLabelRemoved { LabelIds = [Inbox] }]
+        };
+
+        Assert.AreEqual("added:m1", Read(damaged, Arrives("m1", Inbox)));
+    }
+
+    [TestMethod]
     public void OneRecord_CanHoldManyMessages()
     {
         var record = new History

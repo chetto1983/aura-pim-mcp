@@ -26,20 +26,10 @@ internal static class GmailHistory
             }
 
             foreach (var label in record.LabelsAdded ?? [])
-            {
-                if (label.LabelIds?.Contains(Inbox) == true)
-                    Note(label.Message.Id, Step.Enters);
-                else if (label.Message?.LabelIds?.Contains(Inbox) == true)
-                    Note(label.Message.Id, Step.ChangesInside);
-            }
+                NoteLabel(label.Message, label.LabelIds, Step.Enters);
 
             foreach (var label in record.LabelsRemoved ?? [])
-            {
-                if (label.LabelIds?.Contains(Inbox) == true)
-                    Note(label.Message.Id, Step.Leaves);
-                else if (label.Message?.LabelIds?.Contains(Inbox) == true)
-                    Note(label.Message.Id, Step.ChangesInside);
-            }
+                NoteLabel(label.Message, label.LabelIds, Step.Leaves);
 
             // Gmail's documentation does not say what a deleted message's labels hold. Labels that are
             // there and leave the Inbox out rule it out; otherwise a deletion of an unknown id is harmless.
@@ -56,6 +46,17 @@ internal static class GmailHistory
             .Where(change => change.Type is not null)
             .Select(change => (change.Id, change.Type!))
             .ToList();
+
+        void NoteLabel(Message? message, IList<string>? changed, Step throughTheInbox)
+        {
+            if (message is null)
+                return;
+
+            if (changed?.Contains(Inbox) == true)
+                Note(message.Id, throughTheInbox);
+            else if (message.LabelIds?.Contains(Inbox) == true)
+                Note(message.Id, Step.ChangesInside);
+        }
 
         void Note(string id, Step step)
         {
