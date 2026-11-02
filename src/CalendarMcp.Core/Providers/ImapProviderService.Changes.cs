@@ -454,9 +454,12 @@ public partial class ImapProviderService
         var candidates = found.TakeLast(MaxSentCandidates).ToList();
         var summaries = await sent.FetchAsync(candidates, MessageSummaryItems.Envelope, cancellationToken);
 
-        return summaries.Any(summary => Recipients(summary.Envelope)
-            .Any(mailbox => string.Equals(mailbox.Address, address, StringComparison.OrdinalIgnoreCase)));
+        return Verdict(found.Count, summaries.Any(summary => Recipients(summary.Envelope)
+            .Any(mailbox => string.Equals(mailbox.Address, address, StringComparison.OrdinalIgnoreCase))));
     }
+
+    /// <summary>Only the newest hits are compared, so past the cap a miss proves nothing about the rest.</summary>
+    private static bool? Verdict(int hits, bool matched) => matched ? true : hits > MaxSentCandidates ? null : false;
 
     private static IEnumerable<MailboxAddress> Recipients(Envelope? envelope) => envelope is null
         ? []
@@ -485,7 +488,7 @@ public partial class ImapProviderService
         var candidates = found.TakeLast(MaxSentCandidates).ToList();
         var summaries = await sent.FetchAsync(candidates, MessageSummaryItems.Envelope, cancellationToken);
 
-        return summaries.Any(summary => summary.Envelope?.MessageId is { } id && ids.Contains(id));
+        return Verdict(found.Count, summaries.Any(summary => summary.Envelope?.MessageId is { } id && ids.Contains(id)));
     }
 
     private static bool IsMessageId(string reference)

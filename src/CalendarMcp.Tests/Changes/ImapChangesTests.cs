@@ -334,6 +334,77 @@ public class ImapChangesTests
         Assert.IsFalse((await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo);
     }
 
+    /// <summary>
+    /// SEARCH matches a substring and only the newest hits are compared, so past the cap a miss proves
+    /// nothing: the account may have written to this very address further back. On Dovecot alone:
+    /// GreenMail's SEARCH TO takes the whole address, where RFC 9051 section 6.4.4 says substring, so
+    /// a near miss is never a hit there.
+    /// </summary>
+    [TestMethod]
+    [DataRow(20, false, false, "every hit compared, and none is the address")]
+    [DataRow(21, false, null, "more hits than are compared")]
+    [DataRow(25, true, null, "the address itself, older than the hits compared")]
+    public async Task WrittenTo_OverTheCap_DoesNotPretendToKnow(int nearMisses, bool writtenLongAgo, bool? expected, string why)
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);
+        if (writtenLongAgo)
+            await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "mario@example.com"));
+        for (var i = 0; i < nearMisses; i++)
+            await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "supermario@example.com"));
+        var cursor = await mailbox.StartAsync();
+
+        await mailbox.DeliverAsync(ImapMailbox.Mail());
+
+        Assert.AreEqual(expected, (await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo, why);
+    }
+
+    [TestMethod]
+    public async Task WrittenTo_OverTheCap_StillSeesAMatchAmongTheNewest()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.Dovecot);
+        for (var i = 0; i < 25; i++)
+            await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "supermario@example.com"));
+        await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "mario@example.com"));
+        var cursor = await mailbox.StartAsync();
+
+        await mailbox.DeliverAsync(ImapMailbox.Mail());
+
+        Assert.IsTrue((await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo);
+    }
+
+    [TestMethod]
+    [DataRow(20, false, false, "every hit compared, and none is the id")]
+    [DataRow(21, false, null, "more hits than are compared")]
+    [DataRow(25, true, null, "the id itself, older than the hits compared")]
+    public async Task AThreadOverTheCap_DoesNotPretendToKnow(int nearMisses, bool wroteLongAgo, bool? expected, string why)
+    {
+        foreach (var server in new[] { ImapServers.GreenMail, ImapServers.Dovecot })
+        {
+            await using var mailbox = await ImapMailbox.OpenAsync(server);
+            if (wroteLongAgo)
+            {
+                var mine = ImapMailbox.Mail(from: "io@example.com", to: "lista@example.com");
+                mine.MessageId = "original@example.com";
+                await mailbox.SendAsync(mine);
+            }
+
+            for (var i = 0; i < nearMisses; i++)
+            {
+                var other = ImapMailbox.Mail(from: "io@example.com", to: "lista@example.com");
+                other.MessageId = $"{i}original@example.com";
+                await mailbox.SendAsync(other);
+            }
+
+            var cursor = await mailbox.StartAsync();
+
+            var reply = ImapMailbox.Mail("Re: Fattura", from: "collega@example.com");
+            reply.References.Add("original@example.com");
+            await mailbox.DeliverAsync(reply);
+
+            Assert.AreEqual(expected, (await mailbox.ReadAsync(cursor)).Changes.Single().Signals!.WrittenTo, why);
+        }
+    }
+
     [TestMethod]
     public async Task WrittenTo_IsNullWithNoSentFolder()
     {
