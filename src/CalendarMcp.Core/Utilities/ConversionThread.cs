@@ -57,11 +57,13 @@ internal static class ConversionThread
         if (Abandoned >= MaxAbandoned || !Places.Wait(budget.Left))
             throw new UnconvertibleMailException(NoRoom);
 
-        var conversion = new Conversion(convert);
-        var thread = new Thread(conversion.Run, StackBytes) { IsBackground = true, Name = "Mail conversion" };
+        Conversion conversion;
+        Thread thread;
 
         try
         {
+            conversion = new Conversion(convert);
+            thread = new Thread(conversion.Run, StackBytes) { IsBackground = true, Name = "Mail conversion" };
             thread.Start();
         }
         catch

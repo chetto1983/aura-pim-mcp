@@ -71,6 +71,29 @@ public class ConversionThreadTests
         Assert.AreEqual(0, ConversionThread.Abandoned);
     }
 
+    /// <summary>
+    /// A thread that cannot be made (a stack size the runtime refuses stands in for an allocation that fails
+    /// under memory pressure) must give its place back, or two of them refuse every conversion for good.
+    /// </summary>
+    [TestMethod]
+    public void AThreadThatCannotBeMade_GivesItsPlaceBack()
+    {
+        var usual = ConversionThread.StackBytes;
+        ConversionThread.StackBytes = -1;
+
+        try
+        {
+            for (var i = 0; i < ConversionThread.MaxAbandoned + 2; i++)
+                Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => ConversionThread.Run(() => "no", new ConversionBudget(Soon)));
+        }
+        finally
+        {
+            ConversionThread.StackBytes = usual;
+        }
+
+        Assert.AreEqual("Parole", ConversionThread.Run(() => "Parole", new ConversionBudget(TimeSpan.FromSeconds(5))));
+    }
+
     [TestMethod]
     public void AConversionThatFails_FailsWithItsOwnException()
     {
