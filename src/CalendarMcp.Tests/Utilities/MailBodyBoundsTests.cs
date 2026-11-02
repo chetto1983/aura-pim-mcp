@@ -410,6 +410,33 @@ public class MailBodyBoundsTests
         });
     }
 
+    /// <summary>
+    /// A copy the parser makes of a formatting element it reopens never reaches <c>OnCreated</c>, so these
+    /// few characters grow by the square: 33 KB made 1.2 GB with no limit, and the 3 s budget allowed 744 MB.
+    /// </summary>
+    [TestMethod]
+    public void FormattingReopenedOverAndOver_StopsAtTheMemoryItMayUse()
+    {
+        var html = string.Concat(Enumerable.Range(0, 8000).Select(i => $"<p><b a{i}>x</p>"));
+        MailBody.WarmUp();
+        var before = GC.GetTotalAllocatedBytes();
+
+        var (body, format) = MailBody.ForModel(html, MailBody.HtmlFormat);
+
+        var allocated = GC.GetTotalAllocatedBytes() - before;
+        Assert.AreEqual(MailBody.OmittedFormat, format);
+        StringAssert.Contains(body, "markup");
+        Assert.IsTrue(allocated < 2 * (MailBody.MinParseBytes + (html.Length * MailBody.MaxParseBytesPerCharacter)), $"{allocated >> 20} MB");
+    }
+
+    /// <summary>The allowance has a floor because the first parse pays for the engine, and a warm-up that failed would fail every mail after it.</summary>
+    [TestMethod]
+    public void TheSmallestMail_FitsTheAllowance()
+    {
+        Assert.IsTrue(MailBody.MinParseBytes >= 32 * 1024 * 1024);
+        Assert.AreEqual(("Parole", MailBody.MarkdownFormat), MailBody.ForModel("<b>Parole</b>", MailBody.HtmlFormat) is var (body, format) ? (body.Trim('*'), format) : default);
+    }
+
     [TestMethod]
     public void UnclosedScripts_DoNotReachAnUnboundedRegex()
     {

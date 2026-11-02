@@ -39,6 +39,16 @@ public static partial class MailBody
     /// </summary>
     internal const int MaxDepth = 256;
 
+    /// <summary>
+    /// What a parse may allocate for each character it reads. Measured at 240 at worst on ordinary mail, in
+    /// a report whose every cell has a style, and 17 on the newsletter's text of 1 MiB. Together with
+    /// <see cref="MarkupShape.MaxWalk"/> this holds a mail that copies its way up to about 300 MB.
+    /// </summary>
+    internal const long MaxParseBytesPerCharacter = 1024;
+
+    /// <summary>What any parse may allocate first: the first in a process loads the engine on this thread.</summary>
+    internal const long MinParseBytes = 64 * 1024 * 1024;
+
     private const string NotConverted =
         "The body of this mail could not be converted to text, so it is left out. The other fields are unaffected.";
 
@@ -173,6 +183,7 @@ public static partial class MailBody
             .With<ICssParser>(browsing => new GuardedCssParser(new CssParser(default, browsing)))
             .WithCss());
 
+        var mayAllocate = GC.GetAllocatedBytesForCurrentThread() + MinParseBytes + (html.Length * MaxParseBytesPerCharacter);
         var options = new HtmlParserOptions
         {
             MaximumDepth = MaxDepth,
@@ -184,6 +195,10 @@ public static partial class MailBody
                 // so a megabyte of them recurses and no limit on the tree stops it.
                 if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
                     throw new UnconvertibleMailException(TooDeep);
+
+                // A formatting element reopens by copy, past this hook, and each paragraph copies all of them.
+                if (GC.GetAllocatedBytesForCurrentThread() > mayAllocate)
+                    throw new UnconvertibleMailException(TooMuchMarkup);
             }
         };
         var document = new HtmlParser(options, context).ParseDocument(html.ReplaceLineEndings("\n").TrimEnd());
