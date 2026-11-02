@@ -25,7 +25,8 @@ internal static class MarkupShape
     /// <c>ReconstructFormatting</c>, so the work is what stays open times what walks it, and neither
     /// creates an element. Measured, a step is 5 to 8 ns: 20,000 open and 40,000 end tags took 5 s, and
     /// the review's 100,000 and 185,000 ran past 90 s. So this is about 10 s of one thread at the very
-    /// worst, which ends by itself and which no caller waits for. It keeps a 1 MiB report of styled
+    /// worst, which ends by itself and which no caller waits for. On half a CPU a mail at the bound,
+    /// read on both paths, took 48 s to let go of both its threads. It keeps a 1 MiB report of styled
     /// rows (1.4 × 10⁹), 1 MiB of paragraphs (1.9 × 10⁹) and the newsletter 16 times over (1.1 × 10⁸).
     /// </summary>
     internal const long MaxWalk = 2_000_000_000;
