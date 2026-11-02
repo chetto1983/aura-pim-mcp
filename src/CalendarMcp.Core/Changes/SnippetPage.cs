@@ -26,7 +26,9 @@ internal sealed class SnippetPage(TimeProvider clock, CancellationToken caller)
             return string.Empty;
         }
 
-        MailBody.WarmUp();
+        if (!MailBody.TryWarmUp())
+            return string.Empty;
+
         var started = clock.GetTimestamp();
         var budget = new ConversionBudget(left < MailBody.SnippetBudget ? left : MailBody.SnippetBudget, caller);
 

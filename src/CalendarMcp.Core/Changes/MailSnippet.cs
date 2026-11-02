@@ -22,7 +22,9 @@ internal static partial class MailSnippet
     /// </summary>
     public static string Of(string body, string format)
     {
-        MailBody.WarmUp();
+        if (!MailBody.TryWarmUp())
+            return string.Empty;
+
         return Of(() => (body, format), new ConversionBudget(MailBody.SnippetBudget));
     }
 

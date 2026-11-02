@@ -75,7 +75,11 @@ public static partial class MailBody
         <table><tr><td class="a" style="width:100%"><a href="https://example.com/">a</a><img alt="b" src="c"></td></tr></table>
         """;
 
-    private static readonly Lazy<string> WarmedUp = new(() => ToPlainText(WarmUpMail, new ConversionBudget(TimeSpan.FromDays(1))));
+    /// <summary>Settable so a test can make the warm-up fail. <see cref="Warmer"/> builds the one a process uses.</summary>
+    internal static Lazy<string> WarmedUp { get; set; } = Warmer(() => ToPlainText(WarmUpMail, new ConversionBudget(TimeSpan.FromDays(1))));
+
+    // PublicationOnly keeps no exception, so a warm-up that failed is tried again by the next mail.
+    internal static Lazy<string> Warmer(Func<string> work) => new(work, LazyThreadSafetyMode.PublicationOnly);
 
     private static readonly string[] AllowedLinkSchemes = ["http", "https", "mailto"];
 
@@ -145,6 +149,20 @@ public static partial class MailBody
     /// lose the first snippet after every start. A budget starts after this.
     /// </summary>
     internal static void WarmUp() => _ = WarmedUp.Value;
+
+    /// <summary>False when the warm-up failed: the mail at hand goes without a snippet, and the next one tries again.</summary>
+    internal static bool TryWarmUp()
+    {
+        try
+        {
+            WarmUp();
+            return true;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
 
     // Not Converter.Convert: its Cleaner runs regexes over the raw text that are quadratic on a
     // flood of <script>, before anything can observe a budget, and its parser takes no options.
