@@ -71,6 +71,10 @@ public class SelectorCostTests
         ["a list of explosive selectors", Deep("a,b,z" + Repeated(" *", 20) + " p,i")],
         ["rules nested in rules", $"<style>z{Repeated("{*", 20)}{{color:red{Repeated("}", 20)}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
         ["an unknown function with a nested rule the engine cannot read", $"<style>z{Repeated(" *", 20)} p:contains(a){{:nosuch{{color:red}}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
+        [":focus-within, which walks the subtree", $"<style>{Repeated(":not(:focus-within) ", 5)}p{{color:red}}</style>{Repeated("<div>", 100)}{Repeated("<p>x</p>", 20_000)}"],
+        [":first-of-type, which walks the siblings", $"<style>p:first-of-type~p:first-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
+        [":last-of-type, which walks the siblings", $"<style>p:last-of-type~p:last-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
+        [":only-of-type, which walks the siblings", $"<style>p:only-of-type~p:only-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
         ["inside @media",$"<style>@media screen{{z{Repeated(" *", 20)} p{{color:red}}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
         ["inside @supports", $"<style>@supports (color:red){{z{Repeated(" *", 20)} p{{color:red}}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
         ["inside @layer", $"<style>@layer a{{z{Repeated(" *", 20)} p{{color:red}}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
@@ -109,6 +113,7 @@ public class SelectorCostTests
         [":is() and :not()", ":is(h1,h2,h3) a:not(.x):not(.y){color:red}:where(table td) p{margin:0}"],
         [":has()", "td:has(> img) p{margin:0}"],
         ["nth-child", "tr:nth-child(2n+1) td:nth-of-type(2) a{color:red}"],
+        ["pseudo-classes without brackets", "td:first-child p:last-child a:link,a:visited:hover,li:empty,:root p,input:disabled{color:red}p:not(:focus-within) a{margin:0}"],
         ["outlook's and gmail's hacks", "u + .body .gmail{color:red}#outlook a{padding:0}div > u + .body .x{color:red}[owa] .y{color:red}"],
     ];
 

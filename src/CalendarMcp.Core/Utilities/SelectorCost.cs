@@ -44,8 +44,9 @@ namespace CalendarMcp.Core.Utilities;
 internal static class SelectorCost
 {
     /// <summary>
-    /// The steps one element may cost, and the budget is read again after it. The estimate tracks the
-    /// engine closely: measured from 7.6 × 10⁷ to 1.7 × 10¹⁰ steps, a step is 4 to 5 ns warm on ancestors,
+    /// The steps one element may cost, and the budget is read again after it. The estimate is an upper
+    /// bound that follows the engine on combinators and functions, and by the largest walk on the
+    /// pseudo-classes that walk. Measured from 7.6 × 10⁷ to 1.7 × 10¹⁰ steps, a step is 4 to 5 ns warm on ancestors,
     /// 10 on siblings and 25 on columns, and about 100 and 370 on code held at the coldest tier. So this
     /// is 1.3 s warm, or 6 s on columns, and an element that needs <c>var()</c> pays that for each ancestor
     /// that matches as much. That is a thread that ends by itself, which is all this has to promise: the
@@ -199,7 +200,21 @@ internal static class SelectorCost
             var bracket = name.IndexOf('(');
             if (bracket < 0)
             {
-                _cost = 1;
+                // A name is cheap only if it is known to be. DefaultPseudoClassSelectorFactory maps the rest to
+                // code that walks: the subtree for :focus-within, the children for :empty, and the form or the
+                // ancestors for the states of a control. Those are priced by the largest they could walk, and a
+                // name that is on no list is refused, as an unknown function is.
+                _cost = name.ToLowerInvariant() switch
+                {
+                    "root" or "scope" or "first-child" or "last-child" or "only-child" or "link" or "any-link"
+                        or "visited" or "active" or "hover" or "focus" or "focus-visible" or "target"
+                        or "checked" or "unchecked" or "open" or "placeholder-shown" => 1,
+                    "empty" => tree.Siblings,
+                    "focus-within" or "enabled" or "disabled" or "indeterminate" or "default" or "valid"
+                        or "invalid" or "required" or "optional" or "in-range" or "out-of-range" or "read-only"
+                        or "read-write" => tree.Elements,
+                    _ => double.PositiveInfinity
+                };
                 return;
             }
 
