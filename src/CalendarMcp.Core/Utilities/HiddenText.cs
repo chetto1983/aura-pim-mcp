@@ -387,7 +387,7 @@ internal static partial class HiddenText
     // An attribute reaches this unparsed and unchecked, so its text is anyone's. The parse must not throw.
     private static (double Value, string Unit)? ReadNumber(string? value)
     {
-        var match = Number().Match(value ?? string.Empty);
+        var match = Number().Match(value?.Trim() ?? string.Empty);
         if (!match.Success || !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
             return null;
 
@@ -404,8 +404,9 @@ internal static partial class HiddenText
     private static partial Regex Substitution();
 
     // Any length: the engine writes 1e-40 out in full, and a number this stops reading means visible text.
-    // The atomic groups keep it linear, and a body's cap is what bounds the text.
-    [GeneratedRegex(@"^\s*([-+]?(?>\d*)(?:\.(?>\d+))?(?:[eE][-+]?(?>\d+))?)\s*([a-zA-Z%]{0,8})\s*$")]
+    // The value is trimmed first and the number needs a digit, so no two loops can meet over nothing:
+    // an empty number between whitespace loops was cubic. The atomic groups keep the rest linear.
+    [GeneratedRegex(@"^([-+]?(?:(?>\d+)(?:\.(?>\d+))?|\.(?>\d+))(?:[eE][-+]?(?>\d+))?)\s*([a-zA-Z%]{0,8})$")]
     private static partial Regex Number();
 
     [GeneratedRegex(@"^\s*#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})\s*$")]

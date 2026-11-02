@@ -263,6 +263,35 @@ public class MailBodyTests
         Assert.IsTrue(watch.Elapsed < TimeSpan.FromMilliseconds(400), $"{watch.Elapsed}");
     }
 
+    /// <summary>Where the number may be empty, the loops around it can meet, so each shape of filler is tried.</summary>
+    [TestMethod]
+    [DataRow(" ")]
+    [DataRow("\t")]
+    [DataRow("\n")]
+    [DataRow(" \t")]
+    [DataRow("+")]
+    [DataRow(".")]
+    [DataRow("e")]
+    [DataRow("+.e+")]
+    public void AWidthWithoutADigit_IsReadInLinearTime(string filler)
+    {
+        var value = string.Concat(Enumerable.Repeat(filler, 100_000 / filler.Length));
+        var html = $"""<img width="{value}!" alt="Words" src="x"><p>Words</p>""";
+        string? text = null;
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { text = MailBody.ToPlainText(html); }
+            catch (Exception exception) { failure = exception; }
+        }) { IsBackground = true };
+
+        thread.Start();
+
+        Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(5)), "still reading after 5 s");
+        Assert.IsNull(failure, $"{failure}");
+        StringAssert.Contains(text, "Words");
+    }
+
     [TestMethod]
     [DataRow("""<p style="opacity:1e0">SHOWN</p>""", "an opacity of one, written long")]
     [DataRow("""<p style="font-size:1.6e1px">SHOWN</p>""", "sixteen pixels with an exponent")]
