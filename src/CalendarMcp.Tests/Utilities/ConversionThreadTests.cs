@@ -135,7 +135,7 @@ public class ConversionThreadTests
     [TestMethod]
     public void ConversionsThatHangTogether_StayInsideTheLimit()
     {
-        using var everyone = new ManualResetEventSlim();
+        var everyone = new ManualResetEventSlim();
         _hanging.Add(everyone);
 
         var threads = Enumerable.Range(0, ConversionThread.MaxAbandoned * 4).Select(_ => new Thread(() =>

@@ -48,6 +48,9 @@ public static partial class MailBody
     internal const string TooDeep =
         "The body of this mail is nested too deeply to read, so it is left out. The other fields are unaffected.";
 
+    private const string TooMuchMarkup =
+        "The markup of this mail would take too long to read, so its body is left out. The other fields are unaffected.";
+
     internal const string TooIntricate =
         "The styles of this mail would take too long to work out, so its body is left out. The other fields are unaffected.";
 
@@ -161,6 +164,8 @@ public static partial class MailBody
     {
         if (html.Length > MaxBodyLength)
             throw new UnconvertibleMailException(TooLarge);
+        if (!MarkupShape.IsSafe(html))
+            throw new UnconvertibleMailException(TooMuchMarkup);
 
         // A browsing context is not safe across threads, and AngleSharp's documentation says so.
         // Configuration.Default has no requester, so a <link> or an image is never fetched.

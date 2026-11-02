@@ -289,6 +289,56 @@ public class MailBodyBoundsTests
         Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(3), $"{shape}: {watch.Elapsed}");
     }
 
+    /// <summary>
+    /// The tokenizer's comment and end-tag states call each other, a few frames a unit, and a stack
+    /// overflow is not something any thread can catch. Measured on 8 MiB at 240 KB on cold code. Once the
+    /// JIT has made them tail calls the same mail is harmless, which is what hides it.
+    /// </summary>
+    public static IEnumerable<object[]> FloodsTheTokenizerRecursesOn =>
+    [
+        ["a comment that keeps nearly ending", "<!--" + Repeated("--!", 80_000)],
+        ["the same with a dash", "<!--" + Repeated("--!-", 60_000)],
+        ["empty end tags", Repeated("</>", 200_000)],
+        ["empty end tags in a paragraph", "<p>" + Repeated("</>", 200_000) + "</p>"],
+    ];
+
+    [TestMethod]
+    [DynamicData(nameof(FloodsTheTokenizerRecursesOn))]
+    public void AFloodTheTokenizerRecursesOn_IsRefusedOnASmallStack(string shape, string html)
+    {
+        OnASmallStack(() =>
+        {
+            var (body, format) = MailBody.ForModel(html, MailBody.HtmlFormat);
+
+            Assert.AreEqual(MailBody.OmittedFormat, format, shape);
+            StringAssert.Contains(body, "markup", shape);
+            Assert.AreEqual(string.Empty, MailSnippet.Of(html, MailBody.HtmlFormat), shape);
+        });
+    }
+
+    [TestMethod]
+    public void AFewOfThem_AreOrdinaryText()
+    {
+        const string html = "<p>wow--! a</> b<!-- yes--!> c --></p><p>Parole</p>";
+
+        Assert.AreEqual(MailBody.MarkdownFormat, MailBody.ForModel(html, MailBody.HtmlFormat).Format);
+    }
+
+    [TestMethod]
+    [DataRow("</>")]
+    [DataRow("--!")]
+    public void AsManyAsTheLimitAllows_FitASmallStack(string unit)
+    {
+        var html = "<!--" + Repeated(unit, MarkupShape.MaxRecursion) + "--><p>Parole</p>" + Repeated(unit, 0);
+        var bare = Repeated(unit, MarkupShape.MaxRecursion) + "<p>Parole</p>";
+
+        OnASmallStack(() =>
+        {
+            StringAssert.Contains(MailBody.ForModel(html, MailBody.HtmlFormat).Body, "Parole", unit);
+            StringAssert.Contains(MailBody.ForModel(bare, MailBody.HtmlFormat).Body, "Parole", unit);
+        });
+    }
+
     [TestMethod]
     public void UnclosedScripts_DoNotReachAnUnboundedRegex()
     {
