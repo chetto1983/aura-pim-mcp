@@ -224,8 +224,34 @@ public class GraphCalendarChangesTests
 
         var read = _http.Requests.Single(r => FakeHttp.Url(r).Contains("calendarView", StringComparison.Ordinal));
         CollectionAssert.AreEquivalent(
-            new[] { "odata.maxpagesize=7", "outlook.timezone=\"UTC\"" },
+            new[] { "odata.maxpagesize=7", "outlook.timezone=\"UTC\"", LastingIds },
             read.Headers.GetValues("Prefer").ToArray());
+    }
+
+    [TestMethod]
+    public async Task EveryReadOfAnEvent_AsksForAnIdThatSurvivesAMove()
+    {
+        Calendars(("mine", true));
+        _http.On(Delta("mine"), GraphFixtures.Delta(Link("mine", "new"), Row("e1")))
+            .On("/me/calendars/mine/events/e1", Json(Item("e1")));
+
+        await Source.StartAsync(Account, default);
+        await Source.ReadAsync(Account, Cursor(("mine", Link("mine", "old"))), 50, default);
+
+        var reads = _http.Requests.Where(r => FakeHttp.Url(r).Contains("calendarView", StringComparison.Ordinal)
+                                              || FakeHttp.Url(r).Contains("/events/", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(3, reads.Count);
+        Assert.IsTrue(reads.All(r => r.Headers.GetValues("Prefer").Contains(LastingIds)));
+    }
+
+    [TestMethod]
+    public async Task AnEvent_ComesBackUnderTheIdItWasAskedFor()
+    {
+        _http.On("/me/calendars/mine/events/stored", Json(Item("lasting")));
+
+        var facts = await Source.ReadItemAsync(Account, new ItemRef("stored", "mine"), default);
+
+        Assert.AreEqual("stored", facts!.Id);
     }
 
     [TestMethod]

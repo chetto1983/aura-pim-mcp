@@ -9,6 +9,14 @@ internal static class GraphLinks
     private const string Host = "graph.microsoft.com";
 
     /// <summary>
+    /// Asks for an id that lasts. An item's default id changes when it moves, Deleted Items included,
+    /// so one kept for later reads as gone while the mail is still there. The header holds only for
+    /// the request it is on, and delta links take both formats, so nothing resyncs
+    /// (https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+    /// </summary>
+    public static void AskForLastingIds(RequestHeaders headers) => headers.Add("Prefer", "IdType=\"ImmutableId\"");
+
+    /// <summary>
     /// The link, if it can be followed. <see cref="Providers.BearerTokenAuthenticationProvider"/> puts
     /// the account's token on every request whatever the host, so a forged cursor must fail here: a
     /// link anywhere else would hand that token to whoever wrote it.

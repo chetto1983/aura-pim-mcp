@@ -110,9 +110,11 @@ internal sealed class GraphCalendarChanges(string provider, IGraphApiClients cli
         if (found is null)
             return null;
 
+        // The id it was asked for, not the one Graph answers with: a verdict older than the
+        // lasting ids is found by the id it holds.
         return new ItemFacts
         {
-            Id = found.Id!,
+            Id = item.Id!,
             CalendarId = item.CalendarId,
             OccurredAt = found.LastModifiedDateTime,
             From = found.Organizer?.EmailAddress?.Address,
@@ -156,6 +158,7 @@ internal sealed class GraphCalendarChanges(string provider, IGraphApiClients cli
     {
         headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         headers.Add("Prefer", "outlook.timezone=\"UTC\"");
+        GraphLinks.AskForLastingIds(headers);
     }
 
     /// <summary>
@@ -231,6 +234,7 @@ internal sealed class GraphCalendarChanges(string provider, IGraphApiClients cli
             {
                 config.QueryParameters.Select = EventFields;
                 config.Headers.Add("Prefer", "outlook.timezone=\"UTC\"");
+                GraphLinks.AskForLastingIds(config.Headers);
             }, cancellationToken);
         }
         catch (ApiException e) when (ProviderFailures.IsNotFound(e))

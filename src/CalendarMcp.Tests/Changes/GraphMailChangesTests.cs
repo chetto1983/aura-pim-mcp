@@ -244,7 +244,45 @@ public class GraphMailChangesTests
 
         await Source.ReadAsync(Account, Cursor(), 7, default);
 
-        Assert.IsTrue(_http.Requests.All(r => r.Headers.GetValues("Prefer").Single() == "odata.maxpagesize=7"));
+        Assert.IsTrue(_http.Requests.All(r => r.Headers.GetValues("Prefer").Contains("odata.maxpagesize=7")));
+    }
+
+    [TestMethod]
+    public async Task EveryReadOfAMail_AsksForAnIdThatSurvivesAMove()
+    {
+        _http.On("deltatoken=created-old", Delta(CreatedLink, Row("m1")))
+            .On("deltatoken=updated-old", Delta(UpdatedLink))
+            .On("deltatoken=deleted-old", Delta(DeletedLink))
+            .On("/me/messages/m1", Message("m1"))
+            .NoSentItems();
+
+        await Source.ReadAsync(Account, Cursor(), 10, default);
+        await Source.ReadItemAsync(Account, new ItemRef("m1", null), default);
+
+        var reads = _http.Requests.Where(r => !FakeHttp.Url(r).Contains("sentitems", StringComparison.Ordinal)).ToList();
+        Assert.AreEqual(5, reads.Count);
+        Assert.IsTrue(reads.All(r => r.Headers.GetValues("Prefer").Contains(LastingIds)));
+    }
+
+    [TestMethod]
+    public async Task ANewStream_AsksForIdsThatSurviveAMove()
+    {
+        _http.On(request => FakeHttp.Url(request).Contains("/messages/delta", StringComparison.Ordinal), _ => FakeHttp.Json(Delta(CreatedLink)));
+
+        await Source.StartAsync(Account, default);
+
+        Assert.AreEqual(3, _http.Requests.Count);
+        Assert.IsTrue(_http.Requests.All(r => r.Headers.GetValues("Prefer").Contains(LastingIds)));
+    }
+
+    [TestMethod]
+    public async Task AMail_ComesBackUnderTheIdItWasAskedFor()
+    {
+        _http.On("/me/messages/stored", Message("lasting"));
+
+        var facts = await Source.ReadItemAsync(Account, new ItemRef("stored", null), default);
+
+        Assert.AreEqual("stored", facts!.Id);
     }
 
     [TestMethod]

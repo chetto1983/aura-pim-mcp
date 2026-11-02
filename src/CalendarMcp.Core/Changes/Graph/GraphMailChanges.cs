@@ -103,14 +103,19 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
 
         try
         {
-            var message = await graph.Me.Messages[item.Id].GetAsync(
-                config => config.QueryParameters.Select = ["id", "subject", "from", "receivedDateTime"], cancellationToken);
+            var message = await graph.Me.Messages[item.Id].GetAsync(config =>
+            {
+                config.QueryParameters.Select = ["id", "subject", "from", "receivedDateTime"];
+                GraphLinks.AskForLastingIds(config.Headers);
+            }, cancellationToken);
             if (message is null)
                 return null;
 
+            // The id it was asked for, not the one Graph answers with: a verdict older than the
+            // lasting ids is found by the id it holds.
             return new ItemFacts
             {
-                Id = message.Id!,
+                Id = item.Id!,
                 OccurredAt = message.ReceivedDateTime,
                 From = message.From?.EmailAddress?.Address,
                 FromName = message.From?.EmailAddress?.Name,
@@ -137,7 +142,7 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
             config.QueryParameters.ChangeType = changeType;
             config.QueryParameters.Filter = $"receivedDateTime ge {EventChanges.Instant(now - DeliveryLag)}";
             config.QueryParameters.Select = ["id"];
-            config.Headers.Add("Prefer", $"odata.maxpagesize={ChangesService.MaxLimit}");
+            Prefer(config.Headers, ChangesService.MaxLimit);
         }, cancellationToken);
 
         while (page?.OdataDeltaLink is null)
@@ -152,7 +157,13 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
     private static Task<ChangedMessages?> PageAsync(
         GraphServiceClient graph, string link, int pageSize, CancellationToken cancellationToken) =>
         graph.Me.MailFolders[Inbox].Messages.Delta.WithUrl(GraphLinks.Checked(link)).GetAsDeltaGetResponseAsync(
-            config => config.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}"), cancellationToken);
+            config => Prefer(config.Headers, pageSize), cancellationToken);
+
+    private static void Prefer(RequestHeaders headers, int pageSize)
+    {
+        headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+        GraphLinks.AskForLastingIds(headers);
+    }
 
     /// <summary>
     /// Walks a stream until its round ends or the page is full. A stream past its life gets its
@@ -217,8 +228,11 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
     {
         try
         {
-            return await graph.Me.Messages[id].GetAsync(
-                config => config.QueryParameters.Select = Fields, cancellationToken);
+            return await graph.Me.Messages[id].GetAsync(config =>
+            {
+                config.QueryParameters.Select = Fields;
+                GraphLinks.AskForLastingIds(config.Headers);
+            }, cancellationToken);
         }
         catch (ApiException e) when (ProviderFailures.IsNotFound(e))
         {

@@ -11,6 +11,8 @@ internal static class GraphFixtures
 {
     public const string Base = "https://graph.microsoft.com/v1.0";
 
+    public const string LastingIds = "IdType=\"ImmutableId\"";
+
     private static SingleAccountRegistry Registry() => new(
         TestData.CreateAccount(id: "m365", providerConfig: new Dictionary<string, string>
         {
