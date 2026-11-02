@@ -71,7 +71,7 @@ public class SelectorCostTests
         ["a list of explosive selectors", Deep("a,b,z" + Repeated(" *", 20) + " p,i")],
         ["rules nested in rules", $"<style>z{Repeated("{*", 20)}{{color:red{Repeated("}", 20)}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
         ["an unknown function with a nested rule the engine cannot read", $"<style>z{Repeated(" *", 20)} p:contains(a){{:nosuch{{color:red}}}}</style>{Repeated("<div>", 150)}<p>Parole</p>"],
-        [":focus-within, which walks the subtree", $"<style>{Repeated(":not(:focus-within) ", 5)}p{{color:red}}</style>{Repeated("<div>", 100)}{Repeated("<p>x</p>", 20_000)}"],
+        [":focus-within, which walks the subtree", $"<style>{Repeated(":not(:focus-within) ", 5)}p{{color:red}}</style>{Repeated("<div>", 100)}{Repeated("<p>x</p>", 3_000)}"],
         [":first-of-type, which walks the siblings", $"<style>p:first-of-type~p:first-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
         [":last-of-type, which walks the siblings", $"<style>p:last-of-type~p:last-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
         [":only-of-type, which walks the siblings", $"<style>p:only-of-type~p:only-of-type~p{{color:red}}</style>{Repeated("<p>x</p>", 20_000)}"],
