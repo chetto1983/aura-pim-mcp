@@ -129,6 +129,13 @@ file says the fork does not have, this file wins.
      parameters leave links. A Gmail mail's format now comes from the part it was read from.
      `HiddenText` removes what a reader cannot see by the means listed in the plan's *Hidden text*
      table, and the tool says so: other means can get through. Invisible characters go from plain text too.
+   - An event's body is read like a mail's, because a stranger's invitation lands on a calendar
+     unasked: `GetCalendarEventDetailsTool` calls `MailBody.ForModel`. Google gives a `description`
+     no type and says it can hold HTML, so one with a tag in it is `html` (`MailBody.FormatOfUntyped`).
+   - `get_contextual_email_summary` converts a body it has. A provider's preview is all it has on a
+     list, and nothing here can tell what in it was hidden, so a preview loses its invisible
+     characters, is capped, and the descriptions of the tool and of the curated tool say it cannot
+     be filtered.
 
 8. **The changes contract: `POST /admin/changes` and `POST /admin/items`.** What Aura's mail and
    calendar watch reads, under the same bearer and tenant as `/admin`. It is not an MCP action, so
@@ -159,6 +166,21 @@ file says the fork does not have, this file wins.
      text CSS variables paste, and a time budget of 500 ms for a snippet and 3 s for the tool; a page
      spends at most 30 s on snippets, then the rest arrive empty. IMAP converts after it releases the
      account's gate.
+   - **What a conversion can cost is bounded twice.** First from the mail itself, before the work:
+     `MarkupShape` reads the raw text ahead of the parser and refuses what would walk the open elements
+     for minutes or recurse in the tokenizer, a parse may allocate 1 KiB per character of the mail with
+     a floor of 64 MiB, and `SelectorCost` refuses a stylesheet whose selectors could not be matched
+     in time on this mail's real depth and sibling runs. A refusal is `omitted`, with the other fields
+     intact. Then at run time, whatever got past that: `ConversionThread` runs every conversion on a
+     thread of its own with an 8 MiB stack, and leaves it behind at the budget plus 500 ms. At most two
+     run or are left behind at once, past that a conversion is refused at once, and a warning with
+     no mail content says so. `ConversionThreadLogging`, a hosted service, gives it its logger.
+     The plan's *Bounds on a conversion* says what these two do not prove.
+   - **A body nested past what is walked says so.** `MailParts.NoBody`: reading as empty would let a
+     stranger make a mail look as if it had nothing to say.
+   - **`writtenTo` does not guess.** A NO on Sent reads as gone only if a fresh LIST agrees, and is
+     otherwise a failed page, because the cursor would pass those mails. Past `MaxSentCandidates`
+     hits with no exact match the answer is null.
    - **Forged input is a 400.** A cursor or item that can never work answers `invalid_cursor` or
      `invalid_items` before a server is asked; a cursor for another `inboxFolder` is expired instead.
      A stored password that cannot be decrypted is `provider_auth`.
@@ -212,11 +234,18 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 - A provider or `Utilities` file upstream changes near a fork edit: keep these on any conflict,
   because they look like small edits and carry the contract. `GoogleProviderService.cs`:
   `partial`, `GetMessageBody` preferring `text/plain` and answering the format, `GetBodyFromParts`
-  skipping attachments and forwarded messages, the `TokenResponseException` filter, `Transport`.
+  skipping attachments and forwarded messages, `MailParts.NoBody`, the `TokenResponseException`
+  filter, `Transport`, `Authorize`, `FormatOfUntyped` on an event's description.
   `M365ProviderService.cs` and `OutlookComProviderService.cs`: `partial`, `Transport`,
   `CreateGraphClient`. `M365AuthenticationService.cs`: no catch-all returning null (`NullWhenGrantIsGoneAsync`).
-  `ImapProviderService.Support.cs`: `ExtractBody` with text first. `GetEmailDetailsTool.cs`:
-  `MailBody.ForModel`.
+  `ImapProviderService.Support.cs`: `ExtractBody` with text first, `MailParts.NoBody`.
+  `GetEmailDetailsTool.cs` and `GetCalendarEventDetailsTool.cs`: `MailBody.ForModel`.
+  `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
+  its summary, and the sentence in `includeBodyPreview`'s description, which `CalendarActionTool.cs`
+  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`.
+- An upgrade of AngleSharp or AngleSharp.Css, both pinned, reopens `SelectorCost`, `MarkupShape`, the
+  allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
+  that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added.
 - A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
   `ChangesProviders`, and `ChangesRegistrationTests` lists every source.
 - Upstream's `IProviderServices.cs`: the fork's provider interfaces also inherit
