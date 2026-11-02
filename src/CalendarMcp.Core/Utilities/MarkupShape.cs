@@ -39,28 +39,81 @@ internal static class MarkupShape
     /// </summary>
     internal const int MaxRecursion = 1024;
 
+    /// <summary>
+    /// The most attributes one start tag may have. <c>EmitTag</c> removes the duplicates from a list one
+    /// at a time, and each removal moves everything after it, so a tag is quadratic in its attributes:
+    /// measured, 100 KB of them took 0.36 s, 520 KB 8 s and 1 MiB 33 s, where a tag of any length with
+    /// one attribute costs nothing. So it is attributes that are counted and not length, since a large
+    /// inline style, a long <c>href</c> and a <c>data:</c> URI are each one. A real tag has a dozen.
+    /// </summary>
+    internal const int MaxAttributes = 16_384;
+
+    private enum Part { Outside, Name, Gap, Equals, Bare, Quoted }
+
     public static bool IsSafe(string html)
     {
         var (startTags, tokens) = (0L, 0L);
         var recursion = 0;
+        var (part, quote, attributes) = (Part.Outside, '\0', 0);
 
         for (var i = 0; i + 2 < html.Length; i++)
         {
-            if (html[i] == '<')
+            var c = html[i];
+
+            if (c == '<')
             {
                 tokens++;
 
                 if (char.IsAsciiLetter(html[i + 1]))
+                {
                     startTags++;
+                    if (part == Part.Outside)
+                        (part, attributes) = (Part.Name, 0);
+                }
                 else if (html[i + 1] == '/' && html[i + 2] == '>')
                     recursion++;
             }
-            else if (html[i] == '-' && html[i + 1] == '-' && html[i + 2] == '!')
+            else if (c == '-' && html[i + 1] == '-' && html[i + 2] == '!')
             {
                 recursion++;
+            }
+
+            // The tokenizer's own attribute states, so a > inside a value does not end the tag it is in.
+            // Text it reads as a tag and the tokenizer does not (in a script, say) only makes this stricter.
+            switch (part)
+            {
+                case Part.Name when c == '>':
+                case Part.Gap when c == '>':
+                case Part.Equals when c == '>':
+                case Part.Bare when c == '>':
+                    part = Part.Outside;
+                    break;
+                case Part.Name when IsSpace(c) || c == '/':
+                case Part.Bare when IsSpace(c):
+                    part = Part.Gap;
+                    break;
+                case Part.Name when c == '=':
+                    part = Part.Equals;
+                    break;
+                case Part.Gap when !IsSpace(c) && c != '/':
+                    part = Part.Name;
+                    if (++attributes > MaxAttributes)
+                        return false;
+                    break;
+                case Part.Equals when c is '"' or '\'':
+                    (part, quote) = (Part.Quoted, c);
+                    break;
+                case Part.Equals when !IsSpace(c):
+                    part = Part.Bare;
+                    break;
+                case Part.Quoted when c == quote:
+                    part = Part.Gap;
+                    break;
             }
         }
 
         return startTags * tokens <= MaxWalk && recursion <= MaxRecursion;
     }
+
+    private static bool IsSpace(char c) => c is ' ' or '\t' or '\n' or '\r' or '\f';
 }

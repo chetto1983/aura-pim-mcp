@@ -360,6 +360,53 @@ public class MailBodyBoundsTests
         }
     }
 
+    private static string Names(int count) =>
+        string.Concat(Enumerable.Range(0, count).Select(i => $" n{i}"));
+
+    /// <summary>
+    /// <c>EmitTag</c> removes the duplicates of a tag's attributes one at a time from a list, so a tag of
+    /// many attributes is quadratic. Measured: 100 KB took 0.36 s, 260 KB 1.8 s, 520 KB 8 s and 1 MiB 33 s.
+    /// </summary>
+    public static IEnumerable<object[]> TagsOfManyAttributes =>
+    [
+        ["the review's tag", "<b" + Repeated(" a", 262_000) + Names(104_000) + ">"],
+        ["no duplicates at all", "<b" + Names(MarkupShape.MaxAttributes + 1) + ">"],
+        ["a quoted > between them", "<b" + Repeated(" a=\">\"", 100_000) + ">"],
+        ["a quoted < and an apostrophe", "<b" + Repeated(" a='<\"'", 100_000) + ">"],
+        ["slashes for spaces", "<b" + Repeated("/a", 100_000) + ">"],
+        ["values with no quotes", "<b" + Repeated(" a=1", 100_000) + ">"],
+        ["after a tag that ended", "<i x>" + "<b" + Repeated(" a", 100_000) + ">"],
+    ];
+
+    [TestMethod]
+    [DynamicData(nameof(TagsOfManyAttributes))]
+    public void ATagOfManyAttributes_IsRefused(string shape, string html)
+    {
+        Assert.IsFalse(MarkupShape.IsSafe(html), shape);
+    }
+
+    /// <summary>A tag can be long without having many attributes: one quoted value is one attribute.</summary>
+    [TestMethod]
+    public void ALongLegitimateTag_IsNotRefused()
+    {
+        var style = Repeated("color: red; margin: 0 auto; ", 30_000);
+        var href = "https://a.example.com/track?" + Repeated("utm=abcdefgh&", 40_000);
+        var data = "data:image/png;base64," + Repeated("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4", 12_000);
+
+        foreach (var (shape, html) in new[]
+        {
+            ("a large inline style", $"""<div style="{style}">Parole</div>"""),
+            ("a long href", $"""<a href="{href}">Parole</a>"""),
+            ("a data URI", $"""<img alt="Parole" src="{data}">"""),
+            ("a > inside a value", """<a title="a > b" href='x>y'>Parole</a>"""),
+            ("a few hundred attributes", "<td" + Names(500) + ">Parole</td>"),
+            ("a self-closing tag", "<br/><img src=a />"),
+        })
+        {
+            Assert.IsTrue(MarkupShape.IsSafe(html), shape);
+        }
+    }
+
     /// <summary>
     /// The tokenizer's comment and end-tag states call each other, a few frames a unit, and a stack
     /// overflow is not something any thread can catch. Measured on 8 MiB at 240 KB on cold code. Once the
