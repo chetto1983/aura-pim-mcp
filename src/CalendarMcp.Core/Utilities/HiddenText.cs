@@ -59,7 +59,6 @@ internal static partial class HiddenText
 
     private static readonly Rgb PageBackground = new(255, 255, 255);
     private static readonly string[] Margins = ["margin-left", "margin-right", "margin-top", "margin-bottom"];
-    private static readonly string[] Offsets = ["left", "right", "top", "bottom"];
 
     /// <summary>
     /// What a person reads a mail on. The engine's default device has no width at all, which
@@ -77,9 +76,9 @@ internal static partial class HiddenText
     private readonly record struct Rgb(int Red, int Green, int Blue);
 
     /// <summary>What an element hands down, and whether its own text can be seen.</summary>
-    private sealed record Look(bool HidesItsContent, bool IsUnseen, double FontPixels, string? Visibility, string? Color, string? Background, int LongestVariable)
+    private sealed record Look(bool HidesItsContent, bool IsUnseen, double FontPixels, string? Visibility, string? Color, string? Background, int LongestVariable, double Shift)
     {
-        public static readonly Look Page = new(false, false, DefaultFontPixels, null, null, null, 0);
+        public static readonly Look Page = new(false, false, DefaultFontPixels, null, null, null, 0, 0);
     }
 
     /// <summary>Everything is judged before anything goes: a removed <c>&lt;style&gt;</c> rule cannot judge what follows it.</summary>
@@ -142,18 +141,19 @@ internal static partial class HiddenText
         var visibility = Inherited(Value("visibility"), above.Visibility);
         var color = Inherited(Value("color"), above.Color);
         var background = Background(element, Value) ?? above.Background;
+        var shift = above.Shift + (Value("position") == "relative" ? Pixels(Value("left"), font) ?? 0 : 0);
 
         var hides = Value("display") == "none"
             || IsFaint(Value("opacity"))
             || Value("mso-hide") == "all"
             || IsClippedBox(Value, font)
             || IsClippedAway(Value("clip-path"), font)
-            || IsOffScreen(Value, font);
+            || IsOffScreen(Value, font, shift);
 
         var unseen = hides || font <= TinyFontPixels || visibility is "hidden" or "collapse" || BlendsIn(color, background)
             || IsPixel(element, Value, font);
 
-        return new Look(hides, unseen, font, visibility, color, background, longestVariable);
+        return new Look(hides, unseen, font, visibility, color, background, longestVariable, shift);
     }
 
     // Only the engine can work out var() and calc(), at the price of the element's whole ancestor
@@ -254,8 +254,11 @@ internal static partial class HiddenText
     /// <summary>
     /// A margin only moves a box from where it would be, so it has to outrun the whole screen to prove
     /// anything, where an offset on something positioned has less to go: layouts overlap with both.
+    /// The page grows right and down to hold a box, so losing one there takes a whole screen too, except
+    /// a fixed box, which the page does not hold. A shift is what the relative boxes above have added,
+    /// because <c>left:-50%</c> alone leaves the screen, and inside <c>left:50%</c> is how one centres.
     /// </summary>
-    private static bool IsOffScreen(Func<string, string?> value, double font)
+    private static bool IsOffScreen(Func<string, string?> value, double font, double shift)
     {
         if (Pixels(value("text-indent"), font) <= OffScreenPixels)
             return true;
@@ -266,9 +269,22 @@ internal static partial class HiddenText
         if (Margins.Any(margin => Pixels(value(margin), font) <= -Reader.ViewPortWidth))
             return true;
 
-        return value("position") is "absolute" or "fixed" or "relative"
-            && (Offsets.Any(offset => Pixels(value(offset), font) <= OffScreenPixels)
-                || Pixels(value("left"), font) >= Reader.ViewPortWidth);
+        var position = value("position");
+        if (position is not ("absolute" or "fixed" or "relative"))
+            return false;
+
+        double? Offset(string side) => Pixels(value(side), font);
+        var isFixed = position == "fixed";
+        var past = isFixed ? OffScreenPixels : -Reader.ViewPortWidth;
+
+        return (position == "relative" ? shift : Offset("left")) <= OffScreenPixels
+            || Offset("top") <= OffScreenPixels
+            || Offset("right") <= past
+            || Offset("bottom") <= past
+            || Offset("left") >= Reader.ViewPortWidth
+            || Offset("right") >= Reader.ViewPortWidth
+            || Offset("bottom") >= Reader.ViewPortWidth
+            || (isFixed && Offset("top") >= Reader.ViewPortWidth);
     }
 
     private static bool IsPixel(IElement element, Func<string, string?> value, double font) =>

@@ -136,6 +136,17 @@ public class MailBodyTests
     [DataRow("""<div style="font-size:0"><span style="font-size:inherit">SECRET</span></div>""", "a keyword that hands the zero on")]
     [DataRow("""<div style="font-size:0"><span style="font-size:unset">SECRET</span></div>""", "an unset size, which inherits")]
     [DataRow("""<div style="font-size:medium"><span style="font-size:1%">SECRET</span></div>""", "a share of a keyword")]
+    [DataRow("""<p style="position:relative;left:-50%">SECRET</p>""", "half a page to the left with nothing moving it back")]
+    [DataRow("""<div style="position:relative;left:1%"><p style="position:relative;left:-50%">SECRET</p></div>""", "the centring trick that does not add up")]
+    [DataRow("""<p style="position:relative;top:-120px">SECRET</p>""", "off the top of the mail")]
+    [DataRow("""<p style="position:absolute;left:-120px">SECRET</p>""", "off to the left, which nothing scrolls to")]
+    [DataRow("""<p style="position:relative;right:-9999px">SECRET</p>""", "a whole screen to the right")]
+    [DataRow("""<p style="position:absolute;bottom:-9999px">SECRET</p>""", "a whole screen below its box")]
+    [DataRow("""<p style="position:fixed;bottom:-120px">SECRET</p>""", "fixed below the screen, which the page cannot follow")]
+    [DataRow("""<p style="position:fixed;right:-120px">SECRET</p>""", "fixed off to the right, which the page cannot follow")]
+    [DataRow("""<p style="position:fixed;top:9999px">SECRET</p>""", "fixed far down the screen")]
+    [DataRow("""<p style="position:absolute;right:9999px">SECRET</p>""", "off to the left by its right edge")]
+    [DataRow("""<p style="position:absolute;bottom:9999px">SECRET</p>""", "off the top by its bottom edge")]
     public void HiddenText_NeverReachesTheModel(string hidden, string method)
     {
         var markdown = MailBody.ToMarkdown($"<html><body><p>Visible words</p>{hidden}</body></html>");
@@ -178,6 +189,12 @@ public class MailBodyTests
     [DataRow("""<div style="font-size:0"><span style="font:small sans-serif">SHOWN</span></div>""", "a keyword in the shorthand")]
     [DataRow("""<p style="font-size:smaller">SHOWN</p>""", "smaller than a page")]
     [DataRow("""<div style="font-size:2px"><span style="font-size:larger"><b style="font-size:larger">SHOWN</b></span></div>""", "larger twice over what was too small")]
+    [DataRow("""<p style="position:relative;bottom:-120px">SHOWN</p>""", "moved down the page")]
+    [DataRow("""<p style="position:relative;right:-120px">SHOWN</p>""", "moved right")]
+    [DataRow("""<p style="position:relative;right:-50%">SHOWN</p>""", "moved right by half the page")]
+    [DataRow("""<p style="position:absolute;bottom:-120px">SHOWN</p>""", "hanging below its box, where the page grows")]
+    [DataRow("""<p style="position:absolute;right:-120px">SHOWN</p>""", "hanging off its box to the right, where the page grows")]
+    [DataRow("""<div style="float:left;position:relative;left:50%"><div style="position:relative;left:-50%">SHOWN</div></div>""", "the centring trick")]
     public void RenderedText_IsNotMistakenForHiddenText(string shown, string layout)
     {
         var markdown = MailBody.ToMarkdown($"<html><body>{shown}</body></html>");
