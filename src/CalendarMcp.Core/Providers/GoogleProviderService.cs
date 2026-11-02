@@ -1574,7 +1574,7 @@ public partial class GoogleProviderService : IGoogleProviderService
                 return (text, MailParts.FormatOf(part.MimeType));
         }
 
-        return (string.Empty, "text");
+        return MailParts.NoBody(message.Payload, GmailParts);
     }
 
     private static string DecodeBase64Url(string base64Url)

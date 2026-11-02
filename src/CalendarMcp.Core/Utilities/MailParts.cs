@@ -21,6 +21,14 @@ internal static class MailParts
 
     public static IEnumerable<T> BodyCandidates<T>(T root, Shape<T> shape) => Walk(root, shape, 0);
 
+    /// <summary>
+    /// What a mail with no readable part holds: nothing, unless its tree goes past what is walked. Then
+    /// its words may be down there, and nesting is free, so reading as empty would let a stranger make
+    /// any mail look as if it had nothing to say.
+    /// </summary>
+    public static (string Body, string Format) NoBody<T>(T root, Shape<T> shape) =>
+        GoesTooDeep(root, shape, 0) ? (MailBody.TooDeep, MailBody.OmittedFormat) : (string.Empty, "text");
+
     public static string FormatOf(string? type) => Is(type, Html) ? MailBody.HtmlFormat : "text";
 
     /// <summary>No words a person could read. A part like this is the same as no part.</summary>
@@ -52,6 +60,9 @@ internal static class MailParts
                 yield return candidate;
         }
     }
+
+    private static bool GoesTooDeep<T>(T part, Shape<T> shape, int depth) =>
+        depth > MaxNesting || shape.Children(part).Any(child => GoesTooDeep(child, shape, depth + 1));
 
     private static bool Is(string? type, string expected) => string.Equals(type, expected, StringComparison.OrdinalIgnoreCase);
 }

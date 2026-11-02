@@ -31,7 +31,7 @@ internal static partial class MailSnippet
         try
         {
             var (body, format) = read();
-            if (body.Length > MailBody.MaxBodyLength)
+            if (format == MailBody.OmittedFormat || body.Length > MailBody.MaxBodyLength)
                 return string.Empty;
 
             var text = format == MailBody.HtmlFormat

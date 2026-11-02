@@ -1,5 +1,7 @@
 using System.Text;
+using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Providers;
+using CalendarMcp.Core.Utilities;
 using CalendarMcp.Tests.Helpers;
 using Google.Apis.Gmail.v1.Data;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -135,14 +137,48 @@ public class MailBodyPreferenceTests
         Assert.AreEqual((string.Empty, "text"), GoogleProviderService.GetMessageBody(message));
     }
 
-    [TestMethod]
-    public void Gmail_PartsNestedPastAnyRealMail_AreNotWalked()
+    private static MessagePart NestedIn(int levels, MessagePart part)
     {
-        var part = Part("text/plain", "plain");
-        for (var i = 0; i < 100_000; i++)
+        for (var i = 0; i < levels; i++)
             part = new MessagePart { MimeType = "multipart/mixed", Parts = [part] };
 
-        Assert.AreEqual((string.Empty, "text"), GoogleProviderService.GetMessageBody(Gmail(part)));
+        return part;
+    }
+
+    [TestMethod]
+    public void Gmail_PartsNestedPastAnyRealMail_SayTheBodyIsLeftOut()
+    {
+        var message = Gmail(NestedIn(100_000, Part("text/plain", "plain")));
+
+        Assert.AreEqual((MailBody.TooDeep, MailBody.OmittedFormat), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_PartsAtTheLastLevelRead_AreRead()
+    {
+        Assert.AreEqual(("plain", "text"), GoogleProviderService.GetMessageBody(Gmail(NestedIn(32, Part("text/plain", "plain")))));
+    }
+
+    [TestMethod]
+    public void Gmail_APartBeforeTheDepth_IsTheBody()
+    {
+        var message = Gmail(new MessagePart { MimeType = "multipart/mixed", Parts = [Part("text/plain", "plain"), NestedIn(100, Part("text/plain", "deep"))] });
+
+        Assert.AreEqual(("plain", "text"), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void Gmail_OnlyBlankBeforeTheDepth_SaysTheBodyIsLeftOut()
+    {
+        var message = Gmail(new MessagePart { MimeType = "multipart/mixed", Parts = [Part("text/plain", " "), NestedIn(100, Part("text/plain", "deep"))] });
+
+        Assert.AreEqual((MailBody.TooDeep, MailBody.OmittedFormat), GoogleProviderService.GetMessageBody(message));
+    }
+
+    [TestMethod]
+    public void ABodyLeftOut_IsNoSnippet()
+    {
+        Assert.AreEqual(string.Empty, MailSnippet.Of(MailBody.TooDeep, MailBody.OmittedFormat));
     }
 
     [TestMethod]

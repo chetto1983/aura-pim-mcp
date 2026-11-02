@@ -161,7 +161,7 @@ public partial class ImapProviderService
                 return (text, MailParts.FormatOf(part.ContentType.MimeType));
         }
 
-        return (string.Empty, "text");
+        return MailParts.NoBody(m.Body, MimeParts);
     }
 
     // What MimeMessage.TextBody does for format=flowed, whose helper MimeKit keeps internal.
