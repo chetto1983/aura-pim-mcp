@@ -124,7 +124,9 @@ public class MailBodyBoundsTests
     [DataRow("<pre><listing>")]
     public void TagsTheParserRecursesOn_AreRefusedOnASmallStack(string level)
     {
-        var html = string.Concat(Enumerable.Repeat(level, (MailBody.MaxBodyLength - 8) / level.Length)) + "Parole";
+        // Under what MarkupShape refuses first, or the parser's own guard would never be reached.
+        var levels = (int)Math.Sqrt(MarkupShape.MaxWalk) / (level.Split('<').Length - 1);
+        var html = string.Concat(Enumerable.Repeat(level, levels)) + "Parole";
 
         OnASmallStack(() =>
         {
@@ -287,6 +289,75 @@ public class MailBodyBoundsTests
         MailSnippet.Of(html, MailBody.HtmlFormat);
 
         Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(3), $"{shape}: {watch.Elapsed}");
+    }
+
+    /// <summary>
+    /// A token that creates no element reads no budget, and these walk the stack of open elements, so
+    /// they ran for minutes inside one parse: over 90 s, with the mail still under the cap.
+    /// </summary>
+    public static IEnumerable<object[]> FloodsThatCreateNoElement =>
+    [
+        ["end tags that match nothing", Repeated("<x>", 100_000) + Repeated("</y>", 170_000)],
+        ["end tags of blocks", Repeated("<x>", 100_000) + Repeated("</div>", 120_000)],
+        ["end tags of list items", Repeated("<x>", 80_000) + Repeated("</li>", 150_000)],
+        ["end tags of headings", Repeated("<x>", 80_000) + Repeated("</h1>", 150_000)],
+        ["end tags of formatting", Repeated("<x>", 80_000) + Repeated("</a>", 180_000)],
+        ["end tags of a body", Repeated("<x>", 100_000) + Repeated("</body>", 100_000)],
+        ["end tags in svg", "<svg>" + Repeated("<g>", 100_000) + Repeated("</y>", 170_000)],
+        ["end tags in mathml", "<math>" + Repeated("<mi>", 80_000) + Repeated("</y>", 170_000)],
+        ["text behind a formatting element", Repeated("<x>", 100_000) + "<b>" + Repeated("a<!x>", 130_000)],
+        ["text and comments behind one", Repeated("<x>", 100_000) + "<b>" + Repeated("a<!---->", 85_000)],
+    ];
+
+    [TestMethod]
+    [DynamicData(nameof(FloodsThatCreateNoElement))]
+    public void AFloodThatCreatesNoElement_IsRefusedBeforeTheParser(string shape, string html)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var (body, format) = MailBody.ForModel(html, MailBody.HtmlFormat);
+
+        Assert.AreEqual(MailBody.OmittedFormat, format, shape);
+        StringAssert.Contains(body, "markup", shape);
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromMilliseconds(250), $"{shape}: {watch.Elapsed}");
+    }
+
+    /// <summary>The bound counts what is there, so tags in a comment or an attribute only make it stricter.</summary>
+    [TestMethod]
+    [DataRow("<!--", "-->", "in a comment")]
+    [DataRow("<p title=\"", "\">x</p>", "in an attribute")]
+    [DataRow("<style>", "</style>", "in a style element")]
+    public void HidingTheTags_DoesNotHideThem(string open, string close, string where)
+    {
+        var html = open + Repeated("<x>", 100_000) + Repeated("</y>", 170_000) + close;
+
+        Assert.IsFalse(MarkupShape.IsSafe(html), where);
+    }
+
+    /// <summary>Hidden closing tags change nothing: only a tokenizer could tell, and a count of what stays open would believe them.</summary>
+    [TestMethod]
+    public void ClosingTagsInAComment_DoNotBuyTheFloodItsWay()
+    {
+        var html = Repeated("<x>", 40_000) + "<!--" + Repeated("</x>", 40_000) + "-->" + Repeated("</y>", 80_000);
+
+        Assert.IsFalse(MarkupShape.IsSafe(html));
+    }
+
+    /// <summary>Nothing in a large mail of ordinary tags comes near it, even at the cap.</summary>
+    [TestMethod]
+    public void ALargeOrdinaryMail_IsNotRefused()
+    {
+        var newsletter = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestData", "Mail", "newsletter-large.html"));
+        const string row = """<tr><td style="padding:4px 8px;border-bottom:1px solid #eee"><a href="https://a.example.com/report?id=1">Riga</a></td><td style="padding:4px 8px">12,50</td></tr>""";
+
+        foreach (var (shape, html) in new[]
+        {
+            ("the newsletter again and again", Repeated(newsletter, MailBody.MaxBodyLength / newsletter.Length)),
+            ("a report of ten thousand rows, up to the cap", "<table>" + Repeated(row, (MailBody.MaxBodyLength - 16) / row.Length) + "</table>"),
+        })
+        {
+            Assert.IsTrue(MarkupShape.IsSafe(html), shape);
+        }
     }
 
     /// <summary>
