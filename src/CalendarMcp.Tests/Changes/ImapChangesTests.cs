@@ -601,6 +601,61 @@ public class ImapChangesTests
         Assert.AreEqual(writtenTo, (await mailbox.ReadAsync(first.Next)).Changes.Single().Signals!.WrittenTo);
     }
 
+    /// <summary>
+    /// A NO on a folder that is still there passes with time (RFC 5530: UNAVAILABLE, INUSE). Read as gone,
+    /// every mail on the page would lose its written-to and the cursor would move past them for good.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, "NO [UNAVAILABLE] Try later")]
+    [DataRow(true, "NO [UNAVAILABLE] Try later")]
+    [DataRow(false, "NO [INUSE] Try later")]
+    [DataRow(false, "NO Not now")]
+    public async Task ATemporaryNoOnSent_FailsThePageAndTheSameCursorReadsIt(bool dovecot, string refusal)
+    {
+        await using var proxy = RefusingImapProxy.Before(dovecot ? ImapServers.Dovecot : ImapServers.GreenMail);
+        await using var mailbox = await ImapMailbox.OpenAsync(proxy.Address);
+        await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "collega@example.com"));
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail(from: "collega@example.com"));
+        await using var pim = new ChangesPipeline([mailbox.Account], [mailbox.Provider]);
+        var request = new { accountId = mailbox.Account.Id, resource = "mail", cursor = cursor.Encode() };
+
+        proxy.Refusal = refusal;
+        var (refused, failure) = await pim.PostAsync("/admin/changes", request);
+
+        Assert.AreEqual(503, refused, failure.ToString());
+        Assert.AreEqual("provider_transient", failure.GetProperty("error").GetString());
+        Assert.AreEqual(1, proxy.Refused);
+
+        proxy.Refusal = null;
+        var (status, page) = await pim.PostAsync("/admin/changes", request);
+
+        Assert.AreEqual(200, status);
+        Assert.IsTrue(page.GetProperty("changes").EnumerateArray().Single().GetProperty("signals").GetProperty("writtenTo").GetBoolean());
+    }
+
+    /// <summary>The other side of the same answer: the fresh listing no longer has the folder, so it really has gone.</summary>
+    [TestMethod]
+    public async Task ANoOnASentFolderThatHasGone_LeavesWrittenToUnknown()
+    {
+        await using var proxy = RefusingImapProxy.Before(ImapServers.GreenMail);
+        await using var mailbox = await ImapMailbox.OpenAsync(proxy.Address);
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail("Prima", from: "prima@example.com"));
+        var first = await mailbox.ReadAsync(cursor);
+
+        // A read with nothing new moves this session off Sent. GreenMail drops a session with the deleted
+        // folder selected, and the new one would simply not find it, without an EXAMINE to refuse.
+        var quiet = await mailbox.ReadAsync(first.Next);
+
+        await mailbox.DeleteFolderAsync(ImapMailbox.SentFolder);
+        await mailbox.DeliverAsync(ImapMailbox.Mail("Dopo", from: "dopo@example.com"));
+        proxy.Refusal = "NO No such mailbox";
+
+        Assert.IsNull((await mailbox.ReadAsync(quiet.Next)).Changes.Single().Signals!.WrittenTo);
+        Assert.AreEqual(1, proxy.Refused);
+    }
+
     [TestMethod]
     public async Task AGarbledKnownSet_IsRefusedBeforeTheServerIsAsked()
     {

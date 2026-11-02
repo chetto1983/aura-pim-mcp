@@ -410,17 +410,35 @@ public partial class ImapProviderService
             return null;
 
         // MailKit keeps a folder it has listed, so one deleted since is found again and refused at EXAMINE.
-        // The refusal is the server's NO, whatever its wording.
         try
         {
             await sent.OpenAsync(FolderAccess.ReadOnly, cancellationToken);
         }
-        catch (Exception e) when (e is FolderNotFoundException or ImapCommandException { Response: ImapCommandResponse.No })
+        catch (FolderNotFoundException)
         {
+            return null;
+        }
+        catch (ImapCommandException e) when (e.Response == ImapCommandResponse.No)
+        {
+            // A NO's wording is the server's own, and it also means later (RFC 5530: UNAVAILABLE, INUSE).
+            // Read as gone, a blip would lose the page its written-to, and the cursor would pass those mails.
+            if (await IsStillListedAsync(sent, cancellationToken))
+                throw;
+
             return null;
         }
 
         return sent;
+    }
+
+    // GetSubfolderAsync answers from MailKit's cache, which is the reason to ask. This one sends a LIST.
+    private static async Task<bool> IsStillListedAsync(IMailFolder folder, CancellationToken cancellationToken)
+    {
+        if (folder.ParentFolder is not { } parent)
+            return true;
+
+        var listed = await parent.GetSubfoldersAsync(false, cancellationToken);
+        return listed.Any(candidate => candidate.FullName == folder.FullName);
     }
 
     private static async Task<bool?> SentToAsync(IMailFolder? sent, string address, CancellationToken cancellationToken)
