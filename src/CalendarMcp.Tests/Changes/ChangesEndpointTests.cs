@@ -64,6 +64,8 @@ public class ChangesEndpointTests
         Assert.AreEqual("2026-10-31T14:47:00Z", changes[0].GetProperty("occurredAt").GetString());
         Assert.AreEqual(JsonValueKind.Null, changes[0].GetProperty("signals").GetProperty("writtenTo").ValueKind,
             "null is a fact here, so it has to be written");
+        Assert.AreEqual(JsonValueKind.False, changes[0].GetProperty("signals").GetProperty("invitation").ValueKind,
+            "Aura reads this name");
         Assert.IsFalse(changes[1].TryGetProperty("subject", out _), "a deleted row carries its id alone");
         Assert.IsFalse(changes[1].TryGetProperty("signals", out _));
         Assert.IsTrue(body.GetProperty("hasMore").GetBoolean());

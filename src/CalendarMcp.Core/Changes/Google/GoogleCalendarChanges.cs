@@ -94,7 +94,9 @@ internal sealed class GoogleCalendarChanges(IGoogleApiClients clients, TimeProvi
         try
         {
             // A cancelled event can still be read, and its title is how a person knows which one went.
+            // A cancelled instance of a series has none of its own, so it takes the series'.
             var found = await calendar.Events.Get(item.CalendarId, item.Id).ExecuteAsync(cancellationToken);
+            await new EventReads(calendar).FillInAsync(item.CalendarId, found, cancellationToken);
             if (found.Status == EventChanges.Cancelled && string.IsNullOrEmpty(found.Summary))
                 return null;
 

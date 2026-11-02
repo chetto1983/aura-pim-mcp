@@ -247,6 +247,34 @@ public class ItemsEndpointTests
     }
 
     [TestMethod]
+    public async Task GoogleCalendar_ACancelledInstance_TakesItsSeriesTitle()
+    {
+        var http = new FakeHttp()
+            .On("/calendars/work/events/instance1", GmailFixtures.Json(new
+            {
+                id = "instance1",
+                status = "cancelled",
+                recurringEventId = "series1",
+                originalStartTime = new { dateTime = "2026-11-09T09:00:00Z" }
+            }))
+            .On("/calendars/work/events/series1", GmailFixtures.Json(new
+            {
+                id = "series1",
+                status = "confirmed",
+                summary = "Riunione",
+                organizer = new { email = "capo@example.com" },
+                start = new { dateTime = "2026-11-02T09:00:00Z" }
+            }));
+
+        var facts = await new GoogleCalendarChanges(GmailFixtures.Provider(http), TimeProvider.System)
+            .ReadItemAsync("a", new ItemRef("instance1", "work"), default);
+
+        Assert.AreEqual("Riunione", facts!.Subject);
+        Assert.AreEqual("2026-11-09T09:00:00Z", facts.Event!.Start, "the date is this instance's, not the series'");
+        Assert.AreEqual(EventChanges.Cancelled, facts.Event.Status);
+    }
+
+    [TestMethod]
     public async Task GraphMail_ReadsOnlyWhatItNeeds()
     {
         var http = new FakeHttp().On("/me/messages/m1", GraphFixtures.Json(new
