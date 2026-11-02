@@ -101,12 +101,17 @@ public class DeviceCodeAuthManager
         return false;
     }
 
+    /// <summary>The tenant and client an account signs in with; the client is null when unset.</summary>
+    internal static (string TenantId, string? ClientId) MicrosoftClient(AccountInfo account) => (
+        account.ProviderConfig.GetValueOrDefault("TenantId")
+            ?? account.ProviderConfig.GetValueOrDefault("tenantId", "common"),
+        account.ProviderConfig.GetValueOrDefault("ClientId")
+            ?? account.ProviderConfig.GetValueOrDefault("clientId"));
+
     private async Task<DeviceCodeResponse> StartM365DeviceCodeFlowAsync(AccountInfo account, CancellationToken cancellationToken)
     {
-        var tenantId = account.ProviderConfig.GetValueOrDefault("TenantId")
-            ?? account.ProviderConfig.GetValueOrDefault("tenantId", "common");
-        var clientId = account.ProviderConfig.GetValueOrDefault("ClientId")
-            ?? account.ProviderConfig.GetValueOrDefault("clientId")
+        var (tenantId, configuredClient) = MicrosoftClient(account);
+        var clientId = configuredClient
             ?? throw new InvalidOperationException($"Account '{account.Id}' is missing ClientId in ProviderConfig.");
 
         // Start from the base scopes for the provider, plus offline_access for refresh tokens.

@@ -28,6 +28,9 @@ internal sealed class StaticTokenAuthentication : IM365AuthenticationService
         string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>
         Task.FromResult<string?>("token");
 
+    public Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId) =>
+        Task.FromResult(true);
+
     public Task<string> AuthenticateInteractiveAsync(
         string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();

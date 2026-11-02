@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using CalendarMcp.Core.Services;
 using Microsoft.Identity.Client;
 using Microsoft.Identity.Client.Extensions.Msal;
@@ -11,7 +12,9 @@ namespace CalendarMcp.Core.Providers;
 public class M365AuthenticationService : IM365AuthenticationService
 {
     private readonly ILogger<M365AuthenticationService> _logger;
-    private readonly Dictionary<string, IPublicClientApplication> _apps = new();
+    private readonly ConcurrentDictionary<string, AccountApp> _apps = new();
+
+    private sealed record AccountApp(string TenantId, string ClientId, IPublicClientApplication App);
 
     public M365AuthenticationService(ILogger<M365AuthenticationService> logger)
     {
@@ -117,6 +120,22 @@ public class M365AuthenticationService : IM365AuthenticationService
         }, accountId);
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId)
+    {
+        try
+        {
+            var app = await GetOrCreateAppAsync(tenantId, clientId, accountId);
+            return (await app.GetAccountsAsync()).Any();
+        }
+        catch (Exception ex)
+        {
+            // One account's bad client must not cost the operator the whole list of accounts.
+            _logger.LogWarning(ex, "Could not read the sign-in state of account {AccountId}", accountId);
+            return false;
+        }
+    }
+
     // Only this exception says the grant is gone. Null reads as "reconnect the account", so a
     // network blip during a refresh must not end here: it would pause a person's watch.
     internal async Task<string?> NullWhenGrantIsGoneAsync(Func<Task<string?>> acquire, string accountId)
@@ -133,17 +152,20 @@ public class M365AuthenticationService : IM365AuthenticationService
     }
 
     /// <summary>
-    /// Get or create an IPublicClientApplication for a specific account
+    /// Get or create an IPublicClientApplication for a specific account. An account can be removed
+    /// and added again under the same id with another tenant or client, so the id alone does not
+    /// identify the application.
     /// </summary>
-    private async Task<IPublicClientApplication> GetOrCreateAppAsync(
+    internal async Task<IPublicClientApplication> GetOrCreateAppAsync(
         string tenantId,
         string clientId,
         string accountId)
     {
-        // Use account ID as cache key
-        if (_apps.TryGetValue(accountId, out var existingApp))
+        if (_apps.TryGetValue(accountId, out var existing)
+            && existing.TenantId == tenantId
+            && existing.ClientId == clientId)
         {
-            return existingApp;
+            return existing.App;
         }
 
         // Create cache file name unique to this account
@@ -188,7 +210,7 @@ public class M365AuthenticationService : IM365AuthenticationService
         _logger.LogDebug("Initialized MSAL app for account {AccountId} with cache file {CacheFile}",
             accountId, cacheFileName);
 
-        _apps[accountId] = app;
+        _apps[accountId] = new AccountApp(tenantId, clientId, app);
         return app;
     }
 }

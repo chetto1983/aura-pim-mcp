@@ -59,4 +59,10 @@ public interface IM365AuthenticationService
         string[] scopes,
         string accountId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether the account's token cache holds a signed-in user. It reads the cache only, so
+    /// polling it never calls Microsoft.
+    /// </summary>
+    Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId);
 }

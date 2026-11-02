@@ -1,4 +1,5 @@
 using CalendarMcp.Auth;
+using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
@@ -44,19 +45,26 @@ public static class AdminEndpoints
     /// <summary>
     /// List all configured accounts with their basic info (no secrets).
     /// </summary>
-    private static async Task<IResult> ListAccounts(IAccountRegistry accountRegistry)
+    private static async Task<IResult> ListAccounts(
+        IAccountRegistry accountRegistry,
+        IM365AuthenticationService m365Auth)
     {
         var accounts = await accountRegistry.GetAllAccountsAsync();
-        var response = accounts.Select(a => new
+        var response = new List<object>();
+        foreach (var a in accounts)
         {
-            id = a.Id,
-            displayName = a.DisplayName,
-            provider = a.Provider,
-            domains = a.Domains,
-            enabled = a.Enabled,
-            priority = a.Priority,
-            permissions = DescribePermissions(a)
-        });
+            response.Add(new
+            {
+                id = a.Id,
+                displayName = a.DisplayName,
+                provider = a.Provider,
+                domains = a.Domains,
+                enabled = a.Enabled,
+                priority = a.Priority,
+                linked = await LinkedAsync(a, m365Auth),
+                permissions = DescribePermissions(a)
+            });
+        }
 
         return Results.Ok(new { accounts = response });
     }
@@ -87,7 +95,8 @@ public static class AdminEndpoints
     private static async Task<IResult> GetAccountStatus(
         string accountId,
         IAccountRegistry accountRegistry,
-        DeviceCodeAuthManager authManager)
+        DeviceCodeAuthManager authManager,
+        IM365AuthenticationService m365Auth)
     {
         var account = await accountRegistry.GetAccountAsync(accountId);
         if (account == null)
@@ -103,16 +112,31 @@ public static class AdminEndpoints
             displayName = account.DisplayName,
             provider = account.Provider,
             enabled = account.Enabled,
-            linked = GoogleLinked(account),
+            linked = await LinkedAsync(account, m365Auth),
             permissions = DescribePermissions(account),
             authFlow = flowStatus.Status != "not_found" ? flowStatus : null
         });
     }
 
     /// <summary>
+    /// Whether the account finished signing in. An account exists from the moment it is added, so
+    /// only this tells a connected account from one whose sign-in failed. Null for providers with
+    /// nothing to sign in to. It reads what the sign-in stored, so polling it never calls a provider.
+    /// </summary>
+    internal static async Task<bool?> LinkedAsync(AccountInfo account, IM365AuthenticationService m365Auth)
+    {
+        if (ChangesProviders.Family(account.Provider) is not (ChangesProviders.Microsoft365 or ChangesProviders.Outlook))
+        {
+            return GoogleLinked(account);
+        }
+
+        var (tenantId, clientId) = DeviceCodeAuthManager.MicrosoftClient(account);
+        return clientId is not null && await m365Auth.HasSignedInUserAsync(tenantId, clientId, account.Id);
+    }
+
+    /// <summary>
     /// Whether a Google account holds the token its OAuth exchange stored; null for other
-    /// providers, whose link state is either reported through authFlow (device code) or does not
-    /// exist (credential and feed providers). A file check, so polling it never calls Google.
+    /// providers. A file check, so polling it never calls Google.
     /// </summary>
     internal static bool? GoogleLinked(AccountInfo account) =>
         string.Equals(account.Provider, "google", StringComparison.OrdinalIgnoreCase)
