@@ -245,7 +245,10 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`.
 - An upgrade of AngleSharp or AngleSharp.Css, both pinned, reopens `SelectorCost`, `MarkupShape`, the
   allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
-  that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added.
+  that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added, with
+  or without brackets: a bare name is cheap only if it is on the list in `PseudoClass`.
+- `ImapProviderService.cs`: `OpenImapAsync` makes its client with `ImapNoCodes.NewClient()` in place of
+  `new ImapClient()`. The logger reads `NO [NOPERM]` and `NO [CANNOT]`, which MailKit takes out of its exceptions.
 - A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
   `ChangesProviders`, and `ChangesRegistrationTests` lists every source.
 - Upstream's `IProviderServices.cs`: the fork's provider interfaces also inherit
