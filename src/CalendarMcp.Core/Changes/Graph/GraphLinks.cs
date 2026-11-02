@@ -9,10 +9,12 @@ internal static class GraphLinks
     private const string Host = "graph.microsoft.com";
 
     /// <summary>
-    /// Asks for an id that lasts. An item's default id changes when it moves, Deleted Items included,
+    /// Asks for an id that lasts. A mail's default id changes when it moves, Deleted Items included,
     /// so one kept for later reads as gone while the mail is still there. The header holds only for
     /// the request it is on, and delta links take both formats, so nothing resyncs
-    /// (https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+    /// (https://learn.microsoft.com/en-us/graph/outlook-immutable-id). Events keep their default id
+    /// on purpose: a deleted event is told by that id no longer resolving, and Aura finds an event's
+    /// earlier start by it.
     /// </summary>
     public static void AskForLastingIds(RequestHeaders headers) => headers.Add("Prefer", "IdType=\"ImmutableId\"");
 
