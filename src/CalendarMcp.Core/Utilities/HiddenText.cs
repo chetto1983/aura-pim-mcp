@@ -26,6 +26,24 @@ internal static partial class HiddenText
     private const double FaintOpacity = 0.1;
     private const double DefaultFontPixels = 16;
     private const int SameColourDistance = 12;
+    private const double FontStep = 1.2;
+
+    /// <summary>
+    /// A keyword names a size and takes nothing from above, so it undoes a zero-size wrapper just as a
+    /// length does. These are the sizes Chromium 131 computes for them.
+    /// </summary>
+    private static readonly Dictionary<string, double> FontKeywords = new()
+    {
+        ["xx-small"] = 9,
+        ["x-small"] = 10,
+        ["small"] = 13,
+        ["medium"] = 16,
+        ["large"] = 18,
+        ["x-large"] = 24,
+        ["xx-large"] = 32,
+        ["xxx-large"] = 48,
+        ["initial"] = DefaultFontPixels
+    };
 
     /// <summary>
     /// The longest a value may get once its var() are replaced. The engine pastes variables in as
@@ -187,13 +205,14 @@ internal static partial class HiddenText
     private static string? Inherited(string? own, string? above) =>
         own is null or "inherit" or "unset" or "revert" or "revert-layer" or "currentcolor" ? above : own;
 
-    private static double FontPixels(string? value, double above)
+    private static double FontPixels(string? value, double above) => value?.ToLowerInvariant() switch
     {
-        if (ReadNumber(value) is { Unit: "%" } percent)
-            return percent.Value * above / 100;
-
-        return Pixels(value, above) ?? above;
-    }
+        "smaller" => above / FontStep,
+        "larger" => above * FontStep,
+        { } keyword when FontKeywords.TryGetValue(keyword, out var pixels) => pixels,
+        _ when ReadNumber(value) is { Unit: "%" } percent => percent.Value * above / 100,
+        _ => Pixels(value, above) ?? above
+    };
 
     private static bool IsFaint(string? opacity) =>
         ReadNumber(opacity) is { } number && (number.Unit == "%" ? number.Value / 100 : number.Value) <= FaintOpacity;

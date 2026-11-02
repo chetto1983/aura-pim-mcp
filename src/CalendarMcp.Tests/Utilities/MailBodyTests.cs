@@ -130,6 +130,12 @@ public class MailBodyTests
     [DataRow("""<style>@media (min-width:600px){.x{display:none}}</style><p class="x">SECRET</p>""", "hidden on a screen as wide as a reader's")]
     [DataRow("""<style>@media screen{.x{display:none}}</style><p class="x">SECRET</p>""", "hidden on any screen")]
     [DataRow("""<style>@media all and (min-width:1024px){.x{font-size:0}}</style><p class="x">SECRET</p>""", "a font hidden at exactly the reader's width")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:smaller">SECRET</span></div>""", "smaller than nothing")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:larger">SECRET</span></div>""", "larger than nothing")]
+    [DataRow("""<div style="font-size:1px"><span style="font-size:larger">SECRET</span></div>""", "larger than one pixel")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:inherit">SECRET</span></div>""", "a keyword that hands the zero on")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:unset">SECRET</span></div>""", "an unset size, which inherits")]
+    [DataRow("""<div style="font-size:medium"><span style="font-size:1%">SECRET</span></div>""", "a share of a keyword")]
     public void HiddenText_NeverReachesTheModel(string hidden, string method)
     {
         var markdown = MailBody.ToMarkdown($"<html><body><p>Visible words</p>{hidden}</body></html>");
@@ -163,6 +169,15 @@ public class MailBodyTests
     [DataRow("""<img src="https://x.example.com/a.png" alt="SHOWN">""", "alt of an image of no stated size")]
     [DataRow("""<style>@media (max-width:600px){.x{display:none}}</style><p class="x">SHOWN</p>""", "hidden only on a phone")]
     [DataRow("""<style>@media print{.x{display:none}}</style><p class="x">SHOWN</p>""", "hidden only on paper")]
+    [DataRow("""<table><tr><td style="font-size:0"><div style="font-size:medium">SHOWN</div></td></tr></table>""", "a keyword reset by a child")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:xx-small">SHOWN</span></div>""", "the smallest keyword")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:small">SHOWN</span></div>""", "a small keyword")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:xxx-large">SHOWN</span></div>""", "the largest keyword")]
+    [DataRow("""<div style="font-size:0"><span style="font-size:initial">SHOWN</span></div>""", "the initial size")]
+    [DataRow("""<style>.x{font-size:large}</style><div style="font-size:0"><span class="x">SHOWN</span></div>""", "a stylesheet's keyword")]
+    [DataRow("""<div style="font-size:0"><span style="font:small sans-serif">SHOWN</span></div>""", "a keyword in the shorthand")]
+    [DataRow("""<p style="font-size:smaller">SHOWN</p>""", "smaller than a page")]
+    [DataRow("""<div style="font-size:2px"><span style="font-size:larger"><b style="font-size:larger">SHOWN</b></span></div>""", "larger twice over what was too small")]
     public void RenderedText_IsNotMistakenForHiddenText(string shown, string layout)
     {
         var markdown = MailBody.ToMarkdown($"<html><body>{shown}</body></html>");
