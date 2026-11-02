@@ -108,6 +108,22 @@ public class GraphMailChangesTests
     }
 
     [TestMethod]
+    [DataRow("#microsoft.graph.eventMessageRequest", true)]
+    [DataRow("#microsoft.graph.eventMessageResponse", true)]
+    [DataRow("#microsoft.graph.eventMessage", true)]
+    [DataRow("#microsoft.graph.message", false)]
+    public async Task AnEventMessage_IsAnInvitation(string type, bool expected)
+    {
+        Quiet().NoSentItems()
+            .On("deltatoken=created-old", Delta(CreatedLink, Row("m1")))
+            .On("/me/messages/m1", OfType(type, Message("m1")));
+
+        var batch = await Source.ReadAsync(Account, Cursor(), 50, default);
+
+        Assert.AreEqual(expected, batch.Changes.Single().Signals!.Invitation);
+    }
+
+    [TestMethod]
     public async Task APageOutOfTime_StillMovesItsCursorPastEveryMail()
     {
         var ids = Enumerable.Range(0, 5).Select(i => $"m{i}").ToArray();

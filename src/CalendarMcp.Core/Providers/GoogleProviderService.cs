@@ -1549,7 +1549,7 @@ public partial class GoogleProviderService : IGoogleProviderService
     }
 
     // A part with a filename is an attachment, even when a small .txt comes inline in body.data.
-    private static readonly MailParts.Shape<MessagePart> GmailParts = new(
+    internal static readonly MailParts.Shape<MessagePart> GmailParts = new(
         part => part.MimeType,
         part => !string.IsNullOrEmpty(part.Filename),
         part => part.Parts ?? []);

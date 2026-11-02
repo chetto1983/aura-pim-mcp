@@ -68,6 +68,9 @@ internal static class GraphFixtures
             internetMessageHeaders = (headers ?? []).Select(h => new { name = h.Name, value = h.Value })
         });
 
+    /// <summary>The same answer for a mail Graph says is of a type derived from message.</summary>
+    public static string OfType(string type, string message) => message.Insert(1, $"\"@odata.type\":\"{type}\",");
+
     public static FakeHttp NoSentItems(this FakeHttp http) =>
         http.On("/mailFolders/sentitems/messages", Json(new { value = Array.Empty<object>() }));
 }

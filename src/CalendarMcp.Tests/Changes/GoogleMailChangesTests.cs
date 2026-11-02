@@ -82,6 +82,22 @@ public class GoogleMailChangesTests
     }
 
     [TestMethod]
+    [DataRow("multipart/alternative", "text/calendar; charset=UTF-8; method=REQUEST", true)]
+    [DataRow("multipart/alternative", "text/calendar; method=PUBLISH", false)]
+    [DataRow("multipart/alternative", "text/plain", false)]
+    [DataRow("message/rfc822", "text/calendar; method=REQUEST", false)]
+    public async Task AnInvitation_IsReadFromItsPart(string outer, string contentType, bool expected)
+    {
+        _http.NoSentMail()
+            .OnHistory("startHistoryId=100", new { historyId = "200", history = new[] { new { id = "150", messagesAdded = new[] { Added("m1", Inbox) } } } })
+            .On("/users/me/messages/m1", MessageHolding("m1", outer, contentType));
+
+        var batch = await Source.ReadAsync(Account, At(100), 50, default);
+
+        Assert.AreEqual(expected, batch.Changes.Single().Signals!.Invitation);
+    }
+
+    [TestMethod]
     public async Task HtmlOnlyMail_HasASnippetWithNoHiddenText()
     {
         _http.NoSentMail()

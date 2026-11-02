@@ -296,7 +296,9 @@ public partial class ImapProviderService
                 ProviderImportant = MailHeaderSignals.IsImportant(header),
                 Bulk = bulk,
                 AuthFailed = MailHeaderSignals.AuthenticationFailed(header("Authentication-Results")),
-                ThreadId = thread
+                ThreadId = thread,
+                Invitation = summary.Body is { } tree
+                    && MailParts.Any(tree, SummaryParts, part => MailHeaderSignals.IsScheduling(part.ContentType))
             }
         };
 

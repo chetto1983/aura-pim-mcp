@@ -46,6 +46,35 @@ internal static class GmailFixtures
             }
         });
 
+    /// <summary>A mail as Gmail's full format nests it, with one part inside <paramref name="outer"/>.</summary>
+    public static string MessageHolding(string id, string outer, string contentType) => Json(new
+    {
+        id,
+        threadId = "t1",
+        labelIds = new[] { "INBOX" },
+        internalDate = "1793457600000",
+        payload = new
+        {
+            mimeType = "multipart/mixed",
+            headers = new[] { new { name = "From", value = "Mario Rossi <mario@example.com>" } },
+            parts = new[]
+            {
+                new
+                {
+                    mimeType = outer,
+                    parts = new[]
+                    {
+                        new
+                        {
+                            mimeType = contentType.Split(';')[0],
+                            headers = new[] { new { name = "Content-Type", value = contentType } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
     public static FakeHttp NoSentMail(this FakeHttp http) =>
         http.On("/users/me/messages?", Json(new { resultSizeEstimate = 0 }));
 

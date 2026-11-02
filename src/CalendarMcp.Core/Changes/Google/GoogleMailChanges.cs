@@ -3,6 +3,7 @@ using System.Net;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
+using CalendarMcp.Core.Utilities;
 using Google;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
@@ -185,10 +186,17 @@ internal sealed class GoogleMailChanges(IGoogleApiClients clients, TimeProvider?
                 AuthFailed = MailHeaderSignals.AuthenticationFailed(header("Authentication-Results")),
                 ThreadId = message.ThreadId,
                 WrittenTo = await writtenTo.ForMailAsync(
-                    address, bulk, MailHeaderSignals.IsReply(header), message.ThreadId, cancellationToken)
+                    address, bulk, MailHeaderSignals.IsReply(header), message.ThreadId, cancellationToken),
+                Invitation = IsInvitation(message)
             }
         };
     }
+
+    // A part's own headers hold its Content-Type with the parameters mimeType leaves out.
+    private static bool IsInvitation(Message message) =>
+        message.Payload is { } payload && MailParts.Any(payload, GoogleProviderService.GmailParts, part =>
+            MailHeaderSignals.IsScheduling(part.Headers?
+                .FirstOrDefault(h => string.Equals(h.Name, "Content-Type", StringComparison.OrdinalIgnoreCase))?.Value));
 
     // The search box's own syntax: https://support.google.com/mail/answer/7190. A sender is attacker
     // text, so an address that needs quoting is not put into a query at all.

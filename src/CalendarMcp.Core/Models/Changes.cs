@@ -29,6 +29,9 @@ public sealed record MailSignals
     public bool AuthFailed { get; init; }
     public string? ThreadId { get; init; }
     public bool? WrittenTo { get; init; }
+
+    /// <summary>A scheduling message: an invitation, its update, its cancellation or a reply to it.</summary>
+    public bool Invitation { get; init; }
 }
 
 /// <summary>The current event. <see cref="Fingerprint"/> tells a moved event from a new description.</summary>

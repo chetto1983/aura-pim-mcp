@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using MimeKit;
 
 namespace CalendarMcp.Core.Changes;
 
@@ -24,6 +25,20 @@ internal static partial class MailHeaderSignals
 
         return header("X-Priority")?.TrimStart() is ['1' or '2', ..];
     }
+
+    /// <summary>
+    /// Whether a part's Content-Type is a scheduling message. RFC 6047 section 2.4 requires the
+    /// <c>method</c> parameter, and a <c>text/calendar</c> part without it is a calendar file. PUBLISH
+    /// expects no answer and reaches no calendar by itself, which is a ticket or a booking.
+    /// </summary>
+    public static bool IsScheduling(string? contentType) =>
+        ContentType.TryParse(contentType ?? string.Empty, out var type) && IsScheduling(type);
+
+    /// <inheritdoc cref="IsScheduling(string?)"/>
+    public static bool IsScheduling(ContentType type) =>
+        type.IsMimeType("text", "calendar")
+        && type.Parameters["method"] is { Length: > 0 } method
+        && !method.Equals("PUBLISH", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whether the receiving server's verdict is a failure. <paramref name="topmostResults"/> must be the

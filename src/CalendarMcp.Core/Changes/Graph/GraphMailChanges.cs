@@ -253,7 +253,8 @@ internal sealed class GraphMailChanges(string provider, IGraphApiClients clients
                 AuthFailed = MailHeaderSignals.AuthenticationFailed(header("Authentication-Results")),
                 ThreadId = message.ConversationId,
                 WrittenTo = await writtenTo.ForMailAsync(
-                    address, bulk, MailHeaderSignals.IsReply(header), message.ConversationId, cancellationToken)
+                    address, bulk, MailHeaderSignals.IsReply(header), message.ConversationId, cancellationToken),
+                Invitation = message is EventMessage
             }
         };
     }

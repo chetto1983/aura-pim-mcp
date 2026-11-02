@@ -21,6 +21,9 @@ internal static class MailParts
 
     public static IEnumerable<T> BodyCandidates<T>(T root, Shape<T> shape) => Walk(root, shape, 0);
 
+    /// <summary>Whether a part of this mail matches. A forwarded mail is its own mail, so its parts do not count.</summary>
+    public static bool Any<T>(T root, Shape<T> shape, Func<T, bool> matches) => Any(root, shape, matches, 0);
+
     /// <summary>
     /// What a mail with no readable part holds: nothing, unless its tree goes past what is walked. Then
     /// its words may be down there, and nesting is free, so reading as empty would let a stranger make
@@ -47,7 +50,7 @@ internal static class MailParts
         }
 
         // A forwarded mail is message/rfc822, which stops here: it is its own mail and not this one's body.
-        if (type?.StartsWith(Multipart, StringComparison.OrdinalIgnoreCase) != true)
+        if (!IsMultipart(type))
             yield break;
 
         var children = shape.Children(part);
@@ -60,6 +63,13 @@ internal static class MailParts
                 yield return candidate;
         }
     }
+
+    private static bool Any<T>(T part, Shape<T> shape, Func<T, bool> matches, int depth) =>
+        depth <= MaxNesting
+        && (matches(part)
+            || (IsMultipart(shape.Type(part)) && shape.Children(part).Any(child => Any(child, shape, matches, depth + 1))));
+
+    private static bool IsMultipart(string? type) => type?.StartsWith(Multipart, StringComparison.OrdinalIgnoreCase) == true;
 
     private static bool GoesTooDeep<T>(T part, Shape<T> shape, int depth) =>
         depth > MaxNesting || shape.Children(part).Any(child => GoesTooDeep(child, shape, depth + 1));

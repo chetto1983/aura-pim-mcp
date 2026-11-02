@@ -221,6 +221,23 @@ public class ImapChangesTests
         Assert.IsTrue(signals.Bulk);
         Assert.IsTrue(signals.AuthFailed);
         Assert.IsNull(signals.WrittenTo, "bulk mail asks nothing");
+        Assert.IsFalse(signals.Invitation);
+    }
+
+    [TestMethod]
+    public async Task AnInvitation_IsReadFromTheBodyStructure()
+    {
+        await using var mailbox = await ImapMailbox.OpenAsync(ImapServers.GreenMail);
+        var cursor = await mailbox.StartAsync();
+        var calendar = new TextPart("calendar") { Text = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n" };
+        calendar.ContentType.Parameters.Add("method", "REQUEST");
+        var message = ImapMailbox.Mail("Invito");
+        message.Body = new MultipartAlternative { new TextPart("plain") { Text = "Riunione" }, calendar };
+
+        await mailbox.DeliverAsync(message);
+        var signals = (await mailbox.ReadAsync(cursor)).Changes.Single().Signals!;
+
+        Assert.IsTrue(signals.Invitation);
     }
 
     private sealed class WatchingClock(Action onRead) : TimeProvider

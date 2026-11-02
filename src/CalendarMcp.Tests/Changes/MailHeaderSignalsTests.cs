@@ -27,6 +27,21 @@ public class MailHeaderSignalsTests
     }
 
     [TestMethod]
+    [DataRow("text/calendar; charset=UTF-8; method=REQUEST", true)]
+    [DataRow("text/calendar; method=CANCEL", true)]
+    [DataRow("TEXT/CALENDAR; METHOD=reply", true)]
+    [DataRow("text/calendar; method=PUBLISH", false)]
+    [DataRow("text/calendar; name=ticket.ics", false)]
+    [DataRow("application/ics; method=REQUEST", false)]
+    [DataRow("text/plain; charset=UTF-8", false)]
+    [DataRow("nonsense", false)]
+    [DataRow(null, false)]
+    public void Scheduling_IsAnIMipPartNotACalendarFile(string? contentType, bool expected)
+    {
+        Assert.AreEqual(expected, MailHeaderSignals.IsScheduling(contentType));
+    }
+
+    [TestMethod]
     [DataRow("Importance", "high", true)]
     [DataRow("Importance", "High", true)]
     [DataRow("Importance", "normal", false)]
