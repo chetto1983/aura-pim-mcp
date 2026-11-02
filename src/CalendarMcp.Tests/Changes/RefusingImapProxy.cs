@@ -22,6 +22,9 @@ internal sealed class RefusingImapProxy : IAsyncDisposable
     /// <summary>What to answer an EXAMINE of the Sent folder, such as <c>NO [UNAVAILABLE] Try later</c>. Null passes it on.</summary>
     public string? Refusal { get; set; }
 
+    /// <summary>Lists the Sent folder with <c>\Noselect</c>, as a server does for a folder that only holds others.</summary>
+    public bool Noselect { get; set; }
+
     public int Refused { get; private set; }
 
     public static RefusingImapProxy Before((string Host, int Port) server)
@@ -60,11 +63,29 @@ internal sealed class RefusingImapProxy : IAsyncDisposable
 
             // Either side going means both: a server drops a session whose folder was deleted, and the
             // client has to see that to connect again.
-            await Task.WhenAny(toServer.CopyToAsync(toClient, _stop.Token), RelayCommandsAsync(toClient, toServer));
+            await Task.WhenAny(RelayAnswersAsync(toServer, toClient), RelayCommandsAsync(toClient, toServer));
         }
         catch (Exception e) when (e is IOException or SocketException or OperationCanceledException)
         {
         }
+    }
+
+    private async Task RelayAnswersAsync(NetworkStream server, NetworkStream client)
+    {
+        await foreach (var line in LinesAsync(server))
+            await client.WriteAsync(Listed(line), _stop.Token);
+    }
+
+    private byte[] Listed(byte[] line)
+    {
+        var text = Encoding.ASCII.GetString(line);
+        if (!Noselect || !text.StartsWith("* LIST (", StringComparison.Ordinal)
+            || text.TrimEnd().Trim('"').Split(' ', '"')[^1] != ImapMailbox.SentFolder)
+        {
+            return line;
+        }
+
+        return Encoding.ASCII.GetBytes(text.Replace("* LIST (", "* LIST (\\Noselect ", StringComparison.Ordinal));
     }
 
     private async Task RelayCommandsAsync(NetworkStream client, NetworkStream server)

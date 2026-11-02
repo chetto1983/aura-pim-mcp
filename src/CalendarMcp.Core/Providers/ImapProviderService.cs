@@ -148,7 +148,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
     private async Task<ImapClient> OpenImapAsync(ImapAccountConfig cfg, CancellationToken ct)
     {
-        var client = new ImapClient();
+        var client = ImapNoCodes.NewClient();
         try
         {
             await client.ConnectAsync(cfg.ImapHost, cfg.ImapPort, SecureSocketOptions.Auto, ct);

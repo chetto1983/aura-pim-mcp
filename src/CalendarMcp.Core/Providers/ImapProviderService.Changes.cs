@@ -409,6 +409,9 @@ public partial class ImapProviderService
         if (sent is null)
             return null;
 
+        var codes = ImapNoCodes.Of(client);
+        codes?.Reset();
+
         // MailKit keeps a folder it has listed, so one deleted since is found again and refused at EXAMINE.
         try
         {
@@ -422,7 +425,10 @@ public partial class ImapProviderService
         {
             // A NO's wording is the server's own, and it also means later (RFC 5530: UNAVAILABLE, INUSE).
             // Read as gone, a blip would lose the page its written-to, and the cursor would pass those mails.
-            if (await IsStillListedAsync(sent, cancellationToken))
+            // The kinds no waiting changes (\Noselect, NOPERM, CANNOT) would fail the page for good: the cursor
+            // never moves, and the first ordinary mail would stop the account's watch. Those read as gone too.
+            var permanent = sent.Attributes.HasFlag(FolderAttributes.NoSelect) || codes?.SawPermanent == true;
+            if (!permanent && await IsStillListedAsync(sent, cancellationToken))
                 throw;
 
             return null;

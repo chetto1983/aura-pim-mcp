@@ -705,6 +705,33 @@ public class ImapChangesTests
         Assert.IsTrue(page.GetProperty("changes").EnumerateArray().Single().GetProperty("signals").GetProperty("writtenTo").GetBoolean());
     }
 
+    /// <summary>
+    /// A NO that no waiting changes (an ACL, a folder that only holds others) on a folder that is listed
+    /// must not fail the page for good: the cursor never moves, so the first ordinary mail would stop the watch.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, "NO [NOPERM] No access", false)]
+    [DataRow(true, "NO [NOPERM] No access", false)]
+    [DataRow(false, "NO [CANNOT] Cannot examine this", false)]
+    [DataRow(false, "NO Mailbox is not selectable", true)]
+    public async Task APermanentNoOnAListedSent_LeavesWrittenToUnknown(bool dovecot, string refusal, bool noselect)
+    {
+        await using var proxy = RefusingImapProxy.Before(dovecot ? ImapServers.Dovecot : ImapServers.GreenMail);
+        await using var mailbox = await ImapMailbox.OpenAsync(proxy.Address);
+        await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "collega@example.com"));
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail(from: "collega@example.com"));
+        await using var pim = new ChangesPipeline([mailbox.Account], [mailbox.Provider]);
+        var request = new { accountId = mailbox.Account.Id, resource = "mail", cursor = cursor.Encode() };
+
+        (proxy.Refusal, proxy.Noselect) = (refusal, noselect);
+        var (status, page) = await pim.PostAsync("/admin/changes", request);
+
+        Assert.AreEqual(200, status, page.ToString());
+        Assert.AreEqual(System.Text.Json.JsonValueKind.Null, page.GetProperty("changes").EnumerateArray().Single().GetProperty("signals").GetProperty("writtenTo").ValueKind);
+        Assert.AreEqual(1, proxy.Refused);
+    }
+
     /// <summary>The other side of the same answer: the fresh listing no longer has the folder, so it really has gone.</summary>
     [TestMethod]
     public async Task ANoOnASentFolderThatHasGone_LeavesWrittenToUnknown()
