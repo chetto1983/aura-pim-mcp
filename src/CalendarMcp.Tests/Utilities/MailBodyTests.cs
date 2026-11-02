@@ -147,6 +147,15 @@ public class MailBodyTests
     [DataRow("""<p style="position:fixed;top:9999px">SECRET</p>""", "fixed far down the screen")]
     [DataRow("""<p style="position:absolute;right:9999px">SECRET</p>""", "off to the left by its right edge")]
     [DataRow("""<p style="position:absolute;bottom:9999px">SECRET</p>""", "off the top by its bottom edge")]
+    [DataRow("""<table><tr><td style="max-width:0;overflow:hidden;white-space:nowrap">SECRET</td></tr></table>""", "a cell in a table with no width to share out")]
+    [DataRow("""<table><tr><td>x</td><td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">SECRET</td></tr></table>""", "the ellipsis trick with no width to share out")]
+    [DataRow("""<table style="width:auto"><tr><td style="max-width:0;overflow:hidden;white-space:nowrap">SECRET</td></tr></table>""", "a table of no stated width")]
+    [DataRow("""<table style="width:1px"><tr><td style="max-width:0;overflow:hidden;white-space:nowrap">SECRET</td></tr></table>""", "a table of one pixel")]
+    [DataRow("""<table style="table-layout:fixed;width:1px"><tr><td style="max-width:0;overflow:hidden;white-space:nowrap">SECRET</td></tr></table>""", "a fixed table of one pixel")]
+    [DataRow("""<table style="table-layout:fixed;width:600px"><tr><td style="width:0;overflow:hidden">SECRET</td><td>x</td></tr></table>""", "a column of no width in a fixed table")]
+    [DataRow("""<table><tr><td style="display:block;height:0;overflow:hidden">SECRET</td></tr></table>""", "a cell made into a box")]
+    [DataRow("""<table style="width:100%"><tr><td style="display:block;max-width:0;overflow:hidden;white-space:nowrap">SECRET</td></tr></table>""", "a cell made into a box of no width")]
+    [DataRow("""<table style="width:100%"><tr><td><div style="max-width:0;overflow:hidden;white-space:nowrap">SECRET</div></td></tr></table>""", "a box inside a cell")]
     public void HiddenText_NeverReachesTheModel(string hidden, string method)
     {
         var markdown = MailBody.ToMarkdown($"<html><body><p>Visible words</p>{hidden}</body></html>");
@@ -195,6 +204,15 @@ public class MailBodyTests
     [DataRow("""<p style="position:absolute;bottom:-120px">SHOWN</p>""", "hanging below its box, where the page grows")]
     [DataRow("""<p style="position:absolute;right:-120px">SHOWN</p>""", "hanging off its box to the right, where the page grows")]
     [DataRow("""<div style="float:left;position:relative;left:50%"><div style="position:relative;left:-50%">SHOWN</div></div>""", "the centring trick")]
+    [DataRow("""<table style="width:100%"><tr><td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">SHOWN</td></tr></table>""", "the ellipsis trick")]
+    [DataRow("""<table width="600"><tr><td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">SHOWN</td></tr></table>""", "the ellipsis trick in a table of stated width")]
+    [DataRow("""<style>.t{width:100%}.c{max-width:0;overflow:hidden}</style><table class="t"><tr><td class="c">SHOWN</td></tr></table>""", "the ellipsis trick by stylesheet")]
+    [DataRow("""<table style="table-layout:fixed;width:100%"><tr><td style="max-width:0;overflow:hidden;white-space:nowrap">SHOWN</td></tr></table>""", "a fixed table, which ignores a max-width")]
+    [DataRow("""<table style="width:100%"><tr><td style="width:0;max-width:0;overflow:hidden;white-space:nowrap">SHOWN</td></tr></table>""", "a cell asking for no width at all")]
+    [DataRow("""<table><tr><td style="height:0;overflow:hidden">SHOWN</td></tr></table>""", "a cell of no height, which grows to its text")]
+    [DataRow("""<table><tr><td style="max-height:0;overflow:hidden">SHOWN</td></tr></table>""", "a cell of no max-height")]
+    [DataRow("""<table><tr><td style="height:1px;width:1px;overflow:hidden">SHOWN</td></tr></table>""", "a one pixel cell, which grows too")]
+    [DataRow("""<table><tr><th style="width:0;overflow:hidden">SHOWN</th></tr></table>""", "a heading cell of no width")]
     public void RenderedText_IsNotMistakenForHiddenText(string shown, string layout)
     {
         var markdown = MailBody.ToMarkdown($"<html><body>{shown}</body></html>");

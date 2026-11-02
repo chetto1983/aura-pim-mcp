@@ -146,7 +146,7 @@ internal static partial class HiddenText
         var hides = Value("display") == "none"
             || IsFaint(Value("opacity"))
             || Value("mso-hide") == "all"
-            || IsClippedBox(Value, font)
+            || IsClippedBox(element, Value, styles, font)
             || IsClippedAway(Value("clip-path"), font)
             || IsOffScreen(Value, font, shift);
 
@@ -219,14 +219,36 @@ internal static partial class HiddenText
 
     private static bool IsTiny(string? length, double font) => Pixels(length, font) <= TinyBoxPixels;
 
-    private static bool IsClippedBox(Func<string, string?> value, double font)
+    private static bool IsClippedBox(IElement element, Func<string, string?> value, IStyleCollection styles, double font)
     {
         var clipped = value("overflow") is "hidden" or "clip"
             || value("overflow-x") is "hidden" or "clip"
             || value("overflow-y") is "hidden" or "clip";
 
-        return clipped && (IsTiny(value("height"), font) || IsTiny(value("max-height"), font)
-            || IsTiny(value("width"), font) || IsTiny(value("max-width"), font));
+        if (!clipped)
+            return false;
+
+        if (element.LocalName is "td" or "th" && value("display") is null or "table-cell" && element.Closest("table") is { } table)
+            return IsClippedCell(table, value, styles, font);
+
+        return IsTiny(value("height"), font) || IsTiny(value("max-height"), font)
+            || IsTiny(value("width"), font) || IsTiny(value("max-width"), font);
+    }
+
+    /// <summary>
+    /// A cell is not a box: the table sizes it. CSS 2.1 section 17.5.3 makes its height a minimum, and
+    /// section 10.4 leaves a max-width on it undefined. In Chromium 131 a width holds only in a fixed
+    /// table, and a max-width only in a table with no width of its own to share out, which is why the
+    /// ellipsis trick asks for <c>width:100%</c> on the table. A neighbour that takes all of that width
+    /// would still squeeze a cell to nothing: seeing it takes a layout, which this walk does not have.
+    /// </summary>
+    private static bool IsClippedCell(IElement table, Func<string, string?> value, IStyleCollection styles, double font)
+    {
+        var style = styles.ComputeExplicitStyle(table);
+        var width = Pixels(Nullable(style.GetPropertyValue("width")) ?? table.GetAttribute("width"), font);
+
+        return (style.GetPropertyValue("table-layout") == "fixed" && IsTiny(value("width"), font))
+            || (width is null or <= TinyBoxPixels && IsTiny(value("max-width"), font));
     }
 
     /// <summary>An <c>inset()</c> whose opposite sides meet, in its one to four sides as CSS shorthand gives them.</summary>
