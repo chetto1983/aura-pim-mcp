@@ -217,12 +217,33 @@ public class ItemsEndpointTests
     }
 
     [TestMethod]
-    public async Task GoogleCalendar_ACancelledEvent_IsGone()
+    public async Task GoogleCalendar_ACancelledEventWithNothingLeft_IsGone()
     {
         var http = new FakeHttp().On("/calendars/work/events/e1", GmailFixtures.Json(new { id = "e1", status = "cancelled" }));
 
         Assert.IsNull(await new GoogleCalendarChanges(GmailFixtures.Provider(http), TimeProvider.System)
             .ReadItemAsync("a", new ItemRef("e1", "work"), default));
+    }
+
+    [TestMethod]
+    public async Task GoogleCalendar_ACancelledEvent_KeepsItsTitle()
+    {
+        var http = new FakeHttp().On("/calendars/work/events/e1", GmailFixtures.Json(new
+        {
+            id = "e1",
+            status = "cancelled",
+            summary = "Riunione",
+            organizer = new { email = "capo@example.com" },
+            start = new { dateTime = "2026-11-02T09:00:00Z" },
+            end = new { dateTime = "2026-11-02T10:00:00Z" }
+        }));
+
+        var facts = await new GoogleCalendarChanges(GmailFixtures.Provider(http), TimeProvider.System)
+            .ReadItemAsync("a", new ItemRef("e1", "work"), default);
+
+        Assert.AreEqual("Riunione", facts!.Subject);
+        Assert.AreEqual("capo@example.com", facts.From);
+        Assert.AreEqual(EventChanges.Cancelled, facts.Event!.Status);
     }
 
     [TestMethod]
