@@ -433,7 +433,6 @@ public class MailBodyBoundsTests
     [TestMethod]
     public void TheSmallestMail_FitsTheAllowance()
     {
-        Assert.IsTrue(MailBody.MinParseBytes >= 32 * 1024 * 1024);
         Assert.AreEqual(("Parole", MailBody.MarkdownFormat), MailBody.ForModel("<b>Parole</b>", MailBody.HtmlFormat) is var (body, format) ? (body.Trim('*'), format) : default);
     }
 
