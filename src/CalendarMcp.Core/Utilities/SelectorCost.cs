@@ -59,7 +59,8 @@ internal static class SelectorCost
     /// <exception cref="UnconvertibleMailException">They could.</exception>
     public static void Check(IElement root, IStyleCollection styles, ConversionBudget budget)
     {
-        if (Steps(root, styles, budget) > MaxSteps)
+        // Written so that a NaN refuses: it is false against every comparison.
+        if (!(Steps(root, styles, budget) <= MaxSteps))
             throw new UnconvertibleMailException(MailBody.TooIntricate);
     }
 
@@ -129,7 +130,8 @@ internal static class SelectorCost
         public double OfRule(ICssStyleRule rule, double above)
         {
             var own = Of(rule.Selector);
-            var total = own * above;
+            // A selector the engine could not read matches nothing, and 0 times infinity is not 0.
+            var total = own == 0 ? 0 : own * above;
 
             foreach (var nested in rule.Rules.OfType<ICssStyleRule>())
                 total += OfRule(nested, above * tree.Depth * Math.Max(own, 1));
