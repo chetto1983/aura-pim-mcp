@@ -33,6 +33,18 @@ public partial class GoogleProviderService : IGoogleProviderService
 
     internal GoogleTransport? Transport { get; init; }
 
+    /// <summary>
+    /// Reads the stored credential. A test replaces this, because the broker takes no transport and
+    /// <see cref="Transport"/> skips everything a token refresh decides.
+    /// </summary>
+    internal Func<ClientSecrets, string, CancellationToken, Task<UserCredential>> Authorize { get; init; } =
+        (secrets, credPath, cancellationToken) => GoogleWebAuthorizationBroker.AuthorizeAsync(
+            secrets,
+            DefaultScopes,
+            "user",
+            cancellationToken,
+            new FileDataStore(credPath, true));
+
     private static readonly string[] DefaultScopes = Constants.GoogleScopes.Default;
 
     private const string PersonFields = "names,emailAddresses,phoneNumbers,addresses,organizations,biographies,birthdays,memberships,metadata";
@@ -85,13 +97,7 @@ public partial class GoogleProviderService : IGoogleProviderService
                 throw new AccountAuthenticationRequiredException(accountId);
             }
 
-            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-                secrets,
-                DefaultScopes,
-                "user",
-                cancellationToken,
-                new FileDataStore(credPath, true)
-            );
+            var credential = await Authorize(secrets, credPath, cancellationToken);
 
             // Refresh token if expired
             if (credential.Token.IsStale)
