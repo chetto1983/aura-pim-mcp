@@ -103,6 +103,93 @@ public class GetContextualEmailSummaryToolTests
         provExp.Verify();
     }
 
+    private static async Task<string> PreviewOfAsync(string body, string format)
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var email = new EmailMessage
+        {
+            Id = "e1", AccountId = "acc-1", Subject = "Una mail", From = "x@example.com",
+            ReceivedDateTime = DateTime.UtcNow, Body = body, BodyFormat = format
+        };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAllAccountsAsync().ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetEmailsAsync("acc-1", Arg.Any<int>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>([email]));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        var tool = new GetContextualEmailSummaryTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetContextualEmailSummaryTool>.Instance);
+
+        var summary = JsonDocument.Parse(await tool.GetContextualEmailSummary(includeBodyPreview: true));
+        return summary.RootElement.GetProperty("TopicClusters")[0].GetProperty("SampleEmails")[0].GetProperty("BodyPreview").GetString()!;
+    }
+
+    /// <summary>Where the mail itself is at hand, the preview is its converted text like any other reading of it.</summary>
+    [TestMethod]
+    public async Task APreviewOfAConvertedBody_HasNoHiddenText()
+    {
+        var preview = await PreviewOfAsync("""<p>Visible words</p><div style="display:none">SECRET</div>""", "html");
+
+        Assert.AreEqual("Visible words", preview);
+    }
+
+    [TestMethod]
+    public async Task APreviewOfABodyThatCannotBeConverted_IsEmpty()
+    {
+        var preview = await PreviewOfAsync($"<p>{new string('x', 2 * 1024 * 1024)}</p>", "html");
+
+        Assert.AreEqual(string.Empty, preview);
+    }
+
+    /// <summary>A provider's own preview is all there is on a list, and nothing here can tell what in it was hidden.</summary>
+    [TestMethod]
+    public async Task AProvidersPreview_LosesItsInvisibleCharacters()
+    {
+        var preview = await PreviewOfAsync("Ci vediamo​⁠ qui\U000E0041", "text");
+
+        Assert.AreEqual("Ci vediamo qui", preview);
+    }
+
+    [TestMethod]
+    public async Task AProvidersPreview_IsCappedAfterItsInvisibleCharactersGo()
+    {
+        var preview = await PreviewOfAsync(new string('​', 1000) + new string('a', 149) + "\U0001F600" + "fine", "text");
+
+        Assert.IsTrue(preview.StartsWith(new string('a', 149), StringComparison.Ordinal), preview);
+        Assert.IsTrue(preview.Length <= 154, preview);
+        Assert.IsFalse(char.IsSurrogate(preview.TrimEnd('.')[^1]), "a cut must not split a pair");
+    }
+
+    /// <summary>A preview is short, but a body held as text need not be, and <c>&lt;[^&gt;]+&gt;</c> is quadratic on a flood of brackets.</summary>
+    [TestMethod]
+    public async Task ALongBodyHeldAsText_IsNotReadPastThePreview()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        await PreviewOfAsync(new string('<', 1024 * 1024), "text");
+
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(1), $"{watch.Elapsed}");
+    }
+
+    /// <summary>The curated tool is what a model reads, so its text has to say it as well as the class it forwards to.</summary>
+    [TestMethod]
+    [DataRow(typeof(GetContextualEmailSummaryTool), nameof(GetContextualEmailSummaryTool.GetContextualEmailSummary))]
+    [DataRow(typeof(CalendarActionTool), "Calendar")]
+    public void TheTool_SaysAPreviewIsNotFiltered(Type tool, string method)
+    {
+        var description = tool.GetMethods().Single(candidate => candidate.Name == method)
+            .GetParameters().Single(parameter => parameter.Name == "includeBodyPreview")
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        StringAssert.Contains(description, "cannot be filtered for hidden text");
+    }
+
     [TestMethod]
     public async Task GetContextualEmailSummary_FailedAccount_ReportedInWarnings()
     {

@@ -805,7 +805,7 @@ public partial class GoogleProviderService : IGoogleProviderService
                 EndDate = TimeZoneHelper.ParseFloatingDate(evt.End?.Date),
                 Location = evt.Location ?? string.Empty,
                 Body = evt.Description ?? string.Empty,
-                BodyFormat = "text",
+                BodyFormat = MailBody.FormatOfUntyped(evt.Description),
                 Organizer = evt.Organizer?.Email ?? string.Empty,
                 OrganizerName = evt.Organizer?.DisplayName ?? string.Empty,
                 Attendees = evt.Attendees?.Select(a => a.Email ?? string.Empty).ToList() ?? [],

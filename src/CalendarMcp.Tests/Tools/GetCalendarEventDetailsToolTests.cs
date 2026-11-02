@@ -140,6 +140,73 @@ public class GetCalendarEventDetailsToolTests
         provExp.Verify();
     }
 
+    private static async Task<JsonElement> DetailsOfAnEventWithBodyAsync(string body, string format)
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var plain = TestData.CreateEvent(id: "ev-1", accountId: "acc-1", subject: "Invito");
+        var evt = new CalendarEvent
+        {
+            Id = plain.Id,
+            AccountId = plain.AccountId,
+            CalendarId = plain.CalendarId,
+            Subject = plain.Subject,
+            Start = plain.Start,
+            End = plain.End,
+            Body = body,
+            BodyFormat = format
+        };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1").ReturnValue(Task.FromResult<AccountInfo?>(account));
+
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetCalendarEventDetailsAsync("acc-1", "cal-1", "ev-1", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<CalendarEvent?>(evt));
+
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        var tool = new GetCalendarEventDetailsTool(regExp.Instance(), factExp.Instance(),
+            NullLogger<GetCalendarEventDetailsTool>.Instance);
+
+        return JsonDocument.Parse(await tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", "ev-1")).RootElement.Clone();
+    }
+
+    /// <summary>A stranger's invitation lands on the calendar with no one accepting it, so its body is a mail's.</summary>
+    [TestMethod]
+    public async Task AnInvitationsHiddenText_DoesNotReachTheModel()
+    {
+        var details = await DetailsOfAnEventWithBodyAsync(
+            """<html><body><p>Ci vediamo <a href="https://a.example.com/?utm_source=x">qui</a></p><div style="display:none">SECRET</div></body></html>""",
+            "html");
+
+        var body = details.GetProperty("body").GetString()!;
+
+        Assert.AreEqual("markdown", details.GetProperty("bodyFormat").GetString());
+        StringAssert.Contains(body, "Ci vediamo");
+        StringAssert.Contains(body, "[qui](https://a.example.com/)");
+        Assert.IsFalse(body.Contains("SECRET", StringComparison.Ordinal), body);
+    }
+
+    [TestMethod]
+    public async Task AnInvitationsInvisibleCharacters_DoNotReachTheModel()
+    {
+        var details = await DetailsOfAnEventWithBodyAsync("Ci vediamo​⁠ qui\U000E0041", "text");
+
+        Assert.AreEqual("text", details.GetProperty("bodyFormat").GetString());
+        Assert.AreEqual("Ci vediamo qui", details.GetProperty("body").GetString());
+    }
+
+    [TestMethod]
+    public async Task AnInvitationTooLargeToConvert_KeepsItsOtherFields()
+    {
+        var details = await DetailsOfAnEventWithBodyAsync($"<p>{new string('x', 2 * 1024 * 1024)}</p>", "html");
+
+        Assert.AreEqual("omitted", details.GetProperty("bodyFormat").GetString());
+        Assert.AreEqual("Invito", details.GetProperty("subject").GetString());
+        Assert.IsFalse(details.GetProperty("body").GetString()!.Contains("xxx", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public async Task GetCalendarEventDetails_AllDayEvent_IsLocalMidnightOnItsOwnDate()
     {

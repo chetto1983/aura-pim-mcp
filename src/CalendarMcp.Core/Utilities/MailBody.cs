@@ -117,6 +117,13 @@ public static partial class MailBody
         }
     }
 
+    /// <summary>
+    /// What a text with no stated type holds. Any tag is enough: reading plain text as HTML loses its line
+    /// breaks, and reading HTML as text would hand over everything the filter exists to keep back.
+    /// </summary>
+    public static string FormatOfUntyped(string? text) =>
+        text is not null && AnyTag().IsMatch(text) ? HtmlFormat : "text";
+
     public static string ToMarkdown(string html)
     {
         WarmUp();
@@ -320,6 +327,9 @@ public static partial class MailBody
     // the first plane: U+E0000 to U+E0FFF, then the shorthand and musical format controls.
     [GeneratedRegex(@"\p{Cf}|[\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u3164\uFE00-\uFE0F\uFFA0\uFFF0-\uFFF8]|[\uDB40-\uDB43][\uDC00-\uDFFF]|\uD82F[\uDCA0-\uDCA3]|\uD834[\uDD73-\uDD7A]")]
     private static partial Regex InvisibleCharacters();
+
+    [GeneratedRegex(@"<[a-zA-Z/!?]")]
+    private static partial Regex AnyTag();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
