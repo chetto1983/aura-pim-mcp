@@ -170,6 +170,58 @@ public class MailBodyTests
         StringAssert.Contains(markdown, "SHOWN", layout);
     }
 
+    public static IEnumerable<object[]> NumbersTooLongToSkim =>
+    [
+        [$"""<p style="opacity:0.{new string('0', 34)}1">SECRET</p>""", "an opacity of 35 decimals"],
+        [$"""<p style="opacity:0.{new string('0', 300)}1">SECRET</p>""", "an opacity of 300 decimals"],
+        [$"""<p style="opacity:.{new string('0', 34)}1">SECRET</p>""", "no leading zero"],
+        [$"""<p style="opacity:{new string('0', 40)}.{new string('0', 34)}1">SECRET</p>""", "long on both sides"],
+        [$"""<p style="opacity:0.{new string('0', 34)}1%">SECRET</p>""", "a percentage of 35 decimals"],
+        [$"""<p style="font-size:0.{new string('0', 34)}1px">SECRET</p>""", "a font size of 35 decimals"],
+        [$"""<p style="font-size:0.{new string('0', 34)}1em">SECRET</p>""", "a font size of 35 decimals in em"],
+        [$$"""<style>.x{opacity:0.{{new string('0', 34)}}1}</style><p class="x">SECRET</p>""", "the same from a stylesheet"],
+        [$"""<p style="overflow:hidden;height:0.{new string('0', 34)}1px">SECRET</p>""", "a clipped box of 35 decimals"],
+        [$"""<p style="position:absolute;left:-{new string('9', 40)}.{new string('9', 40)}px">SECRET</p>""", "off screen by 80 digits"],
+        [$"""<img width="0.{new string('0', 34)}1" alt="SECRET" src="x">""", "an attribute of 35 decimals"],
+        ["""<p style="opacity:1e-40">SECRET</p>""", "an exponent"],
+        ["""<p style="opacity:1E-5">SECRET</p>""", "an exponent in capitals"],
+        ["""<p style="font-size:1e-40px">SECRET</p>""", "an exponent on a length"],
+        ["""<p style="font-size:1e-2em">SECRET</p>""", "an exponent on an em"],
+    ];
+
+    /// <summary>A reader sees nothing here. A number the filter cannot read must not mean visible.</summary>
+    [TestMethod]
+    [DynamicData(nameof(NumbersTooLongToSkim))]
+    public void ANumberTooLongToSkim_StillHides(string hidden, string method)
+    {
+        var html = $"<html><body><p>Visible words</p>{hidden}</body></html>";
+
+        StringAssert.Contains(MailBody.ToMarkdown(html), "Visible words", method);
+        AssertGone(MailBody.ToMarkdown(html), "SECRET");
+        AssertGone(MailBody.ToPlainText(html), "SECRET");
+    }
+
+    /// <summary>The reader takes digits of any length, so a flood of them must not cost it the square.</summary>
+    [TestMethod]
+    public void AMillionDigits_AreReadInLinearTime()
+    {
+        var html = $"""<img width="{new string('1', 1000 * 1000)}x!" alt="Words" src="x"><p>Words</p>""";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        StringAssert.Contains(MailBody.ToPlainText(html), "Words");
+
+        Assert.IsTrue(watch.Elapsed < TimeSpan.FromMilliseconds(400), $"{watch.Elapsed}");
+    }
+
+    [TestMethod]
+    [DataRow("""<p style="opacity:1e0">SHOWN</p>""", "an opacity of one, written long")]
+    [DataRow("""<p style="font-size:1.6e1px">SHOWN</p>""", "sixteen pixels with an exponent")]
+    [DataRow("""<p style="font-size:1em">SHOWN</p>""", "an em is no exponent")]
+    public void AnExponentOnADecentNumber_IsNotHidden(string shown, string method)
+    {
+        StringAssert.Contains(MailBody.ToMarkdown($"<html><body>{shown}</body></html>"), "SHOWN", method);
+    }
+
     [TestMethod]
     [DataRow("""<td bgcolor="rgb(9999999999,0,0)">Words</td>""")]
     [DataRow("""<td bgcolor="rgb(0,0,0,1.2.3)">Words</td>""")]

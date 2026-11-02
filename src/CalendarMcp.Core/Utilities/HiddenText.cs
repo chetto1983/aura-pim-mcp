@@ -346,7 +346,9 @@ internal static partial class HiddenText
     [GeneratedRegex(@"var\(|\\", RegexOptions.IgnoreCase)]
     private static partial Regex Substitution();
 
-    [GeneratedRegex(@"^\s*(-?\d{0,32}\.?\d{1,32})\s*([a-zA-Z%]{0,8})\s*$")]
+    // Any length: the engine writes 1e-40 out in full, and a number this stops reading means visible text.
+    // The atomic groups keep it linear, and a body's cap is what bounds the text.
+    [GeneratedRegex(@"^\s*([-+]?(?>\d*)(?:\.(?>\d+))?(?:[eE][-+]?(?>\d+))?)\s*([a-zA-Z%]{0,8})\s*$")]
     private static partial Regex Number();
 
     [GeneratedRegex(@"^\s*#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})\s*$")]
