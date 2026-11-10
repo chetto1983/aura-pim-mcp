@@ -24,7 +24,17 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          # 10.0.404 (2026-11-10) never finishes `dotnet test` here: the suite stalls partway and no
+          # further test reports, on every subset tried. 10.0.403 runs it in under 30 s, also against
+          # the 10.0.15 runtime that ships with 10.0.404, so the stall is in the SDK's test tooling,
+          # not the runtime the image uses. Move back to 10.0.x once a newer SDK runs the suite.
+          dotnet-version: '10.0.403'
+
+      # setup-dotnet installs next to the runner's own SDKs, and dotnet picks the newest one unless a
+      # global.json says otherwise. Written here, not committed, so local builds and the Dockerfile's
+      # sdk:10.0 image are not bound to 10.0.403.
+      - name: Pin the SDK for this run
+        run: dotnet new globaljson --sdk-version 10.0.403 --roll-forward disable --force
 
       - name: Restore dependencies
         run: dotnet restore calendar-mcp.slnx
