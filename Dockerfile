@@ -39,7 +39,12 @@ WORKDIR /app
 
 # Install curl so the HEALTHCHECK below (and Compose's) actually works —
 # the aspnet base ships without curl, so the upstream curl healthcheck was a no-op.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# apt-get upgrade takes the security fixes the base image trails (apt 2.8.3 -> 2.8.4ubuntu0.1,
+# CVE-2026-109518, found by Aura's weekly scan on 2026-11-09). The publish workflow passes the ISO
+# week as APT_WEEK, so this layer leaves the GHA cache and runs again once a week.
+ARG APT_WEEK=""
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security

@@ -36,11 +36,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: ISO week for the apt layer
+        id: week
+        run: echo "apt_week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          build-args: |
+            APT_WEEK=${{ steps.week.outputs.apt_week }}
           # `latest` is the tag Aura's compose follows, so a merge to main reaches the
           # deployment without anyone editing a digest. The stale-pin problem this
           # workflow's own header describes is what a moving tag exists to solve;
