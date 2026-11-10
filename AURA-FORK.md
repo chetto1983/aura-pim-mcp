@@ -198,6 +198,11 @@ docker run -d -p 127.0.0.1:8093:8080 -v calendar-mcp-data:/app/data \
 ```
 MCP endpoint `/`, admin REST `/admin`, health `/health` (internal port 8080).
 
+The runtime stage runs `apt-get upgrade`, because the `aspnet:10.0` Ubuntu base trails its own
+security fixes (apt 2.8.3 on 2026-11-09, CVE-2026-109518). `aura-publish-image.yml` passes the ISO
+week as `APT_WEEK`, so the cached layer is rebuilt once a week. A local `docker build` without the
+argument upgrades on its first build and then reuses the cache.
+
 ## Pulling upstream updates
 
 ```bash
