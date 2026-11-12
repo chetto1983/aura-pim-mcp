@@ -299,7 +299,7 @@ public class PermissionEnforcementTests
         regExp.Setups.GetAllAccountsAsync()
             .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
 
-        var tool = new ListAccountsTool(regExp.Instance(), NullLogger<ListAccountsTool>.Instance);
+        var tool = new ListAccountsTool(regExp.Instance(), new FixedSendingAddresses(), NullLogger<ListAccountsTool>.Instance);
 
         var doc = JsonDocument.Parse(await tool.ListAccounts());
         var permissions = doc.RootElement.GetProperty("accounts")[0].GetProperty("permissions");

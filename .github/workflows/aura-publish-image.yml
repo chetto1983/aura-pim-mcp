@@ -7,10 +7,9 @@ name: aura-publish-image
 on:
   workflow_dispatch:
   push:
-    # main carries the sidecar work since the MCP Apps view merged there; the
-    # aura/pim-sidecar branch it used to name is now an ancestor of main, so a
-    # push to main was building nothing and the deployed pin went stale.
-    branches: [main, aura/pim-sidecar]
+    # main carries the sidecar work. The aura/pim-sidecar branch it once named
+    # was an ancestor of main and was deleted on 2026-11-12.
+    branches: [main]
     paths:
       - 'src/**'
       - 'Dockerfile'

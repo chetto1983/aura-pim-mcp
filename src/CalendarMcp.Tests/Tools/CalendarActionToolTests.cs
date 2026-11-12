@@ -113,6 +113,7 @@ public sealed class CalendarActionToolTests
         services.AddLogging();
         services.AddSingleton<IAccountRegistry, EmptyAccountRegistry>();
         services.AddSingleton<IProviderServiceFactory, RejectingProviderFactory>();
+        services.AddSingleton<ISendingAddresses, CalendarMcp.Core.Providers.SendingAddresses>();
         services.AddSingleton<IAttachmentStore, EmptyAttachmentStore>();
         services.AddSingleton<ITenantContext, TenantContext>();
         services.AddSingleton(new UnsubscribeExecutor(
