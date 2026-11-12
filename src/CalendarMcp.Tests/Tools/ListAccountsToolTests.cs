@@ -26,7 +26,7 @@ public class ListAccountsToolTests
             .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>(accounts));
 
         var registry = registryExpectations.Instance();
-        var tool = new ListAccountsTool(registry, NullLogger<ListAccountsTool>.Instance);
+        var tool = new ListAccountsTool(registry, new FixedSendingAddresses(), NullLogger<ListAccountsTool>.Instance);
 
         var result = await tool.ListAccounts();
         var doc = JsonDocument.Parse(result);
@@ -39,6 +39,29 @@ public class ListAccountsToolTests
         registryExpectations.Verify();
     }
 
+    // Measured 2026-11-12: a client reviewing an email could show only the opaque account id, not
+    // the address the message would leave from.
+    [TestMethod]
+    public async Task ListAccounts_IncludesEachAccountsSendingAddress()
+    {
+        var accounts = new List<AccountInfo>
+        {
+            TestData.CreateAccount(id: "work", displayName: "Work", provider: "imap"),
+            TestData.CreateAccount(id: "holidays", displayName: "Holidays", provider: "ics")
+        };
+        var registryExpectations = new IAccountRegistryCreateExpectations();
+        registryExpectations.Setups.GetAllAccountsAsync()
+            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>(accounts));
+        var tool = new ListAccountsTool(registryExpectations.Instance(),
+            new FixedSendingAddresses(("work", "tecnico@example.com")), NullLogger<ListAccountsTool>.Instance);
+
+        var accountsArray = JsonDocument.Parse(await tool.ListAccounts()).RootElement.GetProperty("accounts");
+
+        Assert.AreEqual("tecnico@example.com", accountsArray[0].GetProperty("email").GetString());
+        Assert.IsFalse(accountsArray[1].TryGetProperty("email", out _), "an account with no sending address names none");
+        registryExpectations.Verify();
+    }
+
     [TestMethod]
     public async Task ListAccounts_EmptyAccounts_ReturnsEmptyArray()
     {
@@ -47,7 +70,7 @@ public class ListAccountsToolTests
             .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([]));
 
         var registry = registryExpectations.Instance();
-        var tool = new ListAccountsTool(registry, NullLogger<ListAccountsTool>.Instance);
+        var tool = new ListAccountsTool(registry, new FixedSendingAddresses(), NullLogger<ListAccountsTool>.Instance);
 
         var result = await tool.ListAccounts();
         var doc = JsonDocument.Parse(result);
@@ -66,7 +89,7 @@ public class ListAccountsToolTests
             .Callback(() => throw new InvalidOperationException("Sensitive registry detail"));
 
         var registry = registryExpectations.Instance();
-        var tool = new ListAccountsTool(registry, NullLogger<ListAccountsTool>.Instance);
+        var tool = new ListAccountsTool(registry, new FixedSendingAddresses(), NullLogger<ListAccountsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(() => tool.ListAccounts());
         Assert.AreEqual("Failed to list accounts.", ex.Message);

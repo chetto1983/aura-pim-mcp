@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<DavDiscovery>();
         services.AddSingleton<IDavProviderService, DavProviderService>();
         services.AddSingleton<IProviderServiceFactory, ProviderServiceFactory>();
+        services.AddSingleton<ISendingAddresses, SendingAddresses>();
         services.AddSingleton<ChangesService>();
         services.AddSingleton<IChangesSource>(provider =>
             new GoogleMailChanges(provider.GetRequiredService<IGoogleProviderService>()));

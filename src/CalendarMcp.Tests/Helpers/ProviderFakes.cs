@@ -40,3 +40,10 @@ internal sealed class StaticTokenAuthentication : IM365AuthenticationService
         Func<string, Task> deviceCodeCallback, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 }
+
+/// <summary>Sending addresses by account id; an account it does not name has none.</summary>
+internal sealed class FixedSendingAddresses(params (string AccountId, string Address)[] addresses) : ISendingAddresses
+{
+    public Task<string?> AddressAsync(AccountInfo account, CancellationToken cancellationToken) =>
+        Task.FromResult(addresses.Where(a => a.AccountId == account.Id).Select(a => (string?)a.Address).FirstOrDefault());
+}
