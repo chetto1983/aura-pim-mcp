@@ -42,6 +42,9 @@ public class ImapAccountVerifierTests
         ["imap", "read", new FolderNotFoundException("Watched", "no such folder"), "imap", "mailbox_refused"],
         ["imap", "read", new ImapProtocolException("BYE"), "imap", "unreachable"],
         ["imap", "read", new CryptographicException(), "imap", "auth_failed"],
+        // MailKit's SaslPrep (SCRAM, RFC 4013) refuses a control or prohibited character in the credentials.
+        ["imap", "auth", new ArgumentException("Control characters are prohibited.", "s"), "imap", "auth_failed"],
+        ["smtp", "auth", new ArgumentException("One or more characters in the string are prohibited.", "s"), "smtp", "smtp_auth_failed"],
         ["smtp", "auth", new MailKit.Security.AuthenticationException("x", Smtp(SmtpStatusCode.AuthenticationInvalidCredentials)), "smtp", "smtp_auth_failed"],
         ["smtp", "auth", new MailKit.Security.AuthenticationException("x", Smtp((SmtpStatusCode)454)), "smtp", "smtp_unreachable"],
         ["smtp", "auth", Smtp(SmtpStatusCode.AuthenticationInvalidCredentials), "smtp", "smtp_auth_failed"],
@@ -64,6 +67,24 @@ public class ImapAccountVerifierTests
     public void ABug_IsNotAVerifyReason()
     {
         Assert.ThrowsExactly<InvalidOperationException>(() => VerifyReasons.From("imap", "read", new NullReferenceException()));
+        Assert.ThrowsExactly<InvalidOperationException>(() => VerifyReasons.From("imap", "auth", new ArgumentNullException("password")));
+        Assert.ThrowsExactly<InvalidOperationException>(() => VerifyReasons.From("imap", "connect", new ArgumentException("bad host")));
+    }
+
+    [TestMethod]
+    public async Task Verify_APasswordScramCannotPrepare_IsAuthFailed_AndTheLogHoldsNoPassword()
+    {
+        await using var scram = ScriptedMailServer.ImapWithScram();
+        var logs = new CapturingLogs();
+        var config = Config(scram.Address, ("127.0.0.1", ClosedPort()));
+        config["password"] = "pasted-with-a-newline\n";
+
+        var outcome = await Verifier(logs).VerifyAsync(AccountId, config, true, default);
+
+        Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "auth_failed"), null), outcome);
+        var line = logs.Lines.Single();
+        Assert.Contains("ArgumentException", line);
+        Assert.DoesNotContain("pasted-with-a-newline", line);
     }
 
     [TestMethod]

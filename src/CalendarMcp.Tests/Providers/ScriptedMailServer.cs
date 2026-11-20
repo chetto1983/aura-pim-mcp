@@ -36,6 +36,36 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
             _ => "502 not scripted"
         });
 
+    /// <summary>
+    /// An IMAP server that offers only SCRAM-SHA-256 and answers the client's first SCRAM message with a valid
+    /// challenge, so the client prepares the password (RFC 4013 SASLprep) as a real SCRAM login would. It never
+    /// completes the login: what is under test is what the client does with the password.
+    /// </summary>
+    public static ScriptedMailServer ImapWithScram()
+    {
+        var tag = "";
+        return new("* OK [CAPABILITY IMAP4rev1 AUTH=SCRAM-SHA-256] scripted", line =>
+        {
+            var words = line.Split(' ');
+            if (words is [_, "AUTHENTICATE", ..])
+            {
+                tag = words[0];
+                return "+ ";
+            }
+
+            if (words is [_, "LOGOUT"])
+                return $"* BYE\r\n{words[0]} OK bye";
+
+            if (line == "*")
+                return $"{tag} BAD cancelled";
+
+            var clientFirst = Encoding.UTF8.GetString(Convert.FromBase64String(line));
+            var clientNonce = clientFirst.Split(',').Single(part => part.StartsWith("r=", StringComparison.Ordinal))[2..];
+            var serverFirst = $"r={clientNonce}scripted,s={Convert.ToBase64String("salt"u8.ToArray())},i=4096";
+            return $"+ {Convert.ToBase64String(Encoding.UTF8.GetBytes(serverFirst))}";
+        });
+    }
+
     /// <summary>Accepts the connection and never sends a greeting.</summary>
     public static ScriptedMailServer Silent() => new(null, _ => null);
 

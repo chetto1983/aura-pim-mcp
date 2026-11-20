@@ -76,6 +76,7 @@ public static class VerifyReasons
         SslHandshakeException => TlsFailed,
         NotSupportedException when stage == Connect => TlsFailed,
         NotSupportedException or ImapProtocolException when stage == Auth => AuthFailed,
+        _ when IsUnpreparable(stage, failure) => AuthFailed,
         ImapCommandException or FolderNotFoundException or ProviderOperationException when stage == Read => MailboxRefused,
         _ when IsUnreachable(failure) => Unreachable,
         _ => throw Unnamed(failure)
@@ -88,9 +89,16 @@ public static class VerifyReasons
         AuthenticationException { InnerException: SmtpCommandException refusal } => ByStatus(refusal.StatusCode),
         SmtpCommandException refusal when stage == Auth => ByStatus(refusal.StatusCode),
         AuthenticationException or SaslException or NotSupportedException when stage == Auth => SmtpAuthFailed,
+        _ when IsUnpreparable(stage, failure) => SmtpAuthFailed,
         _ when IsUnreachable(failure) => SmtpUnreachable,
         _ => throw Unnamed(failure)
     };
+
+    // SCRAM prepares the credentials with SASLprep (RFC 4013), and MailKit's SaslMechanism.SaslPrep throws a plain
+    // ArgumentException for a control or prohibited character (MailKit 4.18.1 SaslMechanism.cs#L724-745), such as a
+    // pasted newline: the person retypes the password. A null argument stays a bug.
+    private static bool IsUnpreparable(string stage, Exception failure) =>
+        stage == Auth && failure is ArgumentException and not ArgumentNullException;
 
     // A 4xx on AUTH is the server's own trouble (454: temporary authentication failure, RFC 4954 section 6).
     private static string ByStatus(SmtpStatusCode status) => (int)status is >= 400 and < 500 ? SmtpUnreachable : SmtpAuthFailed;

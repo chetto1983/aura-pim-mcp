@@ -195,7 +195,9 @@ file says the fork does not have, this file wins.
      blocks; an SMTP password refusal blocks (`smtp_auth_failed`, also when the server offers no AUTH at all); an
      SMTP server that cannot be reached or refuses TLS is a warning, because the watch only reads. `VerifyReasons`
      is the one place an exception becomes a reason. A cancelled caller is not a verdict; a step out of time is
-     `unreachable` (`smtp_unreachable` for SMTP) whatever MailKit threw when it was cut short.
+     `unreachable` (`smtp_unreachable` for SMTP) whatever MailKit threw when it was cut short. A password SCRAM's
+     SASLprep refuses (a control or prohibited character, such as a pasted newline: MailKit throws `ArgumentException`)
+     is `auth_failed`/`smtp_auth_failed`, because the person must retype it.
    - **Its input is checked before it runs.** `VerifyAsync` is called only with a username, a password, host names
      a resolver takes (at most 253 characters, a DNS name or an IP address), ports in 1-65535 and a known security
      value (`Admin/ImapProviderInput`, change 11); `ImapAccountConfig.From` reads a port
