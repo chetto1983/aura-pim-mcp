@@ -52,6 +52,7 @@ public static class AdminEndpoints
 
         admin.MapChangesEndpoints();
         admin.MapAccountRepairEndpoints();
+        admin.MapDiscoverEndpoint();
 
         return app;
     }

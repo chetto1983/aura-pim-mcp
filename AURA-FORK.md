@@ -20,7 +20,8 @@ file says the fork does not have, this file wins.
    exactly (`[x.y.z]`) because `HiddenText` and the pipeline in `MailBody` lean on their behaviour.
    AngleSharp is named by the fork rather than left to the other two: 1.8.6 is the first with
    `MaximumDepth`, which bounds the parse, and what ReverseMarkdown and AngleSharp.Css ask for is
-   lower. MailKit 4.18.2 and
+   lower. Mail discovery (change 12) adds DnsClient 1.8.0 (Apache-2.0) for the MX lookup, which can go on .NET 11
+   (`Dns.ResolveMxAsync`), and Microsoft.Extensions.Caching.Memory 10.0.13 for its cache. MailKit 4.18.2 and
    Microsoft.Extensions.* / DataProtection 10.0.13 bring System.Security.Cryptography.Pkcs and
    .Xml to 10.0.13, closing GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-r955-8q5j-3h83,
    GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. The HTTP server takes Xml from the ASP.NET
@@ -273,6 +274,36 @@ file says the fork does not have, this file wins.
       password each pooled session was opened with, and reopens it when the registry says otherwise; its keys match
       account ids in any case.
 
+12. **Finding a mailbox's servers from its address (`Discovery/`, `POST /admin/discover`).** Aura's connect screen
+    asks before it asks for a password (account connect/repair design, A6 and A7). Upstream has nothing like it.
+    - **The route.** `{"email":"…"}` answers `200 {kind, source?, imapHost?, imapPort?, imapSecurity?, smtpHost?,
+      smtpPort?, smtpSecurity?, username?, appPassword?: {required, helpUrl?}, passwordFallback?}`, camelCase with
+      nulls left out, or `400 {"error":"invalid_email"}`. The address is parsed by MimeKit, lowercased, its domain
+      IDN-mapped to ASCII and required to be a DNS name with a dot; a `+tag` is dropped from the username. It reads
+      nothing of the tenant's and stores nothing.
+    - **Thunderbird's order** (`FindConfig.sys.mjs`/`FetchConfig.sys.mjs`), first hit wins: the preset table
+      (`Discovery/presets.json`, embedded; every entry cites the provider page its values were copied from); the
+      domain's own autoconfig (`https://autoconfig.<d>/mail/config-v1.1.xml`, then `.well-known`); ISPDB; the MX of
+      lowest preference. An MX under `google.com`/`googlemail.com` is Google, under `olc.protection.outlook.com`
+      Outlook.com, under any other `outlook.com` Microsoft 365; an MX inside the address's own domain ends at
+      `unknown`; otherwise its suffixes, from the next subdomain down to two labels, go through preset, autoconfig
+      and ISPDB again. Then `unknown`.
+    - **A usable answer** has an IMAP server with a DNS hostname (after `%EMAILADDRESS%`, `%EMAILLOCALPART%`,
+      `%EMAILDOMAIN%`), a port in 1-65535, `SSL` or `STARTTLS`, and a password login. OAuth-only and plain answers
+      are a miss. The XML is parsed with DTDs prohibited and no resolver.
+    - **What leaves the box** is the domain or a suffix of the MX host, nothing else: HTTPS only, no `emailaddress`
+      parameter, no redirect followed, no proxy, a 64 KiB body cap, and every connection through `HostGuard` with
+      private addresses refused.
+    - **Budgets and cache.** 4 s per remote step and 12 s overall, on an injected `TimeProvider`. A step out of time,
+      or whose source could not be asked (a 5xx, a refused or broken connection), falls through and is not cached.
+      A miss is a status below 500 other than 200, a body that is not a `clientConfig`, a host that does not
+      resolve, or a private address; for the domain's own autoconfig, a page that is not a config falls through to
+      `.well-known`. DnsClient runs with a 2 s timeout and one retry. The autoconfig and ISPDB XML is cached (hits
+      24 h, misses 1 h) in the container's `IMemoryCache`, which `AddCalendarMcpCore()` registers with `SizeLimit`
+      1000: anything else that caches there must give its entries a `Size`.
+    - **The password fallback is Google's only.** Outlook.com refuses basic authentication, so its preset carries
+      `passwordFallback: false` and no servers.
+
 ## Build / run (sidecar)
 
 ```bash
@@ -333,7 +364,8 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   `GetEmailDetailsTool.cs` and `GetCalendarEventDetailsTool.cs`: `MailBody.ForModel`.
   `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
   its summary, and the sentence in `includeBodyPreview`'s description, which `CalendarActionTool.cs`
-  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`.
+  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`, and the mail discovery registrations (change 12): the
+  memory cache, `ILookupClient`, `IMxLookup`, the `Autoconfig` client with its guarded handler, and `MailDiscovery`.
 - An upgrade of AngleSharp or AngleSharp.Css, both pinned, reopens `SelectorCost`, `MarkupShape`, the
   allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
   that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added, with
