@@ -6,7 +6,7 @@ namespace CalendarMcp.Core.Discovery;
 /// <summary>
 /// Reads an autoconfig answer (https://wiki.mozilla.org/Thunderbird:Autoconfiguration:ConfigFileFormat). Servers are
 /// listed in priority order; the first <c>incomingServer type="imap"</c> and the first <c>outgoingServer type="smtp"</c>
-/// that are usable are taken. Usable means a DNS hostname once <c>%EMAILADDRESS%</c>, <c>%EMAILLOCALPART%</c> and
+/// that are usable are taken. Usable means a dotted DNS hostname (<see cref="HostName.Dns"/>) once <c>%EMAILADDRESS%</c>, <c>%EMAILLOCALPART%</c> and
 /// <c>%EMAILDOMAIN%</c> are substituted, a port in 1-65535, a <c>socketType</c> of <c>SSL</c> or <c>STARTTLS</c>, and a
 /// password <c>authentication</c>. No usable IMAP server is a miss: an OAuth-only or plain answer is no answer here.
 /// Anyone can name a domain, so the XML is a stranger's: no DTD, no resolver.
@@ -64,8 +64,8 @@ public static class AutoconfigParser
 
     private static Server? Usable(XElement server, Placeholders placeholders)
     {
-        var host = placeholders.Apply(server.Element("hostname")?.Value.Trim());
-        if (host is null || host.Length > 253 || Uri.CheckHostName(host) != UriHostNameType.Dns)
+        var host = HostName.Dns(placeholders.Apply(server.Element("hostname")?.Value.Trim()));
+        if (host is null)
             return null;
 
         if (!int.TryParse(server.Element("port")?.Value.Trim(), out var port) || port is < 1 or > 65535)
@@ -83,7 +83,7 @@ public static class AutoconfigParser
         if (!server.Elements("authentication").Any(auth => PasswordAuthentication.Contains(auth.Value.Trim())))
             return null;
 
-        return new Server(host.ToLowerInvariant(), port, security, placeholders.Apply(server.Element("username")?.Value.Trim()));
+        return new Server(host, port, security, placeholders.Apply(server.Element("username")?.Value.Trim()));
     }
 
     private sealed record Server(string Host, int Port, string Security, string? Username);

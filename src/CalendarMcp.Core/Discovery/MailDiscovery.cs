@@ -62,17 +62,17 @@ public sealed class MailDiscovery(
             return null;
 
         var localPart = mailbox.LocalPart.ToLowerInvariant();
-        string domain;
+        string? domain;
         try
         {
-            domain = Idn.GetAscii(mailbox.Domain.ToLowerInvariant());
+            domain = HostName.Dns(Idn.GetAscii(mailbox.Domain.ToLowerInvariant()));
         }
         catch (ArgumentException)
         {
             return null;
         }
 
-        if (localPart.Length == 0 || !domain.Contains('.') || Uri.CheckHostName(domain) != UriHostNameType.Dns)
+        if (localPart.Length == 0 || domain is null)
             return null;
 
         var tag = localPart.IndexOf('+');
@@ -200,6 +200,24 @@ public sealed class MailDiscovery(
     private sealed record Fetched(string? Xml);
 }
 
+
+/// <summary>The one host name rule discovery uses, for an address's domain and for a server an answer names.</summary>
+internal static class HostName
+{
+    /// <summary>
+    /// The host lowercased and without one final dot, or null unless it is a DNS name with at least one dot and at
+    /// most 253 characters. <c>Uri.CheckHostName</c> takes a bare label, so <c>localhost</c> or a container's service
+    /// name would pass it alone.
+    /// </summary>
+    public static string? Dns(string? host)
+    {
+        if (host is null)
+            return null;
+
+        var name = (host.EndsWith('.') ? host[..^1] : host).ToLowerInvariant();
+        return name.Length <= 253 && name.Contains('.') && Uri.CheckHostName(name) == UriHostNameType.Dns ? name : null;
+    }
+}
 
 /// <summary>The kinds a discovery answers.</summary>
 public static class DiscoveryKinds

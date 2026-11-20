@@ -419,10 +419,12 @@ public class MailDiscoveryTests
 
         var idn = await DiscoverAsync("Persona@Bücher.EXAMPLE");
         var upper = await DiscoverAsync("PERSON@GMAIL.COM");
+        var dotted = await DiscoverAsync("person@libero.it.");
 
         Assert.AreEqual("mail.xn--bcher-kva.example", idn.ImapHost);
         Assert.AreEqual("persona@xn--bcher-kva.example", idn.Username);
         Assert.AreEqual(("google", "person@gmail.com"), (upper.Kind, upper.Username));
+        Assert.AreEqual(("preset", "person@libero.it"), (dotted.Source, dotted.Username), "a final dot is dropped before the lookup");
         Assert.AreEqual("isp:xn--bcher-kva.example", _autoconfig.Calls[0]);
     }
 

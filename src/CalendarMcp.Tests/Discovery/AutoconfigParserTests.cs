@@ -62,12 +62,23 @@ public class AutoconfigParserTests
     [DataRow("%EMAILADDRESS%")]
     [DataRow("imap.example.org/path")]
     [DataRow("")]
+    [DataRow("localhost")]
+    [DataRow("%EMAILLOCALPART%")]
     public void Ispdb_IgnoresAServerWithAnInvalidHostname(string hostname)
     {
         var found = AutoconfigParser.Parse(
             FirstImapServer("<hostname>imap.example.org</hostname>", $"<hostname>{hostname}</hostname>"), "person", "example.org");
 
         Assert.AreEqual("export.imap.example.org", found?.ImapHost, "the next IMAP server is taken, not a miss");
+    }
+
+    [TestMethod]
+    public void Ispdb_AFullyQualifiedHostname_LosesItsFinalDot()
+    {
+        var found = AutoconfigParser.Parse(
+            FirstImapServer("<hostname>imap.example.org</hostname>", "<hostname>IMAP.example.org.</hostname>"), "person", "example.org");
+
+        Assert.AreEqual("imap.example.org", found?.ImapHost, "the same server, named canonically, not the next one");
     }
 
     [TestMethod]

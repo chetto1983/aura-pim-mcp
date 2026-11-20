@@ -235,10 +235,12 @@ public class ImapAccountVerifierTests
     public async Task Verify_TheCallerGoingAway_IsNotAVerdict()
     {
         await using var silent = ScriptedMailServer.Silent();
+        // Read before ThrowsAsync: an Inconclusive for a missing server inside it would be reported as a failure.
+        var config = Config(silent.Address, ImapServers.GreenMailSmtp);
         using var gone = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            Verifier().VerifyAsync(AccountId, Config(silent.Address, ImapServers.GreenMailSmtp), true, gone.Token));
+            Verifier().VerifyAsync(AccountId, config, true, gone.Token));
     }
 
     [TestMethod]
