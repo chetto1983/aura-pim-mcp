@@ -1,4 +1,6 @@
+using System.Text;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Utilities;
 using MailKit;
@@ -196,12 +198,67 @@ public partial class ImapProviderService
             "Re-list the folder to get current IDs.");
     }
 
+    /// <summary>
+    /// An account's provider config, read. <c>ImapSecurity</c>/<c>SmtpSecurity</c> are null on an account stored
+    /// before they existed (see <see cref="ImapConnections.Options"/>).
+    /// </summary>
     internal sealed record ImapAccountConfig(
         string AccountId,
         string ImapHost, int ImapPort,
         string SmtpHost, int SmtpPort,
         string Username, string Password,
-        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder);
+        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder,
+        string? ImapSecurity = null, string? SmtpSecurity = null)
+    {
+        /// <exception cref="ProviderOperationException">The username or the password is missing.</exception>
+        /// <exception cref="System.Security.Cryptography.CryptographicException">
+        /// The stored password was protected with a key this server no longer has.
+        /// </exception>
+        public static ImapAccountConfig From(
+            string accountId, IReadOnlyDictionary<string, string> pc, PasswordProtector protector)
+        {
+            var username = Get(pc, "username", "");
+            var storedPassword = Get(pc, "password", "");
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(storedPassword))
+                throw new ProviderOperationException(
+                    $"Account '{accountId}' is missing username or password in providerConfig.");
+
+            return new ImapAccountConfig(
+                AccountId: accountId,
+                ImapHost: Get(pc, "imapHost", DefaultImapHost),
+                ImapPort: GetInt(pc, "imapPort", DefaultImapPort),
+                SmtpHost: Get(pc, "smtpHost", DefaultSmtpHost),
+                SmtpPort: GetInt(pc, "smtpPort", DefaultSmtpPort),
+                Username: username,
+                Password: protector.Unprotect(storedPassword),
+                InboxFolder: Get(pc, "inboxFolder", DefaultInbox),
+                SentFolder: Get(pc, "sentFolder", DefaultSent),
+                TrashFolder: Get(pc, "trashFolder", DefaultTrash),
+                JunkFolder: Get(pc, "junkFolder", DefaultJunk),
+                ImapSecurity: Optional(pc, "imapSecurity"),
+                SmtpSecurity: Optional(pc, "smtpSecurity"));
+
+            static string Get(IReadOnlyDictionary<string, string> d, string key, string fallback) =>
+                Optional(d, key) ?? fallback;
+
+            static string? Optional(IReadOnlyDictionary<string, string> d, string key) =>
+                d.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
+
+            static int GetInt(IReadOnlyDictionary<string, string> d, string key, int fallback) =>
+                d.TryGetValue(key, out var v) && int.TryParse(v, out var n) && n > 0 ? n : fallback;
+        }
+
+        // A record prints every member, and a config that reaches a log line must not carry the password.
+        private bool PrintMembers(StringBuilder builder)
+        {
+            builder.Append($"AccountId = {AccountId}, ImapHost = {ImapHost}, ImapPort = {ImapPort}, ");
+            builder.Append($"ImapSecurity = {ImapSecurity}, SmtpHost = {SmtpHost}, SmtpPort = {SmtpPort}, ");
+            builder.Append($"SmtpSecurity = {SmtpSecurity}, Username = {Username}, InboxFolder = {InboxFolder}, ");
+            builder.Append($"SentFolder = {SentFolder}, TrashFolder = {TrashFolder}, JunkFolder = {JunkFolder}");
+            return true;
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

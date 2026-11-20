@@ -34,6 +34,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IIcsProviderService, IcsProviderService>();
         services.AddSingleton<IJsonCalendarProviderService, JsonCalendarProviderService>();
         services.AddSingleton<IImapProviderService, ImapProviderService>();
+        services.AddSingleton<HostGuard>();
+        services.AddSingleton<IImapAccountVerifier, ImapAccountVerifier>();
         services.AddSingleton<DavHttpClient>();
         services.AddSingleton<DavDiscovery>();
         services.AddSingleton<IDavProviderService, DavProviderService>();

@@ -158,7 +158,7 @@ file says the fork does not have, this file wins.
      serializer's options, so a damaged one is `invalid_cursor` before a source sees it. A delta link
      passes `GraphLinks.Checked` before it is followed, because `BearerTokenAuthenticationProvider`
      puts the account's token on any host. A cursor is never logged, and neither is a provider's
-     exception message.
+     exception message (the one exception is the verifier's server line, change 9).
    - **One mail never blocks a page, and conversion is bounded.** A page is all or nothing and is
      replayed from the same cursor when it fails, so a mail whose body cannot be converted arrives with an
      empty snippet, and `get_email_details` answers its metadata and says the body could not be
@@ -186,6 +186,30 @@ file says the fork does not have, this file wins.
      A stored password that cannot be decrypted is `provider_auth`.
    - **Tests reach real servers.** GreenMail and Dovecot run in CI (`.github/workflows/ci.yml`,
      `PIM_TEST_GREENMAIL`, `PIM_TEST_DOVECOT`); under `CI` an unset variable fails the test.
+
+9. **Checking an IMAP account (`Providers/ImapAccountVerifier.cs`).** `IImapAccountVerifier` answers whether a
+   mailbox works the way Aura's watch reads it, for the connect and repair flows of Aura's
+   `docs/superpowers/specs/2026-11-20-pim-account-connect-repair-design.md`. Upstream has nothing like it.
+   - **Two steps, two budgets.** IMAP (12 s): connect, log in, and the watch's own first read of the configured
+     `inboxFolder` (`FirstReadAsync`, which `StartAsync` calls too). SMTP (8 s): connect and log in. An IMAP failure
+     blocks; an SMTP password refusal blocks (`smtp_auth_failed`, also when the server offers no AUTH at all); an
+     SMTP server that cannot be reached or refuses TLS is a warning, because the watch only reads. `VerifyReasons`
+     is the one place an exception becomes a reason. A cancelled caller is not a verdict; a step out of time is
+     `unreachable`.
+   - **TLS modes.** Provider-config keys `imapSecurity` and `smtpSecurity`: `ssl` is `SslOnConnect`, `starttls`
+     is `StartTls` (required, never "when available"), `none` exists for the plaintext test servers. An account
+     without the key was stored before it existed and keeps MailKit's `Auto`. `ImapConnections` opens every
+     IMAP and SMTP connection, the provider's included.
+   - **Private addresses.** `HostGuard` resolves the host once, refuses loopback, RFC 1918, link-local, CGNAT,
+     ULA, the unspecified addresses and IPv4-mapped forms unless the caller allows them, and hands MailKit the
+     socket it connected to a checked address (`ConnectAsync(Socket, host, ...)`, where the host still names the
+     server for the certificate check).
+   - **The server's line is logged.** A failure logs the account id, step, stage, the exception's type and the
+     server's response line (`ImapCommandException.ResponseText`, an SMTP status and its text, or an
+     `AuthenticationException`'s message), CR/LF removed and cut at 200 characters; never the exception itself.
+     `ImapAccountConfig` prints without its password.
+   - **Its tests reach real servers too:** GreenMail's SMTP (`PIM_TEST_GREENMAIL_SMTP`) and a second GreenMail
+     that checks passwords (`PIM_TEST_GREENMAIL_AUTH_SMTP`), both started by `ci.yml`.
 
 ## Build / run (sidecar)
 
@@ -252,8 +276,11 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
   that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added, with
   or without brackets: a bare name is cheap only if it is on the list in `PseudoClass`.
-- `ImapProviderService.cs`: `OpenImapAsync` makes its client with `ImapNoCodes.NewClient()` in place of
-  `new ImapClient()`. The logger reads `NO [NOPERM]` and `NO [CANNOT]`, which MailKit takes out of its exceptions.
+- `ImapConnections.cs` (the fork's own; upstream opens connections in `ImapProviderService.cs`, and an upstream
+  edit to its `OpenImapAsync`/`OpenSmtpAsync` lands here by hand): the IMAP client is made with
+  `ImapNoCodes.NewClient()` in place of `new ImapClient()`, and the security option comes from `imapSecurity`/
+  `smtpSecurity` (change 9) instead of `Auto`. The logger reads `NO [NOPERM]` and `NO [CANNOT]`, which MailKit
+  takes out of its exceptions.
 - A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
   `ChangesProviders`, and `ChangesRegistrationTests` lists every source.
 - Upstream's `IProviderServices.cs`: the fork's provider interfaces also inherit
