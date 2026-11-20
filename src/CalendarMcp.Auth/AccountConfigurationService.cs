@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.Logging;
 
@@ -22,13 +23,49 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly ILogger<AccountConfigurationService> _logger;
     private readonly ITenantContext _tenantContext;
+    private readonly Action<string, string> _replaceFile;
 
+    /// <param name="replaceFile">Moves the finished temp file over the config file. A seam so a test
+    /// can make the move fail; production uses <see cref="File.Move(string, string, bool)"/>.</param>
     public AccountConfigurationService(
         ILogger<AccountConfigurationService> logger,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        Action<string, string>? replaceFile = null)
     {
         _logger = logger;
         _tenantContext = tenantContext;
+        _replaceFile = replaceFile ?? ((tmp, path) => File.Move(tmp, path, overwrite: true));
+    }
+
+    public async Task<int> ProtectStoredPasswordsAsync(PasswordProtector protector, CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct);
+        try
+        {
+            var (root, accountsArray) = await ReadConfigAsync(ct);
+            var count = 0;
+            foreach (var node in accountsArray)
+            {
+                if (node is not JsonObject account) continue;
+                var config = account["ProviderConfig"] as JsonObject ?? account["providerConfig"] as JsonObject;
+                if (config is null) continue;
+                foreach (var key in config.Select(p => p.Key).Where(ProviderSecrets.IsSecretKey).ToList())
+                {
+                    if (config[key] is not JsonValue value || !value.TryGetValue<string>(out var stored)) continue;
+                    if (string.IsNullOrEmpty(stored) || PasswordProtector.IsProtected(stored)) continue;
+                    config[key] = protector.Protect(stored);
+                    count++;
+                }
+            }
+
+            if (count > 0)
+                await WriteConfigAsync(root, ct);
+            return count;
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 
     public async Task<IReadOnlyList<AccountInfo>> GetAllAccountsFromConfigAsync(CancellationToken ct = default)
@@ -208,11 +245,24 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         return (root, accounts);
     }
 
-    private static async Task WriteConfigAsync(JsonObject root, CancellationToken ct)
+    /// <summary>
+    /// Writes the whole file to a temp file beside it, then moves it over the original, so a
+    /// crash or a full disk leaves the old file whole rather than half of the new one.
+    /// </summary>
+    private async Task WriteConfigAsync(JsonObject root, CancellationToken ct)
     {
         var configPath = GetConfigPath();
-        var json = root.ToJsonString(WriteOptions);
-        await File.WriteAllTextAsync(configPath, json, ct);
+        var tmpPath = configPath + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(tmpPath, root.ToJsonString(WriteOptions), ct);
+            _replaceFile(tmpPath, configPath);
+        }
+        catch
+        {
+            File.Delete(tmpPath);
+            throw;
+        }
     }
 
     /// <summary>

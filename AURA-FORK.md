@@ -211,6 +211,25 @@ file says the fork does not have, this file wins.
    - **Its tests reach real servers too:** GreenMail's SMTP (`PIM_TEST_GREENMAIL_SMTP`) and a second GreenMail
      that checks passwords (`PIM_TEST_GREENMAIL_AUTH_SMTP`), both started by `ci.yml`.
 
+10. **Account passwords are stored encrypted, and the account file is written atomically.** This restores
+    upstream's own admin behaviour (its form protected the IMAP password on save,
+    `BlazorAdmin/AccountFormModels.cs:216-220` at upstream `3b2762b`), which went with the Blazor UI.
+    - **On every save.** `CreateAccount` and `UpdateAccount` store `ProviderConfig` through
+      `ProviderSecrets.ProtectIncoming`: a non-empty `password` (any case) is always encrypted, `ENC:` prefix or not,
+      because a caller can type the prefix.
+    - **At startup.** `ProtectStoredPasswordsService` runs `ProtectStoredPasswordsAsync` once: it walks the file as
+      a JSON tree (never `ParseAccounts`, which throws on a node without `TenantId`), encrypts the plaintext
+      passwords of every tenant, writes only when it changed something, logs the count and never a value. A failure
+      is logged once and does not stop the host.
+    - **`WriteConfigAsync` is atomic.** It writes `appsettings.json.tmp` beside the file and moves it over the
+      original; a failed move deletes the temp file and leaves the original whole.
+    - **The key ring** is `/app/data/keys` (`ConfigurationPaths.GetDataProtectionKeysDirectory()`), on Aura's
+      `aura-pim-data` volume with `appsettings.json`. **Never delete `keys/`**: every `ENC:` value becomes
+      unreadable and each account needs its password entered again.
+    - **What `ENC:` protects against** is the account file read on its own: a backup, a copy of the volume without
+      `keys/`, a log or a support bundle. It does not protect against anyone who can read the volume with `keys/` or
+      run code in the container (spec A10 of Aura's account connect/repair design).
+
 ## Build / run (sidecar)
 
 ```bash

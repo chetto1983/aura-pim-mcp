@@ -2,6 +2,7 @@ using CalendarMcp.Auth;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -150,6 +151,7 @@ public static class AdminEndpoints
         CreateAccountRequest request,
         IAccountConfigurationService configService,
         ITenantContext tenantContext,
+        PasswordProtector protector,
         IConfiguration configuration)
     {
         // Validate ID
@@ -177,7 +179,7 @@ public static class AdminEndpoints
             Enabled = request.Enabled,
             Priority = request.Priority,
             Permissions = request.Permissions ?? AccountPermissions.All,
-            ProviderConfig = request.ProviderConfig
+            ProviderConfig = ProviderSecrets.ProtectIncoming(request.ProviderConfig, protector)
         };
 
         try
@@ -208,6 +210,7 @@ public static class AdminEndpoints
         string accountId,
         UpdateAccountRequest request,
         IAccountConfigurationService configService,
+        PasswordProtector protector,
         IConfiguration configuration)
     {
         // Look up existing account to get its provider (provider is immutable)
@@ -230,7 +233,7 @@ public static class AdminEndpoints
             Enabled = request.Enabled,
             Priority = request.Priority,
             Permissions = request.Permissions ?? existing.Permissions,
-            ProviderConfig = request.ProviderConfig
+            ProviderConfig = ProviderSecrets.ProtectIncoming(request.ProviderConfig, protector)
         };
 
         try

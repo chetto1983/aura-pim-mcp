@@ -105,6 +105,7 @@ public class Program
 
         // Register admin services
         builder.Services.AddSingleton<IAccountConfigurationService, AccountConfigurationService>();
+        builder.Services.AddHostedService<ProtectStoredPasswordsService>();
         builder.Services.AddSingleton<DeviceCodeAuthManager>();
         builder.Services.AddSingleton<GoogleOAuthManager>();
 
