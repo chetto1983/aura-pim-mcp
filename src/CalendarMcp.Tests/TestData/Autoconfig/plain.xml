@@ -1,0 +1,26 @@
+<!--
+  The shape of ISPDB's tiscali.cz answer, recorded 2026-11-20, hosts rewritten to example.org. Every plain answer
+  found in ISPDB was POP3 only, so the incoming server's type is changed to imap (port 143): this fixture must fail
+  because the transport is plain, not because there is no IMAP server.
+-->
+<clientConfig version="1.1">
+  <emailProvider id="example.org">
+    <domain>example.org</domain>
+    <displayName>Example</displayName>
+    <displayShortName>Example</displayShortName>
+    <incomingServer type="imap">
+      <hostname>imap.mail.example.org</hostname>
+      <port>143</port>
+      <socketType>plain</socketType>
+      <username>%EMAILADDRESS%</username>
+      <authentication>password-cleartext</authentication>
+    </incomingServer>
+    <outgoingServer type="smtp">
+      <hostname>smtp.mail.example.org</hostname>
+      <port>25</port>
+      <socketType>plain</socketType>
+      <username>%EMAILADDRESS%</username>
+      <authentication>password-cleartext</authentication>
+    </outgoingServer>
+  </emailProvider>
+</clientConfig>

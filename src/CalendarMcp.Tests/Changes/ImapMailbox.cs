@@ -21,10 +21,21 @@ internal static class ImapServers
 {
     public const string GreenMailVariable = "PIM_TEST_GREENMAIL";
     public const string DovecotVariable = "PIM_TEST_DOVECOT";
+    public const string GreenMailSmtpVariable = "PIM_TEST_GREENMAIL_SMTP";
+    public const string GreenMailAuthSmtpVariable = "PIM_TEST_GREENMAIL_AUTH_SMTP";
+
+    /// <summary>The one user of the GreenMail with authentication, whose password is not <see cref="ImapMailbox.Password"/>.</summary>
+    public const string GreenMailAuthUser = "pim";
 
     public static (string Host, int Port) GreenMail => Require(GreenMailVariable);
 
     public static (string Host, int Port) Dovecot => Require(DovecotVariable);
+
+    /// <summary>GreenMail's SMTP, which advertises AUTH and takes any login.</summary>
+    public static (string Host, int Port) GreenMailSmtp => Require(GreenMailSmtpVariable);
+
+    /// <summary>A second GreenMail that checks passwords: it knows only <see cref="GreenMailAuthUser"/>.</summary>
+    public static (string Host, int Port) GreenMailAuthSmtp => Require(GreenMailAuthSmtpVariable);
 
     private static (string Host, int Port) Require(string variable)
     {

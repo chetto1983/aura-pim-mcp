@@ -42,3 +42,12 @@ public record UpdateAccountRequest
 
     public Dictionary<string, string> ProviderConfig { get; init; } = [];
 }
+
+/// <summary>
+/// Request body for PATCH /admin/accounts/{accountId}/provider-config: the provider-config keys to change. A key
+/// absent or "" keeps what is stored.
+/// </summary>
+public record PatchProviderConfigRequest
+{
+    public Dictionary<string, string>? ProviderConfig { get; init; }
+}
