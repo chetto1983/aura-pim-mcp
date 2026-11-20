@@ -158,7 +158,9 @@ file says the fork does not have, this file wins.
      serializer's options, so a damaged one is `invalid_cursor` before a source sees it. A delta link
      passes `GraphLinks.Checked` before it is followed, because `BearerTokenAuthenticationProvider`
      puts the account's token on any host. A cursor is never logged, and neither is a provider's
-     exception message (the one exception is the verifier's server line, change 9).
+     exception message, except what an IMAP server itself answered: the verifier's server line (change 9)
+     and, when the watch's read fails, `ImapCommandException.ResponseText` or the `ImapProtocolException`
+     message, on one line and cut at 200 characters (spec amendment A8).
    - **One mail never blocks a page, and conversion is bounded.** A page is all or nothing and is
      replayed from the same cursor when it fails, so a mail whose body cannot be converted arrives with an
      empty snippet, and `get_email_details` answers its metadata and says the body could not be

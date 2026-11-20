@@ -123,6 +123,7 @@ public static class VerifyReasons
         var line = failure switch
         {
             ImapCommandException imap => imap.ResponseText,
+            ImapProtocolException protocol => protocol.Message,
             SmtpCommandException smtp => $"{(int)smtp.StatusCode} {smtp.Message}",
             AuthenticationException { InnerException: SmtpCommandException smtp } => $"{(int)smtp.StatusCode} {smtp.Message}",
             AuthenticationException auth => auth.Message,

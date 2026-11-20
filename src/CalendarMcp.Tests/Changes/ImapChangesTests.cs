@@ -722,6 +722,30 @@ public class ImapChangesTests
         Assert.IsTrue(page.GetProperty("changes").EnumerateArray().Single().GetProperty("signals").GetProperty("writtenTo").GetBoolean());
     }
 
+    /// <summary>Spec amendment A8: the log names the server's own line, on one line, so the next field case is readable.</summary>
+    [TestMethod]
+    public async Task TransientImapFailure_LogsTheServersLineWithoutCrLf()
+    {
+        var logs = new CapturingLogs();
+        await using var proxy = RefusingImapProxy.Before(ImapServers.GreenMail);
+        await using var mailbox = await ImapMailbox.OpenAsync(proxy.Address);
+        await mailbox.SendAsync(ImapMailbox.Mail(from: "io@example.com", to: "collega@example.com"));
+        var cursor = await mailbox.StartAsync();
+        await mailbox.DeliverAsync(ImapMailbox.Mail(from: "collega@example.com"));
+        await using var pim = new ChangesPipeline([mailbox.Account], [mailbox.Provider], logs);
+
+        proxy.Refusal = "NO [UNAVAILABLE] Try later, folder busy";
+        var (status, _) = await pim.PostAsync(
+            "/admin/changes", new { accountId = mailbox.Account.Id, resource = "mail", cursor = cursor.Encode() });
+
+        Assert.AreEqual(503, status);
+        var entry = logs.Entries.Single(e => e.Line.Contains("provider_transient", StringComparison.Ordinal));
+        StringAssert.Contains(entry.Line, "ImapCommandException");
+        StringAssert.Contains(entry.Line, "Try later, folder busy");
+        Assert.IsFalse(entry.Line.Contains('\r') || entry.Line.Contains('\n'), entry.Line);
+        Assert.IsFalse(entry.Line.Contains(cursor.Encode(), StringComparison.Ordinal), entry.Line);
+    }
+
     /// <summary>
     /// A NO that no waiting changes (an ACL, a folder that only holds others) on a folder that is listed
     /// must not fail the page for good: the cursor never moves, so the first ordinary mail would stop the watch.
