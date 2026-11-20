@@ -1,4 +1,3 @@
-using CalendarMcp.Auth;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Services;
@@ -48,9 +47,7 @@ public class ChangesRegistrationTests
         builder.Services.AddSingleton<IOptionsMonitor<CalendarMcpConfiguration>>(
             new TestOptionsMonitor<CalendarMcpConfiguration>(new CalendarMcpConfiguration()));
         builder.Services.AddCalendarMcpCore();
-        builder.Services.AddSingleton<IAccountConfigurationService, AccountConfigurationService>();
-        builder.Services.AddSingleton<DeviceCodeAuthManager>();
-        builder.Services.AddSingleton<GoogleOAuthManager>();
+        builder.Services.AddAdminServices();
         using var app = builder.Build();
 
         app.MapAdminEndpoints();

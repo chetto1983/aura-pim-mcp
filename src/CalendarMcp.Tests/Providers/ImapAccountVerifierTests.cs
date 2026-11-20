@@ -143,7 +143,51 @@ public class ImapAccountVerifierTests
         var outcome = await Verifier(logs).VerifyAsync(AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp), false, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
-        Assert.Contains("PrivateAddressException", logs.Lines.Single());
+        var line = logs.Lines.Single();
+        Assert.Contains("PrivateAddressException", line);
+        Assert.Contains($"'{ImapServers.Dovecot.Host}' resolves to", line, "the log names the refused host and its address");
+    }
+
+    [TestMethod]
+    public void ServerLine_OfAPrivateAddress_NamesTheHostAndTheAddress()
+    {
+        var line = VerifyReasons.ServerLine(new PrivateAddressException("mail.example.com", IPAddress.Parse("10.1.2.3")));
+
+        Assert.Contains("mail.example.com", line);
+        Assert.Contains("10.1.2.3", line);
+    }
+
+    [TestMethod]
+    public async Task Verify_TheBudgetFiring_IsUnreachable_WhateverTheClientThrew()
+    {
+        var logs = new CapturingLogs();
+        // What MailKit throws when its read is cut short depends on where the cut lands; this one names TLS.
+        var guard = new HostGuard(
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("203.0.113.10") }),
+            async (_, token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token).ContinueWith(_ => { }, TaskScheduler.Default);
+                throw new NotSupportedException("The IMAP server does not support the STARTTLS extension.");
+            });
+        var verifier = Verifier(logs, guard: guard);
+        verifier.ImapBudget = TimeSpan.FromMilliseconds(200);
+
+        var outcome = await verifier.VerifyAsync(AccountId, Config(("mail.example.com", 993), ("smtp.example.com", 465)), false, default);
+
+        Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
+        Assert.Contains("NotSupportedException", logs.Lines.Single());
+    }
+
+    [TestMethod]
+    [DataRow("0")]
+    [DataRow("65536")]
+    [DataRow("-1")]
+    public void ImapAccountConfig_PortOutOfRange_IsTheDefault(string port)
+    {
+        var config = Config(("imap.example.com", 993), ("smtp.example.com", 465));
+        config["imapPort"] = port;
+
+        Assert.AreEqual(ImapProviderService.DefaultImapPort, ImapProviderService.ImapAccountConfig.From(AccountId, config, Protector()).ImapPort);
     }
 
     [TestMethod]
@@ -256,8 +300,9 @@ public class ImapAccountVerifierTests
 
     private static PasswordProtector Protector() => new(new EphemeralDataProtectionProvider());
 
-    private static ImapAccountVerifier Verifier(CapturingLogs? logs = null, PasswordProtector? protector = null) => new(
-        new HostGuard(),
+    private static ImapAccountVerifier Verifier(
+        CapturingLogs? logs = null, PasswordProtector? protector = null, HostGuard? guard = null) => new(
+        guard ?? new HostGuard(),
         protector ?? Protector(),
         LoggerFactory.Create(builder => builder.AddProvider(logs ?? new CapturingLogs())).CreateLogger<ImapAccountVerifier>());
 

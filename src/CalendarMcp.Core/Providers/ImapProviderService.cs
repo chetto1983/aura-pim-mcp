@@ -52,7 +52,8 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     // next AUTHENTICATE. Instead we keep one authenticated connection per account,
     // reuse it across calls, and dispose it gracefully. A per-account gate
     // serializes access because a single ImapClient can only run one command at a time.
-    private readonly ConcurrentDictionary<string, PooledImapConnection> _imapConnections = new();
+    // Account ids match in any case everywhere else, so one account never holds two sessions.
+    private readonly ConcurrentDictionary<string, PooledImapConnection> _imapConnections = new(StringComparer.OrdinalIgnoreCase);
     private volatile bool _disposed;
 
     public ImapProviderService(
@@ -169,12 +170,20 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
     /// <summary>
     /// Returns the account's cached connection if it is still alive (verified with a
-    /// lightweight NOOP), otherwise opens and caches a fresh authenticated connection.
-    /// The boolean indicates whether an existing connection was reused.
+    /// lightweight NOOP) and was opened with the server and login <paramref name="cfg"/> names,
+    /// otherwise opens and caches a fresh authenticated connection. A repaired account is read
+    /// with its new password at once, not with the session the old one opened. Called under
+    /// <c>conn.Gate</c>. The boolean indicates whether an existing connection was reused.
     /// </summary>
     private async Task<(ImapClient Client, bool Reused)> AcquireClientAsync(
         PooledImapConnection conn, ImapAccountConfig cfg, CancellationToken ct)
     {
+        if (conn.Client is not null && conn.OpenedWith != PooledImapConnection.Login(cfg))
+        {
+            _logger.LogDebug("The configuration of {AccountId} changed; reopening its IMAP connection.", cfg.AccountId);
+            await EvictClientAsync(conn);
+        }
+
         var existing = conn.Client;
         if (existing is { IsConnected: true, IsAuthenticated: true })
         {
@@ -197,6 +206,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
         var fresh = await ImapConnections.OpenImapAsync(cfg, null, ct);
         conn.Client = fresh;
+        conn.OpenedWith = PooledImapConnection.Login(cfg);
         return (fresh, false);
     }
 
@@ -236,6 +246,12 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     {
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public ImapClient? Client { get; set; }
+
+        /// <summary>What <see cref="Client"/> connected to and logged in with.</summary>
+        public (string Host, int Port, string? Security, string Username, string Password) OpenedWith { get; set; }
+
+        public static (string, int, string?, string, string) Login(ImapAccountConfig cfg) =>
+            (cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, cfg.Username, cfg.Password);
     }
 
     // ── Email operations ─────────────────────────────────────────────

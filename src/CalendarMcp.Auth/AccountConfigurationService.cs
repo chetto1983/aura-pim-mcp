@@ -68,6 +68,39 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         }
     }
 
+    public async Task MergeProviderConfigAsync(
+        string accountId, IReadOnlyDictionary<string, string> expectedStored,
+        IReadOnlyDictionary<string, string> next, CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct);
+        try
+        {
+            var (root, accountsArray) = await ReadConfigAsync(ct);
+            var index = FindAccountIndex(accountsArray, accountId);
+            if (index < 0 || !NodeOwnedBy(accountsArray[index], _tenantContext.RequireTenantId()))
+                throw new InvalidOperationException($"Account '{accountId}' not found.");
+
+            var node = accountsArray[index]!.AsObject();
+            var key = node.ContainsKey("providerConfig") && !node.ContainsKey("ProviderConfig") ? "providerConfig" : "ProviderConfig";
+            if (!SameConfig(GetStringDictProperty(node, "ProviderConfig"), expectedStored))
+                throw new ConcurrencyException(accountId);
+
+            node[key] = DictionaryToNode(next);
+            await WriteConfigAsync(root, ct);
+
+            _logger.LogInformation("Changed the provider config of account '{AccountId}'", accountId);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    // Keys in any case, as every reader of the file matches them; values exactly, a password above all.
+    private static bool SameConfig(Dictionary<string, string> stored, IReadOnlyDictionary<string, string> expected) =>
+        stored.Count == expected.Count &&
+        expected.All(kv => stored.TryGetValue(kv.Key, out var value) && string.Equals(value, kv.Value, StringComparison.Ordinal));
+
     public async Task<IReadOnlyList<AccountInfo>> GetAllAccountsFromConfigAsync(CancellationToken ct = default)
     {
         await _fileLock.WaitAsync(ct);
@@ -246,8 +279,9 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
     }
 
     /// <summary>
-    /// Writes the whole file to a temp file beside it, then moves it over the original, so a
-    /// crash or a full disk leaves the old file whole rather than half of the new one.
+    /// Writes the whole file to a temp file beside it, flushed to the disk, then moves it over the
+    /// original, so a crash, a power cut or a full disk leaves the old file whole rather than half
+    /// of the new one.
     /// </summary>
     private async Task WriteConfigAsync(JsonObject root, CancellationToken ct)
     {
@@ -255,13 +289,31 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         var tmpPath = configPath + ".tmp";
         try
         {
-            await File.WriteAllTextAsync(tmpPath, root.ToJsonString(WriteOptions), ct);
+            await using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await JsonSerializer.SerializeAsync(stream, root, WriteOptions, ct);
+                // Past the OS cache: a rename can reach the disk before the data it names (a mini PC losing power).
+                stream.Flush(flushToDisk: true);
+            }
             _replaceFile(tmpPath, configPath);
         }
         catch
         {
-            File.Delete(tmpPath);
+            DeleteTempFile(tmpPath);
             throw;
+        }
+    }
+
+    // Best effort: the failure the caller hears about is the write's, not the cleanup's.
+    private void DeleteTempFile(string tmpPath)
+    {
+        try
+        {
+            File.Delete(tmpPath);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Could not delete {TempFile} after a failed write: {Failure}", tmpPath, e.GetType().Name);
         }
     }
 
@@ -350,7 +402,7 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
     private static string ToPascal(string camelName) =>
         char.ToUpperInvariant(camelName[0]) + camelName[1..];
 
-    private static JsonObject DictionaryToNode(Dictionary<string, string> dict)
+    private static JsonObject DictionaryToNode(IReadOnlyDictionary<string, string> dict)
     {
         var obj = new JsonObject();
         foreach (var (key, value) in dict)

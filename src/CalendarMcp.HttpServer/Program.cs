@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using CalendarMcp.Auth;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -103,11 +102,7 @@ public class Program
         // Add Adjutant core services (providers, tools, account registry)
         builder.Services.AddCalendarMcpCore();
 
-        // Register admin services
-        builder.Services.AddSingleton<IAccountConfigurationService, AccountConfigurationService>();
-        builder.Services.AddHostedService<ProtectStoredPasswordsService>();
-        builder.Services.AddSingleton<DeviceCodeAuthManager>();
-        builder.Services.AddSingleton<GoogleOAuthManager>();
+        builder.Services.AddAdminServices();
 
         // Background sweeper for the attachment store (uploads land here only
         // in HTTP mode, so eviction is HTTP-side too).

@@ -8,6 +8,8 @@ using CalendarMcp.HttpServer.Admin;
 using Microsoft.AspNetCore.DataProtection;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Tests.Helpers;
+using CalendarMcp.Tests.Changes;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CalendarMcp.Tests.Auth;
@@ -331,13 +333,88 @@ public sealed class AccountConfigurationServiceTests
                 "ProviderConfig": { "password": "hunter2" } }
             ] } }
             """);
+        var before = await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath());
         var failing = new AccountConfigurationService(
             NullLogger<AccountConfigurationService>.Instance, _tenantContext,
             (_, _) => throw new IOException("disk full"));
+        var logs = new CapturingLogs();
         var host = new ProtectStoredPasswordsService(
-            failing, Protector(), NullLogger<ProtectStoredPasswordsService>.Instance);
+            failing, Protector(), LoggerFactory.Create(b => b.AddProvider(logs)).CreateLogger<ProtectStoredPasswordsService>());
 
         await host.StartAsync(CancellationToken.None);
+
+        Assert.AreEqual(1, logs.Entries.Count(entry => entry.Level == LogLevel.Error));
+        Assert.AreEqual(before, await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()));
+    }
+
+    [TestMethod]
+    public async Task Write_AFailedMove_ReportsItsOwnFailure_EvenWhenTheTempFileCannotBeDeleted()
+    {
+        var path = ConfigurationPaths.GetConfigFilePath();
+        var before = await File.ReadAllTextAsync(path);
+        var failing = new AccountConfigurationService(
+            NullLogger<AccountConfigurationService>.Instance, _tenantContext,
+            (tmp, _) =>
+            {
+                File.Delete(tmp);
+                Directory.CreateDirectory(tmp);
+                throw new IOException("disk full");
+            });
+
+        var thrown = await Assert.ThrowsExactlyAsync<IOException>(
+            () => failing.AddAccountAsync(TestData.CreateAccount(id: OwnId("fresh"))));
+
+        Assert.AreEqual("disk full", thrown.Message);
+        Assert.AreEqual(before, await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_ReplacesOnlyTheProviderConfig()
+    {
+        var id = OwnId("mail");
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id, provider: "imap",
+            providerConfig: new() { ["imapHost"] = "imap.example.com", ["password"] = "ENC:old" }));
+        var stored = (await _service.GetAccountFromConfigAsync(id))!;
+        var before = await StoredNodeAsync(id);
+
+        await _service.MergeProviderConfigAsync(id, stored.ProviderConfig,
+            new Dictionary<string, string> { ["imapHost"] = "imap.example.com", ["password"] = "ENC:new" });
+
+        var after = await StoredNodeAsync(id);
+        Assert.AreEqual("ENC:new", after["ProviderConfig"]!["password"]!.GetValue<string>());
+        after.Remove("ProviderConfig");
+        before.Remove("ProviderConfig");
+        Assert.AreEqual(before.ToJsonString(), after.ToJsonString());
+    }
+
+    private static async Task<JsonObject> StoredNodeAsync(string id)
+    {
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()))!;
+        return root["CalendarMcp"]!["Accounts"]!.AsArray()
+            .Single(node => node!["Id"]!.GetValue<string>() == id)!.AsObject();
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_OnAChangedNode_IsAConflict_AndWritesNothing()
+    {
+        var id = OwnId("mail");
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id, provider: "imap",
+            providerConfig: new() { ["password"] = "ENC:old" }));
+        var path = ConfigurationPaths.GetConfigFilePath();
+        var before = await File.ReadAllTextAsync(path);
+
+        await Assert.ThrowsExactlyAsync<ConcurrencyException>(() => _service.MergeProviderConfigAsync(id,
+            new Dictionary<string, string> { ["password"] = "ENC:what-was-verified" },
+            new Dictionary<string, string> { ["password"] = "ENC:new" }));
+
+        Assert.AreEqual(before, await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_OnAForeignAccount_IsNotFound()
+    {
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _service.MergeProviderConfigAsync("foreign",
+            new Dictionary<string, string>(), new Dictionary<string, string> { ["password"] = "ENC:new" }));
     }
 
     [TestMethod]

@@ -27,6 +27,12 @@ public interface IImapAccountVerifier
     /// Logs in to the IMAP server and runs the watch's first read, then connects and logs in to SMTP. Only public
     /// addresses are connected unless <paramref name="allowPrivate"/>. A cancelled <paramref name="ct"/> throws.
     /// </summary>
+    /// <remarks>
+    /// The caller validates <paramref name="providerConfig"/> first (the admin API's <c>ImapProviderInput</c>): a
+    /// username and a password, host names a resolver takes, ports in 1-65535, and <c>imapSecurity</c> and
+    /// <c>smtpSecurity</c> absent or one of <c>ssl</c>, <c>starttls</c>, <c>none</c>. Past that, every failure is a
+    /// <see cref="VerifyOutcome"/>; what is thrown on bad input names a bug in the caller, not a mail server.
+    /// </remarks>
     Task<VerifyOutcome> VerifyAsync(
         string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate, CancellationToken ct);
 }
@@ -93,12 +99,16 @@ public static class VerifyReasons
     private static bool IsUnreachable(Exception failure) => failure is SocketException or IOException or TimeoutException
         or OperationCanceledException or ProtocolException or CommandException or ServiceNotConnectedException;
 
+    /// <summary>A step that ran out of its own budget: whatever the client threw when it was cut short.</summary>
+    internal static VerifyFailure OutOfTime(string step) => new(step, step == Smtp ? SmtpUnreachable : Unreachable);
+
     private static InvalidOperationException Unnamed(Exception failure) =>
         new($"A verification failed with {failure.GetType().Name}, which names no mail server failure.", failure);
 
     /// <summary>
     /// The server's own words, for the log only and never for a response: the line a refusal carried, on one line
-    /// and cut short, so a server cannot write log lines of its own.
+    /// and cut short, so a server cannot write log lines of its own. A refused private address has no server line:
+    /// it names the host and the address it resolved to instead.
     /// </summary>
     internal static string ServerLine(Exception failure)
     {
@@ -108,6 +118,7 @@ public static class VerifyReasons
             SmtpCommandException smtp => $"{(int)smtp.StatusCode} {smtp.Message}",
             AuthenticationException { InnerException: SmtpCommandException smtp } => $"{(int)smtp.StatusCode} {smtp.Message}",
             AuthenticationException auth => auth.Message,
+            PrivateAddressException refused => refused.Message,
             _ => string.Empty
         } ?? string.Empty;
 
@@ -199,17 +210,18 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
-            return Failed(accountId, step, stage.Current, e);
+            // Once the step's own budget fired, what MailKit throws says where the cut landed, not what the server did.
+            return Failed(accountId, step, stage.Current, e, outOfTime: timer.IsCancellationRequested);
         }
     }
 
     // The exception itself is never logged: its message and stack can carry what the provider said about the
     // account. Its type and the server's line are what the next field case needs (spec amendment A8).
-    private VerifyFailure Failed(string accountId, string step, string stage, Exception e)
+    private VerifyFailure Failed(string accountId, string step, string stage, Exception e, bool outOfTime = false)
     {
         logger.LogWarning("Verifying account {AccountId} failed at {Step}/{Stage}: {Failure} {ServerLine}",
             accountId, step, stage, e.GetType().Name, VerifyReasons.ServerLine(e));
-        return VerifyReasons.From(step, stage, e);
+        return outOfTime ? VerifyReasons.OutOfTime(step) : VerifyReasons.From(step, stage, e);
     }
 
     // The check has passed by now: a server that drops the LOGOUT has still answered everything asked of it.

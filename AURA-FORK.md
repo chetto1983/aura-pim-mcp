@@ -195,7 +195,11 @@ file says the fork does not have, this file wins.
      blocks; an SMTP password refusal blocks (`smtp_auth_failed`, also when the server offers no AUTH at all); an
      SMTP server that cannot be reached or refuses TLS is a warning, because the watch only reads. `VerifyReasons`
      is the one place an exception becomes a reason. A cancelled caller is not a verdict; a step out of time is
-     `unreachable`.
+     `unreachable` (`smtp_unreachable` for SMTP) whatever MailKit threw when it was cut short.
+   - **Its input is checked before it runs.** `VerifyAsync` is called only with a username, a password, host names
+     a resolver takes (at most 253 characters, a DNS name or an IP address), ports in 1-65535 and a known security
+     value (`Admin/ImapProviderInput`, change 11); `ImapAccountConfig.From` reads a port
+     outside 1-65535 as absent.
    - **TLS modes.** Provider-config keys `imapSecurity` and `smtpSecurity`: `ssl` is `SslOnConnect`, `starttls`
      is `StartTls` (required, never "when available"), `none` exists for the plaintext test servers. An account
      without the key was stored before it existed and keeps MailKit's `Auto`. `ImapConnections` opens every
@@ -207,6 +211,7 @@ file says the fork does not have, this file wins.
    - **The server's line is logged.** A failure logs the account id, step, stage, the exception's type and the
      server's response line (`ImapCommandException.ResponseText`, an SMTP status and its text, or an
      `AuthenticationException`'s message), CR/LF removed and cut at 200 characters; never the exception itself.
+     A refused private address has no server line: the log names the host and the address it resolved to.
      `ImapAccountConfig` prints without its password.
    - **Its tests reach real servers too:** GreenMail's SMTP (`PIM_TEST_GREENMAIL_SMTP`) and a second GreenMail
      that checks passwords (`PIM_TEST_GREENMAIL_AUTH_SMTP`), both started by `ci.yml`.
@@ -214,21 +219,55 @@ file says the fork does not have, this file wins.
 10. **Account passwords are stored encrypted, and the account file is written atomically.** This restores
     upstream's own admin behaviour (its form protected the IMAP password on save,
     `BlazorAdmin/AccountFormModels.cs:216-220` at upstream `3b2762b`), which went with the Blazor UI.
-    - **On every save.** `CreateAccount` and `UpdateAccount` store `ProviderConfig` through
-      `ProviderSecrets.ProtectIncoming`: a non-empty `password` (any case) is always encrypted, `ENC:` prefix or not,
-      because a caller can type the prefix.
+    - **On every save.** `CreateAccount`, `UpdateAccount` and the provider-config PATCH (change 11) store what the
+      request sent through `ProviderSecrets.ProtectIncoming`: a non-empty `password` (any case) is always encrypted,
+      `ENC:` prefix or not, because a caller can type the prefix. Only a value the PATCH keeps from storage is left
+      as it is.
     - **At startup.** `ProtectStoredPasswordsService` runs `ProtectStoredPasswordsAsync` once: it walks the file as
       a JSON tree (never `ParseAccounts`, which throws on a node without `TenantId`), encrypts the plaintext
       passwords of every tenant, writes only when it changed something, logs the count and never a value. A failure
       is logged once and does not stop the host.
-    - **`WriteConfigAsync` is atomic.** It writes `appsettings.json.tmp` beside the file and moves it over the
-      original; a failed move deletes the temp file and leaves the original whole.
+    - **`WriteConfigAsync` is atomic.** It writes `appsettings.json.tmp` beside the file, flushed to the disk
+      (`Flush(true)`: a power cut must not leave a rename pointing at data that never landed), and moves it over the
+      original; a failed move deletes the temp file and leaves the original whole. A temp file that cannot be deleted
+      is logged, and the caller hears the write's own failure.
     - **The key ring** is `/app/data/keys` (`ConfigurationPaths.GetDataProtectionKeysDirectory()`), on Aura's
       `aura-pim-data` volume with `appsettings.json`. **Never delete `keys/`**: every `ENC:` value becomes
       unreadable and each account needs its password entered again.
     - **What `ENC:` protects against** is the account file read on its own: a backup, a copy of the volume without
       `keys/`, a log or a support bundle. It does not protect against anyone who can read the volume with `keys/` or
       run code in the container (spec A10 of Aura's account connect/repair design).
+
+11. **An IMAP account is checked when it is saved, can be checked on demand, and can be changed in part
+    (`Admin/AccountRepairEndpoints.cs`, `Admin/ImapProviderInput.cs`).** The connect and repair flows of Aura's
+    account connect/repair design (amendments A2-A5). `AddAdminServices()` registers what `/admin` needs, for
+    `Program.cs` and the tests alike.
+    - **Create.** `POST /admin/accounts` answers `409` for an existing id before anything else. For `imap` it then
+      refuses keys that differ only in case (`duplicate_key`), a host a resolver would not take (`invalid_host`), a
+      port outside 1-65535 (`invalid_port`), `none`
+      (`tls_required`) and any other security value but `ssl`/`starttls` (`invalid_security`); an absent
+      `imapSecurity`/`smtpSecurity` is taken from the port (993/465 `ssl`, otherwise `starttls`) and stored. The
+      check runs on the config as it will be stored, password already encrypted, so a typed `ENC:` password is read
+      as typed. A blocking failure is `422 {"error":"verify_failed","step","reason"}` and nothing is stored; a sending
+      server that cannot be reached or refuses TLS is stored with `smtpWarning` in the `201`.
+    - **Private hosts.** The check connects to a private address only when the request carries
+      `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
+    - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
+      `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
+      run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.
+    - **`PATCH /admin/accounts/{id}/provider-config`** with `{"providerConfig":{…}}`, IMAP only (`not_patchable`):
+      a key absent or `""` keeps what is stored, a password is never trimmed, a different `username` is
+      `username_immutable` (another mailbox is another account), and a changed `imapHost`, `imapPort`, `smtpHost` or
+      `smtpPort` without a password is `password_required`, so the stored password never goes to a server it was not
+      given to. The merged config passes the create rules (so an account stored with `none` answers `tls_required`
+      until the PATCH names `ssl` or `starttls`), is checked, and is written by
+      `MergeProviderConfigAsync`, which replaces only `ProviderConfig` and answers `409 {"error":"changed"}` if the
+      stored config moved while it was checked. `200` is `PUT`'s body plus `smtpWarning`. `PUT` is not checked.
+    - **One check per account every 30 s** (`VerifyThrottle`), on create, verify and PATCH alike:
+      `429 {"error":"too_many_attempts"}` without connecting, because each attempt is logins a provider counts.
+    - **The pool follows a change.** `ImapProviderService` remembers the host, port, security, username and
+      password each pooled session was opened with, and reopens it when the registry says otherwise; its keys match
+      account ids in any case.
 
 ## Build / run (sidecar)
 

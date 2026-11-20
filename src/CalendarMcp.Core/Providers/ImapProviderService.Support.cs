@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Security;
@@ -246,7 +247,7 @@ public partial class ImapProviderService
                 d.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
 
             static int GetInt(IReadOnlyDictionary<string, string> d, string key, int fallback) =>
-                d.TryGetValue(key, out var v) && int.TryParse(v, out var n) && n > 0 ? n : fallback;
+                d.TryGetValue(key, out var v) && int.TryParse(v, out var n) && n is > 0 and <= IPEndPoint.MaxPort ? n : fallback;
         }
 
         // A record prints every member, and a config that reaches a log line must not carry the password.
