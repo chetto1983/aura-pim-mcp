@@ -26,8 +26,6 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public const string DefaultSmtpHost = "smtp.gmail.com";
     public const int DefaultSmtpPort = 587;
     public const string DefaultInbox = "INBOX";
-    public const string DefaultTrash = "[Gmail]/Trash";
-    public const string DefaultJunk = "[Gmail]/Spam";
 
     /// <summary>
     /// The provider-config key that says whether this account's servers may be on a private network. Only the
@@ -485,7 +483,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         {
             await WithImapAsync(cfg, async imap =>
             {
-                var sent = await FindSentFolderAsync(imap, cfg, cancellationToken);
+                var sent = await FindSpecialFolderAsync(imap, cfg.SentFolder, SpecialFolder.Sent, cancellationToken);
                 if (sent is null)
                 {
                     _logger.LogWarning(
@@ -519,7 +517,10 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             var folder = await OpenFolderAsync(client, folderName, FolderAccess.ReadWrite, cancellationToken);
             EnsureUidValidity(folder, uidValidity, accountId, folderName);
 
-            var trash = await client.GetFolderAsync(cfg.TrashFolder, cancellationToken);
+            var trash = await FindSpecialFolderAsync(client, cfg.TrashFolder, SpecialFolder.Trash, cancellationToken)
+                ?? throw new ProviderOperationException(
+                    $"IMAP account '{accountId}' has no Trash folder: the server marks none and none has a known name. " +
+                    "Set 'trashFolder' in the account's providerConfig.");
             await folder.MoveToAsync(new[] { new UniqueId(uid) }, trash, cancellationToken);
         }, cancellationToken);
     }

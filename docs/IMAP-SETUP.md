@@ -25,7 +25,7 @@ Gmail requires 2-Step Verification before you can mint an app password.
 3. Generate an app password at <https://myaccount.google.com/apppasswords>.
    - "App" — pick "Mail" (or "Other" and label it `calendar-mcp`).
    - Copy the 16-character password Google shows you. It won't be shown again.
-4. Use the address as `username` and the 16-character app password as `password` in calendar-mcp. The defaults (`imap.gmail.com:993`, `smtp.gmail.com:587`, `[Gmail]/Trash`) are correct out of the box, and the Sent folder is found on the server.
+4. Use the address as `username` and the 16-character app password as `password` in calendar-mcp. The defaults (`imap.gmail.com:993`, `smtp.gmail.com:587`) are correct out of the box, and the Sent, Trash and Junk folders are found on the server.
 
 App passwords don't expire and aren't subject to the unverified-app refresh-token treadmill — the bot stays authenticated indefinitely until you revoke the app password.
 
@@ -89,7 +89,7 @@ You can paste the password as plaintext if you must — calendar-mcp will read i
 
 - `inboxFolder` is the folder `get_emails` reads from when no folder is specified. Defaults to `INBOX`.
 - `sentFolder` is where calendar-mcp APPENDs a copy of every message you send via `send_email`: SMTP itself leaves no copy on most hosts. Left unset, it is found on the server: the folder marked `\Sent` (SPECIAL-USE or Gmail's XLIST), else one whose own name is a common Sent name (`Sent`, `Sent Items`, `Sent Messages`, `Posta inviata`, …), so `INBOX.Sent` is found too. APPEND failure is non-fatal — the message still goes out — but you'll see a warning in logs.
-- `trashFolder` is where `delete_email` moves messages. The provider does **not** EXPUNGE — that matches Gmail and most modern clients, and lets users recover messages from Trash.
+- `trashFolder` is where `delete_email` moves messages; left unset it is found the same way as the Sent folder (`\Trash`, else `Trash`, `Deleted Items`, `Cestino`, …), and with none the delete is refused. `junkFolder` likewise (`\Junk`, else `Junk`, `Spam`, …). The provider does **not** EXPUNGE — that matches Gmail and most modern clients, and lets users recover messages from Trash.
 
 If your provider doesn't have a single canonical Sent or Trash folder name, set the values explicitly.
 
@@ -109,7 +109,7 @@ See [`security.md`](security.md#password-encryption-at-rest-imap-and-dav-account
 
 **`AuthenticationException` on connect.** Double-check that 2-Step Verification is enabled on the Google account before generating the app password. Without it, app passwords aren't available and your account password won't work for IMAP.
 
-**`delete_email` fails with "folder not found"** for the Trash folder. The default name (`[Gmail]/Trash`) is Gmail-specific. Check the table above or your provider's docs and edit the Advanced settings on the account.
+**`delete_email` fails with "has no Trash folder"**. The server marks no `\Trash` folder and none has a known name. Set `trashFolder` to the folder's full name.
 
 **Sent messages don't appear in the user's Sent box.** The server marks no `\Sent` folder and none has a known name (log: `No Sent folder on account`), or the APPEND failed (log: `Failed to APPEND sent message`). Set `sentFolder` to the folder's full name.
 

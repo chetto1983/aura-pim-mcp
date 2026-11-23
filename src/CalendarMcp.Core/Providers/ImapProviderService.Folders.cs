@@ -43,13 +43,13 @@ public partial class ImapProviderService
 
     /// <summary>
     /// Maps a destination alias to the folder name configured for the account, or
-    /// <c>null</c> when the account has no setting for it (archive, drafts). Sent is
-    /// resolved apart, by <see cref="FindSentFolderAsync"/>.
+    /// <c>null</c> when the account has no setting for it.
     /// </summary>
     internal static string? ResolveConfiguredFolder(WellKnownMailFolder folder, ImapAccountConfig cfg) =>
         folder switch
         {
             WellKnownMailFolder.Inbox => cfg.InboxFolder,
+            WellKnownMailFolder.Sent => cfg.SentFolder,
             WellKnownMailFolder.Trash => cfg.TrashFolder,
             WellKnownMailFolder.Spam => cfg.JunkFolder,
             _ => null
@@ -58,7 +58,8 @@ public partial class ImapProviderService
     /// <summary>
     /// Resolves a folder alias or name (a <c>move_email</c> destination or a list/search folder).
     /// Aliases (<c>trash</c>, <c>spam</c>, ...) use the account's configured folders, then the
-    /// server's SPECIAL-USE folders; anything else is a literal folder name.
+    /// server's SPECIAL-USE folders, then a known name (<see cref="FindSpecialFolderAsync"/>);
+    /// anything else is a literal folder name.
     /// </summary>
     private static async Task<IMailFolder> ResolveFolderAsync(
         ImapClient client, ImapAccountConfig cfg, string destination, CancellationToken ct)
@@ -66,32 +67,23 @@ public partial class ImapProviderService
         if (!MailFolderAliases.TryParse(destination, out var wellKnown))
             return await client.GetFolderAsync(destination, ct);
 
-        if (wellKnown == WellKnownMailFolder.Sent)
-            return await FindSentFolderAsync(client, cfg, ct)
-                ?? throw new ProviderOperationException(
-                    $"IMAP account '{cfg.AccountId}' has no Sent folder: the server marks none and none has a known name. " +
-                    "Pass the literal folder name, or set 'sentFolder' in the account's providerConfig.");
-
-        var configured = ResolveConfiguredFolder(wellKnown, cfg);
-        if (configured is not null)
+        SpecialFolder? role = wellKnown switch
         {
-            if (string.Equals(configured, "INBOX", StringComparison.OrdinalIgnoreCase))
-                return client.Inbox
-                    ?? throw new ProviderOperationException($"IMAP account '{cfg.AccountId}' has no INBOX folder.");
+            WellKnownMailFolder.Sent => SpecialFolder.Sent,
+            WellKnownMailFolder.Trash => SpecialFolder.Trash,
+            WellKnownMailFolder.Spam => SpecialFolder.Junk,
+            _ => null
+        };
+        if (role is { } kind)
+            return await FindSpecialFolderAsync(client, ResolveConfiguredFolder(wellKnown, cfg), kind, ct)
+                ?? throw new ProviderOperationException(
+                    $"Folder '{destination}' could not be resolved on IMAP account '{cfg.AccountId}': the server marks " +
+                    "no such folder and none has a known name. Pass the literal folder name, or set it in the account's providerConfig.");
 
-            try
-            {
-                return await client.GetFolderAsync(configured, ct);
-            }
-            catch (FolderNotFoundException) when (wellKnown == WellKnownMailFolder.Spam)
-            {
-                // The junk folder default is Gmail's; other hosts usually advertise \Junk.
-                return GetSpecialFolder(client, SpecialFolder.Junk)
-                    ?? throw new ProviderOperationException(
-                        $"IMAP folder '{configured}' for '{destination}' was not found on account " +
-                        $"'{cfg.AccountId}', and the server has no \\Junk folder. Set 'junkFolder' in the account's providerConfig.");
-            }
-        }
+        if (wellKnown == WellKnownMailFolder.Inbox)
+            return string.Equals(cfg.InboxFolder, "INBOX", StringComparison.OrdinalIgnoreCase)
+                ? client.Inbox ?? throw new ProviderOperationException($"IMAP account '{cfg.AccountId}' has no INBOX folder.")
+                : await client.GetFolderAsync(cfg.InboxFolder, ct);
 
         var special = wellKnown switch
         {

@@ -217,7 +217,7 @@ Provider id: `imap` (alias `imap-smtp`).
 | `password`     | yes      | —                    | App password / IMAP password. Stored encrypted via ASP.NET DataProtection.             |
 | `inboxFolder`  | no       | `INBOX`              | Default folder for `GetEmailsAsync`.                                                   |
 | `sentFolder`   | no       | found on the server  | After SMTP send, the message is APPENDed here. Unset: the `\Sent` SPECIAL-USE folder, else a known name such as `Sent`, `Sent Items` or `INBOX.Sent`. |
-| `trashFolder`  | no       | `[Gmail]/Trash`      | `DeleteEmailAsync` moves to this folder rather than expunging.                         |
+| `trashFolder`  | no       | found on the server  | `DeleteEmailAsync` moves to this folder rather than expunging. Unset: the `\Trash` SPECIAL-USE folder, else a known name such as `Trash`, `Deleted Items` or `INBOX.Trash`. |
 
 Defaults are Gmail-tuned but **not** hard-coded in the provider — every value can be overridden per account, so the provider works for Fastmail, Apple iCloud, custom servers, etc.
 

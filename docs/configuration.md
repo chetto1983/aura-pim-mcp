@@ -287,8 +287,8 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 | `smtpPort`     | `587` (STARTTLS)     |
 | `inboxFolder`  | `INBOX`              |
 | `sentFolder`   | found on the server: the `\Sent` SPECIAL-USE folder, else a known name (`Sent`, `Sent Items`, `INBOX.Sent`, …) |
-| `trashFolder`  | `[Gmail]/Trash`      |
-| `junkFolder`   | `[Gmail]/Spam`       |
+| `trashFolder`  | found on the server: the `\Trash` SPECIAL-USE folder, else a known name (`Trash`, `Deleted Items`, `INBOX.Trash`, …) |
+| `junkFolder`   | found on the server: the `\Junk` SPECIAL-USE folder, else a known name (`Junk`, `Spam`, …) |
 
 **Password storage**: `password` is encrypted at rest via ASP.NET DataProtection — values written by the admin UI or CLI are stored with an `ENC:` prefix and the keystore lives under the data directory (see `docs/security.md`). Plaintext values without the prefix are still readable, so manually-edited entries continue to work.
 

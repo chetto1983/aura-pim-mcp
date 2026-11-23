@@ -74,6 +74,7 @@ public class ImapProviderServiceTests
 
     [TestMethod]
     [DataRow("inbox", "INBOX")]
+    [DataRow("sentitems", "Sent Items")]
     [DataRow("trash", "Deleted Items")]
     [DataRow("deleteditems", "Deleted Items")]
     [DataRow("spam", "Junk E-mail")]

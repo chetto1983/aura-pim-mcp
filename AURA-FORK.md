@@ -357,14 +357,16 @@ file says the fork does not have, this file wins.
     `ErrorDetails`. The mailto path gives `ProviderErrorFormatter`'s summary, as `send_email` does, not the
     exception's text. Stored ICS/DAV/JSON URLs are still fetched unguarded.
 
-14. **An IMAP send's copy goes to the Sent folder the server has** (`Providers/ImapProviderService.SentFolder.cs`,
-    2026-11-23). Upstream defaults `sentFolder` to Gmail's `[Gmail]/Sent Mail` and only logs a failed APPEND, so
-    on any other host every sent mail left no copy: on Aruba (`INBOX.Sent`) both sends of 2026-11-23 were lost,
-    and Aruba files nothing itself. Unset, `sentFolder` is now found on the server: the folder marked `\Sent`
-    (SPECIAL-USE, or Gmail's XLIST), else one whose own name is a common Sent name, compared by its last segment
-    so `INBOX.Sent` matches. A `sentFolder` that names nothing on the server falls back to the same lookup. The
-    send's APPEND, the watch's written-to and the `sentitems` folder alias use this one lookup. Tested on
-    Dovecot (SPECIAL-USE) and GreenMail (none, `.` separator).
+14. **The Sent, Trash and Junk folders are the ones the server has** (`Providers/ImapProviderService.SpecialFolders.cs`,
+    2026-11-23). Upstream defaults them to Gmail's names (`[Gmail]/Sent Mail`, `[Gmail]/Trash`, `[Gmail]/Spam`) and
+    only logs a failed APPEND, so on any other host a sent mail kept no copy and a delete failed: on Aruba
+    (`INBOX.Sent`, `INBOX.Trash`) both sends of 2026-11-23 lost their copy and the cleanup's delete failed, and
+    Aruba files nothing itself. Unset, each is now found on the server: the folder marked `\Sent`, `\Trash` or
+    `\Junk` (SPECIAL-USE, or Gmail's XLIST), else one whose own name is a common name for the role, compared by
+    its last segment so `INBOX.Sent` matches. A setting that names nothing on the server falls back to the same
+    lookup. The send's APPEND, `delete_email`, the watch's written-to and the `sentitems`/`trash`/`spam` folder
+    aliases share it; a delete with no Trash anywhere is refused and the mail stays. Tested on Dovecot
+    (SPECIAL-USE) and GreenMail (none, `.` separator).
 
 ## Build / run (sidecar)
 
