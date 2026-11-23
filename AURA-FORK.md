@@ -353,6 +353,15 @@ file says the fork does not have, this file wins.
     `ErrorDetails`. The mailto path gives `ProviderErrorFormatter`'s summary, as `send_email` does, not the
     exception's text. Stored ICS/DAV/JSON URLs are still fetched unguarded.
 
+14. **An IMAP send's copy goes to the Sent folder the server has** (`Providers/ImapProviderService.SentFolder.cs`,
+    2026-11-23). Upstream defaults `sentFolder` to Gmail's `[Gmail]/Sent Mail` and only logs a failed APPEND, so
+    on any other host every sent mail left no copy: on Aruba (`INBOX.Sent`) both sends of 2026-11-23 were lost,
+    and Aruba files nothing itself. Unset, `sentFolder` is now found on the server: the folder marked `\Sent`
+    (SPECIAL-USE, or Gmail's XLIST), else one whose own name is a common Sent name, compared by its last segment
+    so `INBOX.Sent` matches. A `sentFolder` that names nothing on the server falls back to the same lookup. The
+    send's APPEND, the watch's written-to and the `sentitems` folder alias use this one lookup. Tested on
+    Dovecot (SPECIAL-USE) and GreenMail (none, `.` separator).
+
 ## Build / run (sidecar)
 
 ```bash

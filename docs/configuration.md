@@ -286,7 +286,7 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 | `imapPort`     | `993`                |
 | `smtpPort`     | `587` (STARTTLS)     |
 | `inboxFolder`  | `INBOX`              |
-| `sentFolder`   | `[Gmail]/Sent Mail`  |
+| `sentFolder`   | found on the server: the `\Sent` SPECIAL-USE folder, else a known name (`Sent`, `Sent Items`, `INBOX.Sent`, …) |
 | `trashFolder`  | `[Gmail]/Trash`      |
 | `junkFolder`   | `[Gmail]/Spam`       |
 

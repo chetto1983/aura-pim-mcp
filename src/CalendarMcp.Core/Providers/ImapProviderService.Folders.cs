@@ -43,13 +43,13 @@ public partial class ImapProviderService
 
     /// <summary>
     /// Maps a destination alias to the folder name configured for the account, or
-    /// <c>null</c> when the account has no setting for it (archive, drafts).
+    /// <c>null</c> when the account has no setting for it (archive, drafts). Sent is
+    /// resolved apart, by <see cref="FindSentFolderAsync"/>.
     /// </summary>
     internal static string? ResolveConfiguredFolder(WellKnownMailFolder folder, ImapAccountConfig cfg) =>
         folder switch
         {
             WellKnownMailFolder.Inbox => cfg.InboxFolder,
-            WellKnownMailFolder.Sent => cfg.SentFolder,
             WellKnownMailFolder.Trash => cfg.TrashFolder,
             WellKnownMailFolder.Spam => cfg.JunkFolder,
             _ => null
@@ -65,6 +65,12 @@ public partial class ImapProviderService
     {
         if (!MailFolderAliases.TryParse(destination, out var wellKnown))
             return await client.GetFolderAsync(destination, ct);
+
+        if (wellKnown == WellKnownMailFolder.Sent)
+            return await FindSentFolderAsync(client, cfg, ct)
+                ?? throw new ProviderOperationException(
+                    $"IMAP account '{cfg.AccountId}' has no Sent folder: the server marks none and none has a known name. " +
+                    "Pass the literal folder name, or set 'sentFolder' in the account's providerConfig.");
 
         var configured = ResolveConfiguredFolder(wellKnown, cfg);
         if (configured is not null)

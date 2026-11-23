@@ -404,16 +404,7 @@ public partial class ImapProviderService
     /// <summary>The Sent folder, or null when the account has none: then written-to cannot be told.</summary>
     private static async Task<IMailFolder?> OpenSentAsync(ImapClient client, ImapAccountConfig cfg, CancellationToken cancellationToken)
     {
-        IMailFolder? sent;
-        try
-        {
-            sent = await client.GetFolderAsync(cfg.SentFolder, cancellationToken);
-        }
-        catch (FolderNotFoundException)
-        {
-            sent = GetSpecialFolder(client, SpecialFolder.Sent);
-        }
-
+        var sent = await FindSentFolderAsync(client, cfg, cancellationToken);
         if (sent is null)
             return null;
 

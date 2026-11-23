@@ -26,7 +26,6 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public const string DefaultSmtpHost = "smtp.gmail.com";
     public const int DefaultSmtpPort = 587;
     public const string DefaultInbox = "INBOX";
-    public const string DefaultSent = "[Gmail]/Sent Mail";
     public const string DefaultTrash = "[Gmail]/Trash";
     public const string DefaultJunk = "[Gmail]/Spam";
 
@@ -480,13 +479,22 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             await smtp.DisconnectAsync(true, cancellationToken);
         }
 
-        // APPEND to sent folder so the message shows up in the user's Sent box.
+        // APPEND to the Sent folder so the message shows up in the user's Sent box: SMTP leaves no copy.
         // Failure here is non-fatal — the message did go out.
         try
         {
             await WithImapAsync(cfg, async imap =>
             {
-                var sent = await imap.GetFolderAsync(cfg.SentFolder, cancellationToken);
+                var sent = await FindSentFolderAsync(imap, cfg, cancellationToken);
+                if (sent is null)
+                {
+                    _logger.LogWarning(
+                        "No Sent folder on account {AccountId}: the server marks none and none has a known name. " +
+                        "Set 'sentFolder' in the account's providerConfig to keep a copy; the message was delivered.",
+                        accountId);
+                    return;
+                }
+
                 await sent.OpenAsync(FolderAccess.ReadWrite, cancellationToken);
                 await sent.AppendAsync(message, MessageFlags.Seen, DateTimeOffset.Now, cancellationToken);
             }, cancellationToken);
@@ -494,8 +502,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Failed to APPEND sent message to {Folder} for account {AccountId}; message was still delivered.",
-                cfg.SentFolder, accountId);
+                "Failed to APPEND sent message for account {AccountId}; message was still delivered.", accountId);
         }
 
         return message.MessageId ?? string.Empty;

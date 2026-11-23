@@ -82,19 +82,31 @@ internal sealed class ImapMailbox : IAsyncDisposable
 
     public ImapProviderService Provider { get; }
 
-    public static async Task<ImapMailbox> OpenAsync((string Host, int Port) server, string inbox = "INBOX", bool withSent = true)
+    /// <param name="sentFolder">The account's <c>sentFolder</c> setting; null leaves it unset.</param>
+    /// <param name="smtp">The SMTP server sends go to, plain text; null leaves the account's default.</param>
+    public static async Task<ImapMailbox> OpenAsync(
+        (string Host, int Port) server, string inbox = "INBOX", bool withSent = true,
+        string? sentFolder = SentFolder, (string Host, int Port)? smtp = null)
     {
         var user = $"{Guid.NewGuid():N}@example.com";
-        var account = TestData.CreateAccount(id: user, provider: "imap", providerConfig: new Dictionary<string, string>
+        var config = new Dictionary<string, string>
         {
             ["imapHost"] = server.Host,
             ["imapPort"] = server.Port.ToString(),
             ["smtpHost"] = server.Host,
             ["username"] = user,
             ["password"] = Password,
-            ["inboxFolder"] = inbox,
-            ["sentFolder"] = SentFolder
-        });
+            ["inboxFolder"] = inbox
+        };
+        if (sentFolder is not null)
+            config["sentFolder"] = sentFolder;
+        if (smtp is { } outgoing)
+        {
+            config["smtpHost"] = outgoing.Host;
+            config["smtpPort"] = outgoing.Port.ToString();
+            config["smtpSecurity"] = "none";
+        }
+        var account = TestData.CreateAccount(id: user, provider: "imap", providerConfig: config);
 
         var mailbox = new ImapMailbox(account, inbox);
         await mailbox._world.ConnectAsync(server.Host, server.Port, SecureSocketOptions.None);
@@ -106,6 +118,22 @@ internal sealed class ImapMailbox : IAsyncDisposable
 
         return mailbox;
     }
+
+    /// <summary>Makes a folder inside INBOX, as hosts that keep every folder under it do (<c>INBOX.Sent</c>).</summary>
+    public async Task<string> CreateFolderInInboxAsync(string name) =>
+        (await _world.Inbox.CreateAsync(name, true))!.FullName;
+
+    /// <summary>How many mails a folder holds, read with STATUS so no session selects it.</summary>
+    public async Task<int> CountInAsync(string name)
+    {
+        var folder = await FolderAsync(name);
+        await folder.StatusAsync(StatusItems.Count);
+        return folder.Count;
+    }
+
+    /// <summary>Every folder's full name.</summary>
+    public async Task<List<string>> FolderNamesAsync() =>
+        (await _world.GetFoldersAsync(_world.PersonalNamespaces[0])).Select(f => f.FullName).Order().ToList();
 
     public async Task CreateFolderAsync(string name)
     {

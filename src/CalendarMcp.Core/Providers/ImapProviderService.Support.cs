@@ -219,7 +219,7 @@ public partial class ImapProviderService
         string ImapHost, int ImapPort,
         string SmtpHost, int SmtpPort,
         string Username, string Password,
-        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder,
+        string InboxFolder, string? SentFolder, string TrashFolder, string JunkFolder,
         string? ImapSecurity, string? SmtpSecurity,
         bool AllowPrivateHosts)
     {
@@ -246,7 +246,7 @@ public partial class ImapProviderService
                 Username: username,
                 Password: protector.Unprotect(storedPassword),
                 InboxFolder: Get(pc, "inboxFolder", DefaultInbox),
-                SentFolder: Get(pc, "sentFolder", DefaultSent),
+                SentFolder: Optional(pc, "sentFolder"),
                 TrashFolder: Get(pc, "trashFolder", DefaultTrash),
                 JunkFolder: Get(pc, "junkFolder", DefaultJunk),
                 ImapSecurity: Optional(pc, "imapSecurity"),
