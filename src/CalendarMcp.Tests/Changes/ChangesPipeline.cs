@@ -1,7 +1,5 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Configuration;
@@ -10,16 +8,13 @@ using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.HttpServer.Admin;
-using CalendarMcp.HttpServer.Security;
 using CalendarMcp.Tests.Helpers;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace CalendarMcp.Tests.Changes;
@@ -55,8 +50,7 @@ internal sealed class ChangesPipeline : IAsyncDisposable
         builder.Services.AddSingleton<ChangesService>();
         if (providers is not null)
             builder.Services.AddSingleton(providers);
-        builder.Services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, SubjectFromToken>("test", _ => { });
-        builder.Services.AddAuthorization();
+        SubjectFromToken.AddTo(builder.Services);
 
         _app = builder.Build();
         _app.UseAuthentication();
@@ -85,23 +79,6 @@ internal sealed class ChangesPipeline : IAsyncDisposable
         _client.Dispose();
         await _app.StopAsync();
         await _app.DisposeAsync();
-    }
-
-    private sealed class SubjectFromToken(
-        IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logs, UrlEncoder encoder)
-        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logs, encoder)
-    {
-        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-        {
-            var header = Request.Headers.Authorization.ToString();
-            if (!header.StartsWith("Bearer ", StringComparison.Ordinal))
-                return Task.FromResult(AuthenticateResult.NoResult());
-
-            var identity = new ClaimsIdentity(
-                [new Claim(TenantIdentity.OAuthClaimName, header["Bearer ".Length..]), new Claim("scope", "mcp:tools")],
-                Scheme.Name);
-            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
-        }
     }
 }
 
@@ -141,23 +118,25 @@ internal sealed class ScriptedSource(string provider, string resource) : IChange
 /// <summary>Keeps every line written through the logging pipeline, framework ones included.</summary>
 internal sealed class CapturingLogs : ILoggerProvider
 {
-    private readonly List<string> _lines = [];
+    private readonly List<(LogLevel Level, string Line)> _entries = [];
 
-    public IReadOnlyList<string> Lines
+    public IReadOnlyList<string> Lines => [.. Entries.Select(entry => entry.Line)];
+
+    public IReadOnlyList<(LogLevel Level, string Line)> Entries
     {
         get
         {
-            lock (_lines) return [.. _lines];
+            lock (_entries) return [.. _entries];
         }
     }
 
-    public ILogger CreateLogger(string categoryName) => new Capture(_lines);
+    public ILogger CreateLogger(string categoryName) => new Capture(_entries);
 
     public void Dispose()
     {
     }
 
-    private sealed class Capture(List<string> lines) : ILogger
+    private sealed class Capture(List<(LogLevel Level, string Line)> entries) : ILogger
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -167,7 +146,7 @@ internal sealed class CapturingLogs : ILoggerProvider
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (lines) lines.Add($"{formatter(state, exception)} {exception}");
+            lock (entries) entries.Add((logLevel, $"{formatter(state, exception)} {exception}"));
         }
     }
 }

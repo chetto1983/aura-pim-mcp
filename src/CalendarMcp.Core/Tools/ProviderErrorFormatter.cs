@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using MailKit;
 using MailKit.Net.Imap;
@@ -127,6 +128,12 @@ internal static partial class ProviderErrorFormatter
 
             case HttpRequestException { StatusCode: { } httpStatus }:
                 return new($"The provider returned HTTP {(int)httpStatus}.", IsRetryableStatus((int)httpStatus));
+
+            // Its own message names the address the host resolved to, which is no business of the tool's caller.
+            case PrivateAddressException:
+                return new("The account's mail server resolves to a private network address, which this account " +
+                           "may not reach. An administrator can allow it by saving the account's servers, or the " +
+                           "server can be changed in the account's settings.", false);
 
             case HttpRequestException:
             case SocketException:

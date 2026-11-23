@@ -1,5 +1,7 @@
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
+using MailKit.Net.Imap;
 using Microsoft.Extensions.Logging;
 
 namespace CalendarMcp.Core.Changes;
@@ -116,7 +118,8 @@ public sealed class ChangesService(
     private static int EffectiveLimit(int? limit) => limit is null or <= 0 ? DefaultLimit : Math.Min(limit.Value, MaxLimit);
 
     // Logs the exception's type and not its message: a provider's message can quote the request,
-    // and a request can hold a delta link.
+    // and a request can hold a delta link. An IMAP server's own line is the exception (spec amendment A8):
+    // it is the server's answer to a command that carries a folder, never the cursor.
     private async Task<T> GuardAsync<T>(
         string accountId, string resource, Func<Task<T>> read, CancellationToken cancellationToken)
     {
@@ -127,9 +130,12 @@ public sealed class ChangesService(
         catch (Exception e) when (ProviderFailures.Classify(e, cancellationToken) is { } failure)
         {
             logger.LogWarning(
-                "Reading {Resource} on account {AccountId} failed as {Error} ({ExceptionType})",
-                resource, accountId, failure.Error, e.GetType().Name);
+                "Reading {Resource} on account {AccountId} failed as {Error} ({ExceptionType}) {ServerLine}",
+                resource, accountId, failure.Error, e.GetType().Name, ImapServerLine(e));
             throw failure;
         }
     }
+
+    private static string ImapServerLine(Exception failure) =>
+        failure is ImapCommandException or ImapProtocolException ? VerifyReasons.ServerLine(failure) : string.Empty;
 }

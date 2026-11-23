@@ -3,8 +3,13 @@ using System.Text.Json.Nodes;
 using CalendarMcp.Auth;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
+using CalendarMcp.HttpServer.Admin;
+using Microsoft.AspNetCore.DataProtection;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Tests.Helpers;
+using CalendarMcp.Tests.Changes;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CalendarMcp.Tests.Auth;
@@ -218,6 +223,208 @@ public sealed class AccountConfigurationServiceTests
         Assert.IsFalse(work.Permissions.EmailSend);
         Assert.IsTrue(personal.Permissions.EmailSend);
     }
+
+    [TestMethod]
+    public async Task ProtectStored_RewritesOnlyPlainPasswords()
+    {
+        var protector = Protector();
+        var encrypted = protector.Protect("already");
+        await File.WriteAllTextAsync(ConfigurationPaths.GetConfigFilePath(), $$"""
+            { "CalendarMcp": { "Accounts": [
+              { "Id": "plain", "TenantId": "{{TestData.TenantA}}", "DisplayName": "P", "Provider": "imap",
+                "ProviderConfig": { "host": "h", "password": "hunter2" } },
+              { "Id": "enc", "TenantId": "{{TestData.TenantA}}", "DisplayName": "E", "Provider": "imap",
+                "ProviderConfig": { "host": "h", "password": "{{encrypted}}" } },
+              { "Id": "dav", "TenantId": "{{TestData.TenantB}}", "DisplayName": "D", "Provider": "dav",
+                "providerConfig": { "Password": "davpw" } },
+              { "Id": "none", "TenantId": "{{TestData.TenantA}}", "DisplayName": "N", "Provider": "imap",
+                "ProviderConfig": { "host": "h" } },
+              { "Id": "legacy", "DisplayName": "L", "Provider": "ics" }
+            ] } }
+            """);
+        var before = JsonNode.Parse(await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()))!;
+
+        var count = await _service.ProtectStoredPasswordsAsync(protector);
+
+        Assert.AreEqual(2, count);
+        var after = JsonNode.Parse(await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()))!;
+        var accounts = after["CalendarMcp"]!["Accounts"]!.AsArray();
+        Assert.AreEqual("hunter2", protector.Unprotect(accounts[0]!["ProviderConfig"]!["password"]!.GetValue<string>()));
+        Assert.IsTrue(PasswordProtector.IsProtected(accounts[0]!["ProviderConfig"]!["password"]!.GetValue<string>()));
+        Assert.AreEqual("davpw", protector.Unprotect(accounts[2]!["providerConfig"]!["Password"]!.GetValue<string>()));
+        Assert.IsTrue(PasswordProtector.IsProtected(accounts[2]!["providerConfig"]!["Password"]!.GetValue<string>()));
+        var beforeAccounts = before["CalendarMcp"]!["Accounts"]!.AsArray();
+        foreach (var i in new[] { 1, 3, 4 })
+            Assert.AreEqual(beforeAccounts[i]!.ToJsonString(), accounts[i]!.ToJsonString());
+        Assert.AreEqual("h", accounts[0]!["ProviderConfig"]!["host"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public async Task ProtectStored_LeavesEncryptedValuesAlone()
+    {
+        var protector = Protector();
+        await File.WriteAllTextAsync(ConfigurationPaths.GetConfigFilePath(), $$"""
+            { "CalendarMcp": { "Accounts": [
+              { "Id": "plain", "TenantId": "{{TestData.TenantA}}", "DisplayName": "P", "Provider": "imap",
+                "ProviderConfig": { "password": "hunter2" } }
+            ] } }
+            """);
+
+        Assert.AreEqual(1, await _service.ProtectStoredPasswordsAsync(protector));
+        var written = await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath());
+
+        Assert.AreEqual(0, await _service.ProtectStoredPasswordsAsync(protector));
+        Assert.AreEqual(written, await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()));
+    }
+
+    [TestMethod]
+    public async Task StartupPass_WithANewKeyRing_LeavesForeignCiphertextAlone()
+    {
+        var oldRing = Protector();
+        await File.WriteAllTextAsync(ConfigurationPaths.GetConfigFilePath(), $$"""
+            { "CalendarMcp": { "Accounts": [
+              { "Id": "enc", "TenantId": "{{TestData.TenantA}}", "DisplayName": "E", "Provider": "imap",
+                "ProviderConfig": { "password": "{{oldRing.Protect("secret")}}" } }
+            ] } }
+            """);
+        var before = await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath());
+
+        var count = await _service.ProtectStoredPasswordsAsync(Protector());
+
+        Assert.AreEqual(0, count);
+        Assert.AreEqual(before, await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()));
+    }
+
+    [TestMethod]
+    public async Task StartupPass_IsAtomic()
+    {
+        var path = ConfigurationPaths.GetConfigFilePath();
+        await File.WriteAllTextAsync(path, $$"""
+            { "CalendarMcp": { "Accounts": [
+              { "Id": "plain", "TenantId": "{{TestData.TenantA}}", "DisplayName": "P", "Provider": "imap",
+                "ProviderConfig": { "password": "hunter2" } }
+            ] } }
+            """);
+        var before = await File.ReadAllTextAsync(path);
+        var failing = new AccountConfigurationService(
+            NullLogger<AccountConfigurationService>.Instance, _tenantContext,
+            (_, _) => throw new IOException("disk full"));
+
+        await Assert.ThrowsExactlyAsync<IOException>(() => failing.ProtectStoredPasswordsAsync(Protector()));
+
+        Assert.AreEqual(before, await File.ReadAllTextAsync(path));
+        Assert.IsFalse(File.Exists(path + ".tmp"));
+    }
+
+    [TestMethod]
+    public async Task Write_LeavesNoTempFileBehind()
+    {
+        await _service.AddAccountAsync(TestData.CreateAccount(id: OwnId("fresh")));
+
+        Assert.IsFalse(File.Exists(ConfigurationPaths.GetConfigFilePath() + ".tmp"));
+    }
+
+    [TestMethod]
+    public async Task StartupPass_AFailureDoesNotStopTheHost()
+    {
+        await File.WriteAllTextAsync(ConfigurationPaths.GetConfigFilePath(), $$"""
+            { "CalendarMcp": { "Accounts": [
+              { "Id": "plain", "TenantId": "{{TestData.TenantA}}", "DisplayName": "P", "Provider": "imap",
+                "ProviderConfig": { "password": "hunter2" } }
+            ] } }
+            """);
+        var before = await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath());
+        var failing = new AccountConfigurationService(
+            NullLogger<AccountConfigurationService>.Instance, _tenantContext,
+            (_, _) => throw new IOException("disk full"));
+        var logs = new CapturingLogs();
+        var host = new ProtectStoredPasswordsService(
+            failing, Protector(), LoggerFactory.Create(b => b.AddProvider(logs)).CreateLogger<ProtectStoredPasswordsService>());
+
+        await host.StartAsync(CancellationToken.None);
+
+        Assert.AreEqual(1, logs.Entries.Count(entry => entry.Level == LogLevel.Error));
+        Assert.AreEqual(before, await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()));
+    }
+
+    [TestMethod]
+    public async Task Write_AFailedMove_ReportsItsOwnFailure_EvenWhenTheTempFileCannotBeDeleted()
+    {
+        var path = ConfigurationPaths.GetConfigFilePath();
+        var before = await File.ReadAllTextAsync(path);
+        var failing = new AccountConfigurationService(
+            NullLogger<AccountConfigurationService>.Instance, _tenantContext,
+            (tmp, _) =>
+            {
+                File.Delete(tmp);
+                Directory.CreateDirectory(tmp);
+                throw new IOException("disk full");
+            });
+
+        var thrown = await Assert.ThrowsExactlyAsync<IOException>(
+            () => failing.AddAccountAsync(TestData.CreateAccount(id: OwnId("fresh"))));
+
+        Assert.AreEqual("disk full", thrown.Message);
+        Assert.AreEqual(before, await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_ReplacesOnlyTheProviderConfig()
+    {
+        var id = OwnId("mail");
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id, provider: "imap",
+            providerConfig: new() { ["imapHost"] = "imap.example.com", ["password"] = "ENC:old" }));
+        var stored = (await _service.GetAccountFromConfigAsync(id))!;
+        var before = await StoredNodeAsync(id);
+
+        await _service.MergeProviderConfigAsync(id, stored.ProviderConfig,
+            new Dictionary<string, string> { ["imapHost"] = "imap.example.com", ["password"] = "ENC:new" });
+
+        var after = await StoredNodeAsync(id);
+        Assert.AreEqual("ENC:new", after["ProviderConfig"]!["password"]!.GetValue<string>());
+        after.Remove("ProviderConfig");
+        before.Remove("ProviderConfig");
+        Assert.AreEqual(before.ToJsonString(), after.ToJsonString());
+    }
+
+    private static async Task<JsonObject> StoredNodeAsync(string id)
+    {
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(ConfigurationPaths.GetConfigFilePath()))!;
+        return root["CalendarMcp"]!["Accounts"]!.AsArray()
+            .Single(node => node!["Id"]!.GetValue<string>() == id)!.AsObject();
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_OnAChangedNode_IsAConflict_AndWritesNothing()
+    {
+        var id = OwnId("mail");
+        await _service.AddAccountAsync(TestData.CreateAccount(id: id, provider: "imap",
+            providerConfig: new() { ["password"] = "ENC:old" }));
+        var path = ConfigurationPaths.GetConfigFilePath();
+        var before = await File.ReadAllTextAsync(path);
+
+        await Assert.ThrowsExactlyAsync<ConcurrencyException>(() => _service.MergeProviderConfigAsync(id,
+            new Dictionary<string, string> { ["password"] = "ENC:what-was-verified" },
+            new Dictionary<string, string> { ["password"] = "ENC:new" }));
+
+        Assert.AreEqual(before, await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task MergeProviderConfig_OnAForeignAccount_IsNotFound()
+    {
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _service.MergeProviderConfigAsync("foreign",
+            new Dictionary<string, string>(), new Dictionary<string, string> { ["password"] = "ENC:new" }));
+    }
+
+    [TestMethod]
+    public void KeyRing_LivesUnderTheDataDirectory()
+    {
+        StringAssert.StartsWith(
+            ConfigurationPaths.GetDataProtectionKeysDirectory(), ConfigurationPaths.GetDataDirectory());
+    }
+
+    private static PasswordProtector Protector() => new(new EphemeralDataProtectionProvider());
 
     private static string OwnId(string localId) => TenantIdentity.AccountId(TestData.TenantA, localId);
 

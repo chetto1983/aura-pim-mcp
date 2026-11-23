@@ -53,14 +53,20 @@ public partial class ImapProviderService
     {
         var cfg = await ResolveConfigAsync(accountId);
 
-        return await WithImapAsync(cfg, async client =>
-        {
-            var folder = await OpenFolderAsync(client, cfg.InboxFolder, FolderAccess.ReadOnly, cancellationToken);
-            var known = await NewestUidsAsync(folder, cancellationToken);
-            var last = folder.UidNext is { } next ? next.Id - 1 : known.LastOrDefault();
+        return await WithImapAsync(cfg, async client => At(cfg, await FirstReadAsync(client, cfg, cancellationToken)), cancellationToken);
+    }
 
-            return At(cfg, new ImapPosition(folder.UidValidity, last, last, ModSeqOf(folder), ImapDelta.Compact(known)));
-        }, cancellationToken);
+    /// <summary>
+    /// The watch's first read of the configured inbox: EXAMINE, UIDNEXT and UIDVALIDITY, and the UIDs of the
+    /// newest window. A verification runs this too, so an account that passes it is one the watch can start on.
+    /// </summary>
+    internal static async Task<ImapPosition> FirstReadAsync(ImapClient client, ImapAccountConfig cfg, CancellationToken cancellationToken)
+    {
+        var folder = await OpenFolderAsync(client, cfg.InboxFolder, FolderAccess.ReadOnly, cancellationToken);
+        var known = await NewestUidsAsync(folder, cancellationToken);
+        var last = folder.UidNext is { } next ? next.Id - 1 : known.LastOrDefault();
+
+        return new ImapPosition(folder.UidValidity, last, last, ModSeqOf(folder), ImapDelta.Compact(known));
     }
 
     public async Task<ChangesBatch> ReadAsync(

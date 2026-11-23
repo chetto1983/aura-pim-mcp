@@ -1,13 +1,17 @@
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Changes.Google;
 using CalendarMcp.Core.Changes.Graph;
+using CalendarMcp.Core.Discovery;
 using CalendarMcp.Core.Prompts;
 using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Providers.Dav;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Utilities;
+using DnsClient;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace CalendarMcp.Core.Configuration;
 
@@ -34,6 +38,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IIcsProviderService, IcsProviderService>();
         services.AddSingleton<IJsonCalendarProviderService, JsonCalendarProviderService>();
         services.AddSingleton<IImapProviderService, ImapProviderService>();
+        services.AddSingleton<HostGuard>();
+        services.AddSingleton<IImapAccountVerifier, ImapAccountVerifier>();
         services.AddSingleton<DavHttpClient>();
         services.AddSingleton<DavDiscovery>();
         services.AddSingleton<IDavProviderService, DavProviderService>();
@@ -70,11 +76,31 @@ public static class ServiceCollectionExtensions
                 UseCookies = false
             });
 
-        // Register HttpClient for unsubscribe requests
-        services.AddHttpClient("Unsubscribe", client =>
+        // Mail discovery from an address (Discovery/MailDiscovery): MX through DnsClient, autoconfig through a
+        // guarded client that follows no redirect; the autoconfig XML is cached, at most SizeLimit entries.
+        services.AddMemoryCache(options => options.SizeLimit = 1000);
+        services.AddSingleton<ILookupClient>(_ => new LookupClient(new LookupClientOptions
         {
-            client.Timeout = TimeSpan.FromSeconds(10);
-        });
+            Timeout = TimeSpan.FromSeconds(2),
+            Retries = 1
+        }));
+        services.AddSingleton<IMxLookup, MxLookup>();
+        services.AddHttpClient(AutoconfigClient.HttpClientName, client => client.Timeout = AutoconfigClient.Timeout)
+            .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<HostGuard>().CreatePublicHttpHandler());
+        services.AddSingleton<IAutoconfigClient>(provider => new AutoconfigClient(
+            provider.GetRequiredService<IHttpClientFactory>().CreateClient(AutoconfigClient.HttpClientName),
+            provider.GetRequiredService<ILogger<AutoconfigClient>>()));
+        services.AddSingleton(provider => new MailDiscovery(
+            provider.GetRequiredService<IAutoconfigClient>(),
+            provider.GetRequiredService<IMxLookup>(),
+            provider.GetRequiredService<IMemoryCache>(),
+            TimeProvider.System,
+            DiscoveryBudget.Default,
+            provider.GetRequiredService<ILogger<MailDiscovery>>()));
+
+        // A one-click unsubscribe URL is a mail sender's: guarded, no private address, no redirect followed.
+        services.AddHttpClient(UnsubscribeExecutor.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<HostGuard>().CreatePublicHttpHandler());
 
         // Register unsubscribe executor
         services.AddSingleton<UnsubscribeExecutor>();

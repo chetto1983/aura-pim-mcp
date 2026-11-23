@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tools;
 using CalendarMcp.Core.Utilities;
@@ -115,6 +116,38 @@ public class UnsubscribeFromEmailToolTests
 
         regExp.Verify();
         factExp.Verify();
+        provExp.Verify();
+    }
+
+    [TestMethod]
+    public async Task UnsubscribeByMail_ASendThatFails_IsDescribedWithoutTheProvidersOwnText()
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "imap");
+        var email = new EmailMessage
+        {
+            Id = "e1",
+            AccountId = "acc-1",
+            UnsubscribeInfo = new UnsubscribeInfo { MailtoUrl = "mailto:unsub@example.com" }
+        };
+
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1").ReturnValue(Task.FromResult<AccountInfo?>(account));
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetEmailDetailsAsync("acc-1", "e1", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<EmailMessage?>(email));
+        provExp.Setups.SendEmailAsync("acc-1", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<List<string>?>(), Arg.Any<IReadOnlyList<OutboundEmailAttachment>?>(),
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromException<string>(
+                new PrivateAddressException("smtp.example.org", System.Net.IPAddress.Parse("10.0.0.5"))));
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("imap").ReturnValue(provExp.Instance());
+
+        var result = await CreateTool(regExp.Instance(), factExp.Instance()).UnsubscribeFromEmail("acc-1", "e1", "mailto");
+
+        var details = JsonDocument.Parse(result).RootElement.GetProperty("ErrorDetails").GetString()!;
+        StringAssert.Contains(details, "private network address");
+        Assert.DoesNotContain("10.0.0.5", details, "where a name resolves inside the PIM's network is not the caller's");
         provExp.Verify();
     }
 

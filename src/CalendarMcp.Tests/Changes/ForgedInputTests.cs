@@ -35,6 +35,7 @@ public class ForgedInputTests
             new ImapProviderService(
                 new SingleAccountRegistry(account),
                 new PasswordProtector(new EphemeralDataProtectionProvider()),
+                new HostGuard(),
                 NullLogger<ImapProviderService>.Instance)
         ]);
     }
@@ -87,7 +88,7 @@ public class ForgedInputTests
         var account = Account();
         account.ProviderConfig["password"] = new PasswordProtector(new EphemeralDataProtectionProvider()).Protect("secret");
         var other = new PasswordProtector(new EphemeralDataProtectionProvider());
-        await using var imap = new ImapProviderService(new SingleAccountRegistry(account), other, NullLogger<ImapProviderService>.Instance);
+        await using var imap = new ImapProviderService(new SingleAccountRegistry(account), other, new HostGuard(), NullLogger<ImapProviderService>.Instance);
         await using var pim = new ChangesPipeline([account], [imap]);
 
         var (status, body) = await pim.PostAsync("/admin/changes", new { accountId = Mine, resource = "mail" });

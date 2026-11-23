@@ -4,9 +4,7 @@ using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Utilities;
 using MailKit;
 using MailKit.Net.Imap;
-using MailKit.Net.Smtp;
 using MailKit.Search;
-using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using MimeKit;
 using MimeKit.Text;
@@ -32,6 +30,12 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public const string DefaultTrash = "[Gmail]/Trash";
     public const string DefaultJunk = "[Gmail]/Spam";
 
+    /// <summary>
+    /// The provider-config key that says whether this account's servers may be on a private network. Only the
+    /// server writes it (see <see cref="ImapAccountConfig.AllowPrivateHosts"/>).
+    /// </summary>
+    public const string AllowPrivateHostsKey = "allowPrivateHosts";
+
     private const string ProviderName = "imap";
 
     private const MessageSummaryItems EnvelopeItems =
@@ -44,6 +48,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
     private readonly IAccountRegistry _accountRegistry;
     private readonly PasswordProtector _passwordProtector;
+    private readonly HostGuard _guard;
     private readonly ILogger<ImapProviderService> _logger;
 
     // Gmail (and most IMAP hosts) cap the number of simultaneous connections per
@@ -54,16 +59,19 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     // next AUTHENTICATE. Instead we keep one authenticated connection per account,
     // reuse it across calls, and dispose it gracefully. A per-account gate
     // serializes access because a single ImapClient can only run one command at a time.
-    private readonly ConcurrentDictionary<string, PooledImapConnection> _imapConnections = new();
+    // Account ids match in any case everywhere else, so one account never holds two sessions.
+    private readonly ConcurrentDictionary<string, PooledImapConnection> _imapConnections = new(StringComparer.OrdinalIgnoreCase);
     private volatile bool _disposed;
 
     public ImapProviderService(
         IAccountRegistry accountRegistry,
         PasswordProtector passwordProtector,
+        HostGuard guard,
         ILogger<ImapProviderService> logger)
     {
         _accountRegistry = accountRegistry;
         _passwordProtector = passwordProtector;
+        _guard = guard;
         _logger = logger;
     }
 
@@ -115,68 +123,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         var account = await _accountRegistry.GetAccountAsync(accountId)
             ?? throw new ProviderOperationException($"Account '{accountId}' not found in registry.");
 
-        var pc = account.ProviderConfig;
-
-        var imapHost = Get(pc, "imapHost", DefaultImapHost);
-        var smtpHost = Get(pc, "smtpHost", DefaultSmtpHost);
-        var username = Get(pc, "username", "");
-        var storedPassword = Get(pc, "password", "");
-
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(storedPassword))
-            throw new ProviderOperationException(
-                $"Account '{accountId}' is missing username or password in providerConfig.");
-
-        return new ImapAccountConfig(
-            AccountId: accountId,
-            ImapHost: imapHost,
-            ImapPort: GetInt(pc, "imapPort", DefaultImapPort),
-            SmtpHost: smtpHost,
-            SmtpPort: GetInt(pc, "smtpPort", DefaultSmtpPort),
-            Username: username,
-            Password: _passwordProtector.Unprotect(storedPassword),
-            InboxFolder: Get(pc, "inboxFolder", DefaultInbox),
-            SentFolder: Get(pc, "sentFolder", DefaultSent),
-            TrashFolder: Get(pc, "trashFolder", DefaultTrash),
-            JunkFolder: Get(pc, "junkFolder", DefaultJunk));
-
-        static string Get(IDictionary<string, string> d, string key, string fallback) =>
-            d.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : fallback;
-
-        static int GetInt(IDictionary<string, string> d, string key, int fallback) =>
-            d.TryGetValue(key, out var v) && int.TryParse(v, out var n) && n > 0 ? n : fallback;
-    }
-
-    private async Task<ImapClient> OpenImapAsync(ImapAccountConfig cfg, CancellationToken ct)
-    {
-        var client = ImapNoCodes.NewClient();
-        try
-        {
-            await client.ConnectAsync(cfg.ImapHost, cfg.ImapPort, SecureSocketOptions.Auto, ct);
-            await client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
-            return client;
-        }
-        catch
-        {
-            client.Dispose();
-            throw;
-        }
-    }
-
-    private async Task<SmtpClient> OpenSmtpAsync(ImapAccountConfig cfg, CancellationToken ct)
-    {
-        var client = new SmtpClient();
-        try
-        {
-            await client.ConnectAsync(cfg.SmtpHost, cfg.SmtpPort, SecureSocketOptions.Auto, ct);
-            if (client.Capabilities.HasFlag(SmtpCapabilities.Authentication))
-                await client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
-            return client;
-        }
-        catch
-        {
-            client.Dispose();
-            throw;
-        }
+        return ImapAccountConfig.From(accountId, account.ProviderConfig, _passwordProtector);
     }
 
     // ── Connection pooling ───────────────────────────────────────────
@@ -232,12 +179,20 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
     /// <summary>
     /// Returns the account's cached connection if it is still alive (verified with a
-    /// lightweight NOOP), otherwise opens and caches a fresh authenticated connection.
-    /// The boolean indicates whether an existing connection was reused.
+    /// lightweight NOOP) and was opened with the server and login <paramref name="cfg"/> names,
+    /// otherwise opens and caches a fresh authenticated connection. A repaired account is read
+    /// with its new password at once, not with the session the old one opened. Called under
+    /// <c>conn.Gate</c>. The boolean indicates whether an existing connection was reused.
     /// </summary>
     private async Task<(ImapClient Client, bool Reused)> AcquireClientAsync(
         PooledImapConnection conn, ImapAccountConfig cfg, CancellationToken ct)
     {
+        if (conn.Client is not null && conn.OpenedWith != PooledImapConnection.Login(cfg))
+        {
+            _logger.LogDebug("The configuration of {AccountId} changed; reopening its IMAP connection.", cfg.AccountId);
+            await EvictClientAsync(conn);
+        }
+
         var existing = conn.Client;
         if (existing is { IsConnected: true, IsAuthenticated: true })
         {
@@ -258,8 +213,9 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             await EvictClientAsync(conn);
         }
 
-        var fresh = await OpenImapAsync(cfg, ct);
+        var fresh = await ImapConnections.OpenImapAsync(_guard, cfg, ct);
         conn.Client = fresh;
+        conn.OpenedWith = PooledImapConnection.Login(cfg);
         return (fresh, false);
     }
 
@@ -299,6 +255,15 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     {
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public ImapClient? Client { get; set; }
+
+        /// <summary>
+        /// What <see cref="Client"/> connected to and logged in with, and whether it could reach a private address:
+        /// a session the administrator's permission opened is not kept for an account a member has since changed.
+        /// </summary>
+        public (string Host, int Port, string? Security, string Username, string Password, bool AllowPrivateHosts) OpenedWith { get; set; }
+
+        public static (string, int, string?, string, string, bool) Login(ImapAccountConfig cfg) =>
+            (cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, cfg.Username, cfg.Password, cfg.AllowPrivateHosts);
     }
 
     // ── Email operations ─────────────────────────────────────────────
@@ -509,7 +474,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             { Text = body };
         }
 
-        using (var smtp = await OpenSmtpAsync(cfg, cancellationToken))
+        using (var smtp = await ImapConnections.OpenSmtpAsync(_guard, cfg, cancellationToken))
         {
             await smtp.SendAsync(message, cancellationToken);
             await smtp.DisconnectAsync(true, cancellationToken);

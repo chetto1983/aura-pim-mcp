@@ -1,4 +1,7 @@
+using System.Net;
+using System.Text;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Utilities;
 using MailKit;
@@ -196,12 +199,81 @@ public partial class ImapProviderService
             "Re-list the folder to get current IDs.");
     }
 
+    /// <summary>Whether a stored provider config may reach a private address (see <see cref="ImapAccountConfig.AllowPrivateHosts"/>).</summary>
+    public static bool AllowsPrivateHosts(IReadOnlyDictionary<string, string> providerConfig) =>
+        !providerConfig.TryGetValue(AllowPrivateHostsKey, out var allow) ||
+        string.Equals(allow, "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// An account's provider config, read. <c>ImapSecurity</c>/<c>SmtpSecurity</c> are null on an account stored
+    /// before they existed (see <see cref="ImapConnections.Options"/>).
+    /// </summary>
+    /// <param name="AllowPrivateHosts">
+    /// Whether every connection for this account may reach a private address. Create, and a PATCH that changes the servers,
+    /// store it from that request (ledger Ruling 28). An account stored before the key existed has none and is allowed: until
+    /// then only the operator could write an account, and an office mail server on a private network is real. A key
+    /// that is there and says anything but <c>true</c> is not allowed, so a damaged value fails closed.
+    /// </param>
     internal sealed record ImapAccountConfig(
         string AccountId,
         string ImapHost, int ImapPort,
         string SmtpHost, int SmtpPort,
         string Username, string Password,
-        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder);
+        string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder,
+        string? ImapSecurity, string? SmtpSecurity,
+        bool AllowPrivateHosts)
+    {
+        /// <exception cref="ProviderOperationException">The username or the password is missing.</exception>
+        /// <exception cref="System.Security.Cryptography.CryptographicException">
+        /// The stored password was protected with a key this server no longer has.
+        /// </exception>
+        public static ImapAccountConfig From(
+            string accountId, IReadOnlyDictionary<string, string> pc, PasswordProtector protector)
+        {
+            var username = Get(pc, "username", "");
+            var storedPassword = Get(pc, "password", "");
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(storedPassword))
+                throw new ProviderOperationException(
+                    $"Account '{accountId}' is missing username or password in providerConfig.");
+
+            return new ImapAccountConfig(
+                AccountId: accountId,
+                ImapHost: Get(pc, "imapHost", DefaultImapHost),
+                ImapPort: GetInt(pc, "imapPort", DefaultImapPort),
+                SmtpHost: Get(pc, "smtpHost", DefaultSmtpHost),
+                SmtpPort: GetInt(pc, "smtpPort", DefaultSmtpPort),
+                Username: username,
+                Password: protector.Unprotect(storedPassword),
+                InboxFolder: Get(pc, "inboxFolder", DefaultInbox),
+                SentFolder: Get(pc, "sentFolder", DefaultSent),
+                TrashFolder: Get(pc, "trashFolder", DefaultTrash),
+                JunkFolder: Get(pc, "junkFolder", DefaultJunk),
+                ImapSecurity: Optional(pc, "imapSecurity"),
+                SmtpSecurity: Optional(pc, "smtpSecurity"),
+                AllowPrivateHosts: AllowsPrivateHosts(pc));
+
+            static string Get(IReadOnlyDictionary<string, string> d, string key, string fallback) =>
+                Optional(d, key) ?? fallback;
+
+            static string? Optional(IReadOnlyDictionary<string, string> d, string key) =>
+                d.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
+
+            static int GetInt(IReadOnlyDictionary<string, string> d, string key, int fallback) =>
+                d.TryGetValue(key, out var v) && int.TryParse(v, out var n) && n is > 0 and <= IPEndPoint.MaxPort ? n : fallback;
+        }
+
+        // A record prints every member, and a config that reaches a log line must not carry the password.
+        private bool PrintMembers(StringBuilder builder)
+        {
+            builder.Append($"AccountId = {AccountId}, ImapHost = {ImapHost}, ImapPort = {ImapPort}, ");
+            builder.Append($"ImapSecurity = {ImapSecurity}, SmtpHost = {SmtpHost}, SmtpPort = {SmtpPort}, ");
+            builder.Append($"SmtpSecurity = {SmtpSecurity}, Username = {Username}, InboxFolder = {InboxFolder}, ");
+            builder.Append($"SentFolder = {SentFolder}, TrashFolder = {TrashFolder}, JunkFolder = {JunkFolder}, ");
+            builder.Append($"AllowPrivateHosts = {AllowPrivateHosts}");
+            return true;
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

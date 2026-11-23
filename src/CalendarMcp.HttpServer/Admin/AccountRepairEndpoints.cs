@@ -1,0 +1,150 @@
+using CalendarMcp.Auth;
+using CalendarMcp.Core.Changes;
+using CalendarMcp.Core.Providers;
+using CalendarMcp.Core.Security;
+
+namespace CalendarMcp.HttpServer.Admin;
+
+/// <summary>
+/// «Prova di nuovo» and «Cambia password» for an IMAP account (Aura's
+/// <c>docs/superpowers/specs/2026-11-20-pim-account-connect-repair-design.md</c>, amendments A3-A5): a check of the
+/// account as stored, and a change of part of its provider config that is stored only once the mailbox accepts it.
+/// </summary>
+public static class AccountRepairEndpoints
+{
+    /// <summary>Aura sets it only for an identity that may name a host on a private network, and never forwards a client's copy.</summary>
+    public const string AllowPrivateHostsHeader = "X-Aura-Allow-Private-Hosts";
+
+    // A change of any of these would send the stored password to a server it was not given to (A3).
+    private static readonly string[] PasswordBoundKeys = ["imapHost", "imapPort", "smtpHost", "smtpPort"];
+
+    public static RouteGroupBuilder MapAccountRepairEndpoints(this RouteGroupBuilder admin)
+    {
+        admin.MapPost("/accounts/{accountId}/verify", VerifyAccount);
+        admin.MapPatch("/accounts/{accountId}/provider-config", PatchProviderConfig);
+        return admin;
+    }
+
+    internal static bool IsImap(string provider) => ChangesProviders.Family(provider) == ChangesProviders.Imap;
+
+    /// <summary>What the request grants: Aura sends the header only for an identity that may name a private host.</summary>
+    internal static bool HeaderGrantsPrivateHosts(HttpRequest request) =>
+        string.Equals(request.Headers[AllowPrivateHostsHeader].ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The throttle, then the check: <c>Refusal</c> is the answer when either says no, otherwise the check passed,
+    /// with the sending server's warning if it had one.
+    /// </summary>
+    internal static async Task<(IResult? Refusal, string? SmtpWarning)> CheckAsync(
+        string accountId, IReadOnlyDictionary<string, string> providerConfig,
+        VerifyThrottle throttle, IImapAccountVerifier verifier, CancellationToken ct)
+    {
+        if (!throttle.TryEnter(accountId))
+            return (VerifyResults.TooMany(), null);
+
+        var outcome = await verifier.VerifyAsync(accountId, providerConfig, ct);
+        return outcome.Blocking is { } failure ? (VerifyResults.Failed(failure), null) : (null, outcome.SmtpWarning);
+    }
+
+    private static IResult NotFound(string accountId) => Results.NotFound(new { error = $"Account '{accountId}' not found." });
+
+    private static async Task<IResult> VerifyAccount(
+        string accountId,
+        IAccountConfigurationService configService,
+        VerifyThrottle throttle,
+        IImapAccountVerifier verifier,
+        CancellationToken ct)
+    {
+        var account = await configService.GetAccountFromConfigAsync(accountId, ct);
+        if (account is null)
+            return NotFound(accountId);
+        if (!IsImap(account.Provider) || !ImapProviderInput.IsVerifiable(account.ProviderConfig))
+            return VerifyResults.Refused("not_verifiable");
+
+        // The check is of what the watch does (spec A8): the stored config, its stored permission included, and not
+        // the caller's header, so an administrator's check cannot pass where the watch is refused (ledger Ruling 27).
+        var (refusal, smtpWarning) = await CheckAsync(accountId, account.ProviderConfig, throttle, verifier, ct);
+        return refusal ?? Results.Ok(smtpWarning is null ? new { ok = true } : (object)new { ok = true, smtpWarning });
+    }
+
+    /// <summary>
+    /// Merges the keys the request names over the stored config, checks the result, and stores it. A key absent or
+    /// <c>""</c> is unchanged; a password is never trimmed, and a kept one stays the ciphertext it was. What is checked
+    /// is exactly what is stored, so a typed password that starts with <c>ENC:</c> is read as typed.
+    /// </summary>
+    private static async Task<IResult> PatchProviderConfig(
+        string accountId,
+        PatchProviderConfigRequest body,
+        HttpRequest request,
+        IAccountConfigurationService configService,
+        PasswordProtector protector,
+        VerifyThrottle throttle,
+        IImapAccountVerifier verifier,
+        IConfiguration configuration,
+        CancellationToken ct)
+    {
+        var existing = await configService.GetAccountFromConfigAsync(accountId, ct);
+        if (existing is null)
+            return NotFound(accountId);
+        if (!IsImap(existing.Provider))
+            return VerifyResults.Refused("not_patchable");
+
+        var incoming = body.ProviderConfig ?? [];
+        if (ImapProviderInput.HasDuplicateKeys(incoming.Keys))
+            return VerifyResults.Refused(ImapProviderInput.DuplicateKey);
+        if (ImapProviderInput.NamesServerOwnedKey(incoming.Keys))
+            return VerifyResults.Refused(ImapProviderInput.ServerOwnedKey);
+
+        var changes = incoming
+            .Where(kv => !string.IsNullOrEmpty(kv.Value))
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        var stored = existing.ProviderConfig;
+        if (Changes(stored, changes, "username"))
+            return VerifyResults.Refused("username_immutable");
+        if (!changes.ContainsKey("password") && PasswordBoundKeys.Any(key => Changes(stored, changes, key)))
+            return VerifyResults.Refused("password_required");
+
+        var merged = new Dictionary<string, string>(stored, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in ProviderSecrets.ProtectIncoming(changes, protector))
+            merged[key] = value;
+        // The permission follows whoever last chose the servers (ledger Ruling 28): a PATCH that changes one stores
+        // the caller's header, so a member's stores false even on an account an administrator made; any other PATCH
+        // keeps what is stored and is checked with it, as «Prova di nuovo» is. An administrator's password change
+        // cannot grant a member's account a private host, and a member can repair an office server's password.
+        var choosesServers = ImapProviderInput.ServerKeys.Any(key => Changes(stored, changes, key, StringComparison.OrdinalIgnoreCase));
+        var (next, inputError) = ImapProviderInput.ForWrite(merged, choosesServers ? HeaderGrantsPrivateHosts(request) : null);
+        if (next is null)
+            return VerifyResults.Refused(inputError!);
+        var (valid, validationError) = TenantProviderConfig.Validate(existing.Provider, next);
+        if (!valid)
+            return Results.BadRequest(new { error = validationError });
+
+        var (refusal, smtpWarning) = await CheckAsync(accountId, next, throttle, verifier, ct);
+        if (refusal is not null)
+            return refusal;
+
+        try
+        {
+            await configService.MergeProviderConfigAsync(accountId, stored, next, ct);
+        }
+        catch (ConcurrencyException)
+        {
+            return Results.Conflict(new { error = "changed" });
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
+        {
+            return NotFound(accountId);
+        }
+
+        AccountConfigurationReload.Apply(configuration);
+        return Results.Ok(AdminEndpoints.AccountBody(existing, smtpWarning));
+    }
+
+    // A value the request names and the store does not hold as it is: absent there counts as different. A host or a
+    // TLS mode in another case is the same server, which is all the permission asks.
+    private static bool Changes(
+        IReadOnlyDictionary<string, string> stored, IReadOnlyDictionary<string, string> changes, string key,
+        StringComparison comparison = StringComparison.Ordinal) =>
+        changes.TryGetValue(key, out var value) &&
+        !(stored.TryGetValue(key, out var current) && string.Equals(current, value, comparison));
+}

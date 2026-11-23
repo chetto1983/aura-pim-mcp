@@ -2,6 +2,8 @@ using CalendarMcp.Auth;
 using CalendarMcp.Core.Changes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Providers;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tenancy;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -14,6 +16,17 @@ namespace CalendarMcp.HttpServer.Admin;
 /// </summary>
 public static class AdminEndpoints
 {
+    /// <summary>What the admin endpoints need beyond <c>AddCalendarMcpCore()</c>, in one place for the server and its tests.</summary>
+    public static IServiceCollection AddAdminServices(this IServiceCollection services)
+    {
+        services.AddSingleton<IAccountConfigurationService, AccountConfigurationService>();
+        services.AddHostedService<ProtectStoredPasswordsService>();
+        services.AddSingleton<DeviceCodeAuthManager>();
+        services.AddSingleton<GoogleOAuthManager>();
+        services.AddSingleton(new VerifyThrottle(TimeProvider.System));
+        return services;
+    }
+
     public static WebApplication MapAdminEndpoints(this WebApplication app)
     {
         var admin = app.MapGroup("/admin");
@@ -38,6 +51,8 @@ public static class AdminEndpoints
         admin.MapGet("/auth/google/callback", GoogleOAuthCallback);
 
         admin.MapChangesEndpoints();
+        admin.MapAccountRepairEndpoints();
+        admin.MapDiscoverEndpoint();
 
         return app;
     }
@@ -74,7 +89,7 @@ public static class AdminEndpoints
     /// set; "effective" is that intersected with what the provider actually supports, so a
     /// client can tell a revoked grant apart from one the provider can never honour.
     /// </summary>
-    private static object DescribePermissions(AccountInfo account)
+    internal static object DescribePermissions(AccountInfo account)
     {
         var effective = AccountCapabilities.GetEffectivePermissions(account);
         return new
@@ -144,32 +159,82 @@ public static class AdminEndpoints
             : null;
 
     /// <summary>
-    /// Create a new account in the config file.
+    /// An account as the write endpoints answer it. <c>smtpWarning</c> is there only when the check had one, so a
+    /// client never reads a null as a warning.
+    /// </summary>
+    internal static Dictionary<string, object?> AccountBody(AccountInfo account, string? smtpWarning = null)
+    {
+        var body = new Dictionary<string, object?>
+        {
+            ["id"] = account.Id,
+            ["displayName"] = account.DisplayName,
+            ["provider"] = account.Provider,
+            ["domains"] = account.Domains,
+            ["enabled"] = account.Enabled,
+            ["priority"] = account.Priority,
+            ["permissions"] = DescribePermissions(account)
+        };
+        if (smtpWarning is not null)
+            body["smtpWarning"] = smtpWarning;
+        return body;
+    }
+
+    /// <summary>
+    /// Create a new account in the config file. An IMAP account is stored only once its mailbox has answered the
+    /// watch's first read over TLS (<see cref="IImapAccountVerifier"/>), and with its password encrypted.
     /// </summary>
     private static async Task<IResult> CreateAccount(
         CreateAccountRequest request,
+        HttpRequest httpRequest,
         IAccountConfigurationService configService,
         ITenantContext tenantContext,
-        IConfiguration configuration)
+        PasswordProtector protector,
+        VerifyThrottle throttle,
+        IImapAccountVerifier verifier,
+        IConfiguration configuration,
+        CancellationToken ct)
     {
-        // Validate ID
         var (idValid, idError) = AccountValidation.ValidateAccountId(request.Id);
         if (!idValid)
             return Results.BadRequest(new { error = idError });
 
-        // Validate provider
+        // Before the check: a duplicate must not log in to anything, nor spend the existing account's window.
+        var accountId = TenantIdentity.AccountId(tenantContext.RequireTenantId(), request.Id);
+        if (await configService.AccountExistsAsync(accountId, ct))
+            return Results.Conflict(new { error = $"Account '{accountId}' already exists." });
+
         var (provValid, provError) = AccountValidation.ValidateProvider(request.Provider);
         if (!provValid)
             return Results.BadRequest(new { error = provError });
 
-        // Validate provider config
         var (cfgValid, cfgError) = TenantProviderConfig.Validate(request.Provider, request.ProviderConfig);
         if (!cfgValid)
             return Results.BadRequest(new { error = cfgError });
 
+        var providerConfig = ProviderSecrets.ProtectIncoming(request.ProviderConfig, protector);
+        string? smtpWarning = null;
+        if (AccountRepairEndpoints.IsImap(request.Provider))
+        {
+            if (ImapProviderInput.HasDuplicateKeys(request.ProviderConfig.Keys))
+                return VerifyResults.Refused(ImapProviderInput.DuplicateKey);
+            if (ImapProviderInput.NamesServerOwnedKey(request.ProviderConfig.Keys))
+                return VerifyResults.Refused(ImapProviderInput.ServerOwnedKey);
+            var (checkedConfig, inputError) = ImapProviderInput.ForWrite(
+                providerConfig, AccountRepairEndpoints.HeaderGrantsPrivateHosts(httpRequest));
+            if (checkedConfig is null)
+                return VerifyResults.Refused(inputError!);
+
+            // The check reads what will be stored, so a typed password that starts with ENC: is read as typed.
+            providerConfig = checkedConfig;
+            (var refusal, smtpWarning) = await AccountRepairEndpoints.CheckAsync(
+                accountId, providerConfig, throttle, verifier, ct);
+            if (refusal is not null)
+                return refusal;
+        }
+
         var account = new AccountInfo
         {
-            Id = TenantIdentity.AccountId(tenantContext.RequireTenantId(), request.Id),
+            Id = accountId,
             TenantId = tenantContext.RequireTenantId(),
             DisplayName = request.DisplayName,
             Provider = request.Provider,
@@ -177,23 +242,14 @@ public static class AdminEndpoints
             Enabled = request.Enabled,
             Priority = request.Priority,
             Permissions = request.Permissions ?? AccountPermissions.All,
-            ProviderConfig = request.ProviderConfig
+            ProviderConfig = providerConfig
         };
 
         try
         {
-            await configService.AddAccountAsync(account);
+            await configService.AddAccountAsync(account, ct);
             AccountConfigurationReload.Apply(configuration);
-            return Results.Created($"/admin/accounts/{account.Id}/status", new
-            {
-                id = account.Id,
-                displayName = account.DisplayName,
-                provider = account.Provider,
-                domains = account.Domains,
-                enabled = account.Enabled,
-                priority = account.Priority,
-                permissions = DescribePermissions(account)
-            });
+            return Results.Created($"/admin/accounts/{account.Id}/status", AccountBody(account, smtpWarning));
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
         {
@@ -208,6 +264,7 @@ public static class AdminEndpoints
         string accountId,
         UpdateAccountRequest request,
         IAccountConfigurationService configService,
+        PasswordProtector protector,
         IConfiguration configuration)
     {
         // Look up existing account to get its provider (provider is immutable)
@@ -230,23 +287,14 @@ public static class AdminEndpoints
             Enabled = request.Enabled,
             Priority = request.Priority,
             Permissions = request.Permissions ?? existing.Permissions,
-            ProviderConfig = request.ProviderConfig
+            ProviderConfig = ProviderSecrets.ProtectIncoming(request.ProviderConfig, protector)
         };
 
         try
         {
             await configService.UpdateAccountAsync(updated);
             AccountConfigurationReload.Apply(configuration);
-            return Results.Ok(new
-            {
-                id = updated.Id,
-                displayName = updated.DisplayName,
-                provider = updated.Provider,
-                domains = updated.Domains,
-                enabled = updated.Enabled,
-                priority = updated.Priority,
-                permissions = DescribePermissions(updated)
-            });
+            return Results.Ok(AccountBody(updated));
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("not found"))
         {

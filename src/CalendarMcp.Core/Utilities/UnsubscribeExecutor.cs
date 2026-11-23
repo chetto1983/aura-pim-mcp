@@ -4,12 +4,16 @@ using Microsoft.Extensions.Logging;
 namespace CalendarMcp.Core.Utilities;
 
 /// <summary>
-/// Executes unsubscribe actions: RFC 8058 one-click POST, or returns HTTPS/mailto info
+/// Executes unsubscribe actions: RFC 8058 one-click POST, or returns HTTPS/mailto info. The one-click URL is a
+/// mail sender's, so its client (<see cref="HttpClientName"/>) goes through <c>HostGuard</c> with no private
+/// address and follows no redirect, and only the status comes back.
 /// </summary>
 public sealed class UnsubscribeExecutor(
     IHttpClientFactory httpClientFactory,
     ILogger<UnsubscribeExecutor> logger)
 {
+    public const string HttpClientName = "Unsubscribe";
+
     /// <summary>
     /// Execute one-click unsubscribe per RFC 8058: POST to HTTPS URL with List-Unsubscribe=One-Click body
     /// </summary>
@@ -38,7 +42,7 @@ public sealed class UnsubscribeExecutor(
 
         try
         {
-            var client = httpClientFactory.CreateClient("Unsubscribe");
+            var client = httpClientFactory.CreateClient(HttpClientName);
             var content = new FormUrlEncodedContent([
                 new KeyValuePair<string, string>("List-Unsubscribe", "One-Click")
             ]);
@@ -57,16 +61,14 @@ public sealed class UnsubscribeExecutor(
                 };
             }
 
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            logger.LogWarning("One-click unsubscribe returned {StatusCode} for {Url}: {Body}",
-                response.StatusCode, info.HttpsUrl, responseBody);
-
+            // The status only. The URL is the sender's, so its body is whatever that host chose to answer, and a
+            // redirect (never followed) is a second URL it names.
+            logger.LogWarning("One-click unsubscribe returned {StatusCode} for {Url}", response.StatusCode, info.HttpsUrl);
             return new UnsubscribeResult
             {
                 Success = false,
                 Method = "one-click",
-                Message = $"Unsubscribe request returned HTTP {(int)response.StatusCode}",
-                ErrorDetails = responseBody
+                Message = $"Unsubscribe request returned HTTP {(int)response.StatusCode}"
             };
         }
         catch (TaskCanceledException)
@@ -80,13 +82,13 @@ public sealed class UnsubscribeExecutor(
         }
         catch (Exception ex)
         {
+            // Its text can name where the sender's host resolves, a private address the guard refused included.
             logger.LogError(ex, "Error executing one-click unsubscribe to {Url}", info.HttpsUrl);
             return new UnsubscribeResult
             {
                 Success = false,
                 Method = "one-click",
-                Message = "Failed to execute one-click unsubscribe",
-                ErrorDetails = ex.Message
+                Message = "Failed to execute one-click unsubscribe"
             };
         }
     }

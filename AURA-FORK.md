@@ -20,7 +20,8 @@ file says the fork does not have, this file wins.
    exactly (`[x.y.z]`) because `HiddenText` and the pipeline in `MailBody` lean on their behaviour.
    AngleSharp is named by the fork rather than left to the other two: 1.8.6 is the first with
    `MaximumDepth`, which bounds the parse, and what ReverseMarkdown and AngleSharp.Css ask for is
-   lower. MailKit 4.18.2 and
+   lower. Mail discovery (change 12) adds DnsClient 1.8.0 (Apache-2.0) for the MX lookup, which can go on .NET 11
+   (`Dns.ResolveMxAsync`), and Microsoft.Extensions.Caching.Memory 10.0.13 for its cache. MailKit 4.18.2 and
    Microsoft.Extensions.* / DataProtection 10.0.13 bring System.Security.Cryptography.Pkcs and
    .Xml to 10.0.13, closing GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-r955-8q5j-3h83,
    GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. The HTTP server takes Xml from the ASP.NET
@@ -158,7 +159,9 @@ file says the fork does not have, this file wins.
      serializer's options, so a damaged one is `invalid_cursor` before a source sees it. A delta link
      passes `GraphLinks.Checked` before it is followed, because `BearerTokenAuthenticationProvider`
      puts the account's token on any host. A cursor is never logged, and neither is a provider's
-     exception message.
+     exception message, except what an IMAP server itself answered: the verifier's server line (change 9)
+     and, when the watch's read fails, `ImapCommandException.ResponseText` or the `ImapProtocolException`
+     message, on one line and cut at 200 characters (spec amendment A8).
    - **One mail never blocks a page, and conversion is bounded.** A page is all or nothing and is
      replayed from the same cursor when it fails, so a mail whose body cannot be converted arrives with an
      empty snippet, and `get_email_details` answers its metadata and says the body could not be
@@ -186,6 +189,169 @@ file says the fork does not have, this file wins.
      A stored password that cannot be decrypted is `provider_auth`.
    - **Tests reach real servers.** GreenMail and Dovecot run in CI (`.github/workflows/ci.yml`,
      `PIM_TEST_GREENMAIL`, `PIM_TEST_DOVECOT`); under `CI` an unset variable fails the test.
+
+9. **Checking an IMAP account (`Providers/ImapAccountVerifier.cs`).** `IImapAccountVerifier` answers whether a
+   mailbox works the way Aura's watch reads it, for the connect and repair flows of Aura's
+   `docs/superpowers/specs/2026-11-20-pim-account-connect-repair-design.md`. Upstream has nothing like it.
+   - **Two steps, two budgets.** IMAP (12 s): connect, log in, and the watch's own first read of the configured
+     `inboxFolder` (`FirstReadAsync`, which `StartAsync` calls too). SMTP (8 s): connect and log in. An IMAP failure
+     blocks; an SMTP password refusal blocks (`smtp_auth_failed`, also when the server offers no AUTH at all); an
+     SMTP server that cannot be reached or refuses TLS is a warning, because the watch only reads. `VerifyReasons`
+     is the one place an exception becomes a reason. A cancelled caller is not a verdict; a step out of time is
+     `unreachable` (`smtp_unreachable` for SMTP) whatever MailKit threw when it was cut short. A password SCRAM's
+     SASLprep refuses (a control or prohibited character, such as a pasted newline: MailKit throws `ArgumentException`)
+     is `auth_failed`/`smtp_auth_failed`, because the person must retype it.
+   - **Its input is checked before it runs.** `VerifyAsync` is called only with a username, a password, host names
+     a resolver takes (at most 253 characters, a DNS name or an IP address), ports in 1-65535 and a known security
+     value (`Admin/ImapProviderInput`, change 11); `ImapAccountConfig.From` reads a port
+     outside 1-65535 as absent.
+   - **TLS modes.** Provider-config keys `imapSecurity` and `smtpSecurity`: `ssl` is `SslOnConnect`, `starttls`
+     is `StartTls` (required, never "when available"), `none` exists for the plaintext test servers. An account
+     without the key was stored before it existed and keeps MailKit's `Auto`. `ImapConnections` opens every
+     IMAP and SMTP connection, the provider's included.
+   - **Private addresses.** `HostGuard` resolves the host once, refuses loopback, RFC 1918, link-local, CGNAT,
+     192.0.0.0/24, 198.18.0.0/15, multicast and reserved 224.0.0.0/3, ULA, the unspecified addresses,
+     IPv4-compatible `::/96`, and the IPv4-mapped, NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) forms of a refused
+     IPv4 address (IANA's special-purpose registries, read 2026-11-23) unless the caller allows them, and hands MailKit the
+     socket it connected to a checked address (`ConnectAsync(Socket, host, ...)`, where the host still names the
+     server for the certificate check).
+   - **The server's line is logged.** A failure logs the account id, step, stage, the exception's type and the
+     server's response line (`ImapCommandException.ResponseText`, an SMTP status and its text, or an
+     `AuthenticationException`'s message), CR/LF removed and cut at 200 characters; never the exception itself.
+     A refused private address has no server line: the log names the host and the address it resolved to.
+     `ImapAccountConfig` prints without its password.
+   - **Its tests reach real servers too:** GreenMail's SMTP (`PIM_TEST_GREENMAIL_SMTP`) and a second GreenMail
+     that checks passwords (`PIM_TEST_GREENMAIL_AUTH_SMTP`), both started by `ci.yml`.
+
+10. **Account passwords are stored encrypted, and the account file is written atomically.** This restores
+    upstream's own admin behaviour (its form protected the IMAP password on save,
+    `BlazorAdmin/AccountFormModels.cs:216-220` at upstream `3b2762b`), which went with the Blazor UI.
+    - **On every save.** `CreateAccount`, `UpdateAccount` and the provider-config PATCH (change 11) store what the
+      request sent through `ProviderSecrets.ProtectIncoming`: a non-empty `password` (any case) is always encrypted,
+      `ENC:` prefix or not, because a caller can type the prefix. Only a value the PATCH keeps from storage is left
+      as it is.
+    - **At startup.** `ProtectStoredPasswordsService` runs `ProtectStoredPasswordsAsync` once: it walks the file as
+      a JSON tree (never `ParseAccounts`, which throws on a node without `TenantId`), encrypts the plaintext
+      passwords of every tenant, writes only when it changed something, logs the count and never a value. A failure
+      is logged once and does not stop the host.
+    - **`WriteConfigAsync` is atomic.** It writes `appsettings.json.tmp` beside the file, flushed to the disk
+      (`Flush(true)`: a power cut must not leave a rename pointing at data that never landed), and moves it over the
+      original; a failed move deletes the temp file and leaves the original whole. A temp file that cannot be deleted
+      is logged, and the caller hears the write's own failure.
+    - **The key ring** is `/app/data/keys` (`ConfigurationPaths.GetDataProtectionKeysDirectory()`), on Aura's
+      `aura-pim-data` volume with `appsettings.json`. **Never delete `keys/`**: every `ENC:` value becomes
+      unreadable and each account needs its password entered again.
+    - **What `ENC:` protects against** is the account file read on its own: a backup, a copy of the volume without
+      `keys/`, a log or a support bundle. It does not protect against anyone who can read the volume with `keys/` or
+      run code in the container (spec A10 of Aura's account connect/repair design).
+
+11. **An IMAP account is checked when it is saved, can be checked on demand, and can be changed in part
+    (`Admin/AccountRepairEndpoints.cs`, `Admin/ImapProviderInput.cs`).** The connect and repair flows of Aura's
+    account connect/repair design (amendments A2-A5). `AddAdminServices()` registers what `/admin` needs, for
+    `Program.cs` and the tests alike.
+    - **Create.** `POST /admin/accounts` answers `409` for an existing id before anything else. For `imap` it then
+      refuses keys that differ only in case (`duplicate_key`), a host a resolver would not take (`invalid_host`), a
+      port outside 1-65535 (`invalid_port`), `none`
+      (`tls_required`) and any other security value but `ssl`/`starttls` (`invalid_security`); an absent
+      `imapSecurity`/`smtpSecurity` is taken from the port (993/465 `ssl`, otherwise `starttls`) and stored. The
+      check runs on the config as it will be stored, password already encrypted, so a typed `ENC:` password is read
+      as typed. A blocking failure is `422 {"error":"verify_failed","step","reason"}` and nothing is stored; a sending
+      server that cannot be reached or refuses TLS is stored with `smtpWarning` in the `201`.
+    - **Private hosts.** The check on create, and on a PATCH that changes the servers, connects to a private address
+      only when the request carries `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
+      That holds for the sending server too: a private SMTP host without the header is `422
+      {"step":"smtp","reason":"smtp_unreachable"}` and nothing is stored, because the warning is for a server that
+      cannot be reached, not for one this caller may not reach.
+    - **The account remembers the permission, and every connection is held to it** (Aura ledger Ruling 25,
+      2026-11-23). It follows whoever last chose the servers (Ruling 28). Create, and a PATCH that changes any of
+      `imapHost`, `imapPort`, `imapSecurity`, `smtpHost`, `smtpPort`, `smtpSecurity` (a value in another case is no
+      change), store `providerConfig.allowPrivateHosts`, `"true"` only when that request carried the header and
+      `"false"` otherwise, so a member's server change sets `false` even on an account an administrator made. Any
+      other PATCH, a password change among them, is checked with the stored permission and leaves the key as it was,
+      absent included: an administrator's password change cannot grant a member's account a private host, and a member
+      can repair the password of an administrator's office-server account. The key sits in the provider config, beside
+      `imapSecurity`, where `ImapAccountConfig.From` reads it at every connection. Only the server writes it: a create
+      or PATCH whose body names it, in any case and with any value, is `400 {"error":"server_owned_key"}`, the way
+      `none` is `tls_required` and not silently upgraded. Every connection for a stored account, the watch's and
+      the pooled IMAP session and the SMTP of `send_email` alike, is a socket `HostGuard` opened with that
+      permission (`ImapConnections` has no other way to connect): the host is resolved once and the checked address
+      is the one connected, so a name that resolved publicly, or not at all, when it was saved and points at a
+      private address later reaches nothing and sends no password. Such a refusal reads as `provider_transient` for
+      the watch (nothing was connected, so a retry costs no login and a name that turns public again reads again) and
+      as a non-retryable tool error that does not name the address. The pool reopens a session when the permission
+      changes, so an administrator's session does not outlive a member's PATCH.
+    - **An account stored before the key has none and counts as allowed.** Until then only the operator could create
+      an account (Aura's Governance was administrator-only), and an office mail server on a private address is real.
+      Outside the API an IMAP account comes only from editing the account file by hand, and `PUT` stores the provider
+      config it is given and adds no key: both are the operator's, and what they store without the key counts as
+      allowed too. A key that is there but says anything other than `true` is not allowed.
+    - **One source of the permission.** `ImapAccountConfig.AllowPrivateHosts` has no default, and the check and every
+      connection read it from the config they are handed (`ImapProviderService.AllowsPrivateHosts`): create and a
+      server-changing PATCH write it first, any other PATCH and `verify` hand over the stored one. A guarded connection is bounded by the MailKit client's
+      `Timeout` and answers a `TimeoutException`, as MailKit's own connect does.
+    - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
+      `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
+      run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.
+      For the same reason it is held to the account's stored `allowPrivateHosts` (absent is allowed), not to the
+      caller's header (Aura ledger Ruling 27, 2026-11-23): an administrator checking a member's account whose host
+      now resolves private gets the refusal its watch gets, and a member checking an administrator's account on an
+      office server passes, as its watch reads it. Create and a server-changing PATCH use the header, because the
+      header is what they store.
+    - **`PATCH /admin/accounts/{id}/provider-config`** with `{"providerConfig":{…}}`, IMAP only (`not_patchable`):
+      a key absent or `""` keeps what is stored, a password is never trimmed, a different `username` is
+      `username_immutable` (another mailbox is another account), and a changed `imapHost`, `imapPort`, `smtpHost` or
+      `smtpPort` without a password is `password_required`, so the stored password never goes to a server it was not
+      given to. The merged config passes the create rules (so an account stored with `none` answers `tls_required`
+      until the PATCH names `ssl` or `starttls`), is checked, and is written by
+      `MergeProviderConfigAsync`, which replaces only `ProviderConfig` and answers `409 {"error":"changed"}` if the
+      stored config moved while it was checked. `200` is `PUT`'s body plus `smtpWarning`. `PUT` is not checked.
+    - **`PUT /admin/accounts/{id}` is not guarded.** `UpdateAccount` (`Admin/AdminEndpoints.cs`) runs no
+      `ForWrite`, no `HostGuard` and no verification: it can store any host, private ones included. It is
+      operator-only, and Aura must never forward it.
+    - **One check per account every 30 s** (`VerifyThrottle`), on create, verify and PATCH alike:
+      `429 {"error":"too_many_attempts"}` without connecting, because each attempt is logins a provider counts.
+    - **The pool follows a change.** `ImapProviderService` remembers the host, port, security, username, password
+      and private-hosts permission each pooled session was opened with, and reopens it when the registry says
+      otherwise; its keys match account ids in any case.
+
+12. **Finding a mailbox's servers from its address (`Discovery/`, `POST /admin/discover`).** Aura's connect screen
+    asks before it asks for a password (account connect/repair design, A6 and A7). Upstream has nothing like it.
+    - **The route.** `{"email":"…"}` answers `200 {kind, source?, imapHost?, imapPort?, imapSecurity?, smtpHost?,
+      smtpPort?, smtpSecurity?, username?, appPassword?: {required, helpUrl?}, passwordFallback?}`, camelCase with
+      nulls left out, or `400 {"error":"invalid_email"}`. The address is parsed by MimeKit, lowercased, its domain
+      IDN-mapped to ASCII and required to be a DNS name with a dot; a `+tag` is dropped from the username. It reads
+      nothing of the tenant's and stores nothing.
+    - **Thunderbird's order** (`FindConfig.sys.mjs`/`FetchConfig.sys.mjs`), first hit wins: the preset table
+      (`Discovery/presets.json`, embedded; every entry cites the provider page its values were copied from); the
+      domain's own autoconfig (`https://autoconfig.<d>/mail/config-v1.1.xml`, then `.well-known`); ISPDB; the MX of
+      lowest preference. An MX under `google.com`/`googlemail.com` is Google, under `olc.protection.outlook.com`
+      Outlook.com, under any other `outlook.com` Microsoft 365; an MX inside the address's own domain ends at
+      `unknown`; otherwise its suffixes, from the next subdomain down to two labels, go through preset, autoconfig
+      and ISPDB again. Then `unknown`.
+    - **A usable answer** has an IMAP server with a DNS hostname (after `%EMAILADDRESS%`, `%EMAILLOCALPART%`,
+      `%EMAILDOMAIN%`), a port in 1-65535, `SSL` or `STARTTLS`, and a password login. OAuth-only and plain answers
+      are a miss. The XML is parsed with DTDs prohibited and no resolver.
+    - **What leaves the box** is the domain or a suffix of the MX host, nothing else: HTTPS only, no `emailaddress`
+      parameter, no redirect followed, no proxy, a 64 KiB body cap, and every connection through `HostGuard` with
+      private addresses refused.
+    - **Budgets and cache.** 4 s per remote step and 12 s overall, on an injected `TimeProvider`. A step out of time,
+      or whose source could not be asked (a 5xx, a refused or broken connection), falls through and is not cached.
+      A miss is a status below 500 other than 200, a body that is not a `clientConfig`, a host that does not
+      resolve, or a private address; for the domain's own autoconfig, a page that is not a config falls through to
+      `.well-known`. DnsClient runs with a 2 s timeout and one retry. The autoconfig and ISPDB XML is cached (hits
+      24 h, misses 1 h) in the container's `IMemoryCache`, which `AddCalendarMcpCore()` registers with `SizeLimit`
+      1000: anything else that caches there must give its entries a `Size`.
+    - **The password fallback is Google's only.** Outlook.com refuses basic authentication, so its preset carries
+      `passwordFallback: false` and no servers.
+
+13. **A one-click unsubscribe reaches only a public address, and answers only its status** (`Utilities/
+    UnsubscribeExecutor.cs`, 2026-11-23). Upstream POSTs to a mail's `List-Unsubscribe` URL with a plain client that
+    follows redirects, and returns the far side's body or the exception's text: whoever can mail the inbox could
+    make the PIM read its own network. The `Unsubscribe` client now has `HostGuard.CreatePublicHttpHandler()`, the
+    handler discovery uses (no private address, no redirect, no proxy), and a refused or failed POST answers
+    `Unsubscribe request returned HTTP <status>` or `Failed to execute one-click unsubscribe` with no
+    `ErrorDetails`. The mailto path gives `ProviderErrorFormatter`'s summary, as `send_email` does, not the
+    exception's text. Stored ICS/DAV/JSON URLs are still fetched unguarded.
 
 ## Build / run (sidecar)
 
@@ -247,13 +413,19 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   `GetEmailDetailsTool.cs` and `GetCalendarEventDetailsTool.cs`: `MailBody.ForModel`.
   `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
   its summary, and the sentence in `includeBodyPreview`'s description, which `CalendarActionTool.cs`
-  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`.
+  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`, and the mail discovery registrations (change 12): the
+  memory cache, `ILookupClient`, `IMxLookup`, the `Autoconfig` client with its guarded handler, and `MailDiscovery`;
+  and the `Unsubscribe` client's guarded handler (change 13), which `UnsubscribeExecutor.cs` relies on: an upstream
+  edit there that reads the response body or returns `ex.Message` reopens it.
 - An upgrade of AngleSharp or AngleSharp.Css, both pinned, reopens `SelectorCost`, `MarkupShape`, the
   allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
   that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added, with
   or without brackets: a bare name is cheap only if it is on the list in `PseudoClass`.
-- `ImapProviderService.cs`: `OpenImapAsync` makes its client with `ImapNoCodes.NewClient()` in place of
-  `new ImapClient()`. The logger reads `NO [NOPERM]` and `NO [CANNOT]`, which MailKit takes out of its exceptions.
+- `ImapConnections.cs` (the fork's own; upstream opens connections in `ImapProviderService.cs`, and an upstream
+  edit to its `OpenImapAsync`/`OpenSmtpAsync` lands here by hand): the IMAP client is made with
+  `ImapNoCodes.NewClient()` in place of `new ImapClient()`, and the security option comes from `imapSecurity`/
+  `smtpSecurity` (change 9) instead of `Auto`. The logger reads `NO [NOPERM]` and `NO [CANNOT]`, which MailKit
+  takes out of its exceptions.
 - A new provider upstream adds answers `422` until it has an `IChangesSource`: a new family goes in
   `ChangesProviders`, and `ChangesRegistrationTests` lists every source.
 - Upstream's `IProviderServices.cs`: the fork's provider interfaces also inherit

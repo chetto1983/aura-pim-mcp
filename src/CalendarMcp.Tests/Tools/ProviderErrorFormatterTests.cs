@@ -1,4 +1,5 @@
 using System.Net;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Core.Tools;
 using Google.Apis.Requests;
@@ -162,6 +163,17 @@ public class ProviderErrorFormatterTests
 
         StringAssert.Contains(summary!.Message, "Network error");
         Assert.IsTrue(summary.Retryable);
+    }
+
+    [TestMethod]
+    public void APrivateHost_SaysSo_WithoutTheAddress()
+    {
+        var summary = ProviderErrorFormatter.Describe(
+            new PrivateAddressException("smtp.example.org", IPAddress.Parse("10.0.0.5")));
+
+        StringAssert.Contains(summary!.Message, "private network address");
+        Assert.DoesNotContain("10.0.0.5", summary.Message, "where a name resolves inside the PIM's network is not the caller's");
+        Assert.IsFalse(summary.Retryable, "the same call is refused the same way");
     }
 
     [TestMethod]

@@ -25,6 +25,9 @@
     <PackageReference Include="Ical.Net" Version="4.3.1" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.13" />
     <PackageReference Include="MailKit" Version="4.18.2" />
+    <!-- MX lookup for mail discovery. .NET 11 has Dns.ResolveMxAsync; this can go then. -->
+    <PackageReference Include="DnsClient" Version="1.8.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" Version="10.0.13" />
     <PackageReference Include="ReverseMarkdown" Version="[6.3.0]" />
@@ -36,6 +39,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Skills/*.md" />
+    <EmbeddedResource Include="Discovery/presets.json" LogicalName="discovery/presets.json" />
     <!--
       The MCP Apps view, embedded rather than copied to output: a ui:// resource is served as
       one HTML string over the protocol, never read off disk. LogicalName is explicit so that

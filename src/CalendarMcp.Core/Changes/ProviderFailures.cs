@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using Google;
 using Google.Apis.Auth.OAuth2.Responses;
@@ -40,6 +41,11 @@ internal static class ProviderFailures
         FolderNotFoundException => ChangesException.ProviderAuth(failure),
         // A key ring lost or rotated leaves a stored password nothing can read, and only a person can re-enter it.
         CryptographicException => ChangesException.ProviderAuth(failure),
+
+        // The account's host now resolves to a private address it may not reach. Nothing was connected, so a retry
+        // costs no login, and a name that resolves publicly again reads again; one that stays private reaches the
+        // person through Aura's alarm for an account that keeps failing, whose repair can change the server.
+        PrivateAddressException => ChangesException.ProviderTransient(failure),
 
         TokenResponseException token => FromStatus(failure, (int?)token.StatusCode),
         GoogleApiException google => FromGoogle(google),

@@ -68,7 +68,9 @@ public class ImapProviderServiceTests
         InboxFolder: "INBOX",
         SentFolder: "Sent Items",
         TrashFolder: "Deleted Items",
-        JunkFolder: "Junk E-mail");
+        JunkFolder: "Junk E-mail",
+        ImapSecurity: "ssl", SmtpSecurity: "starttls",
+        AllowPrivateHosts: false);
 
     [TestMethod]
     [DataRow("inbox", "INBOX")]

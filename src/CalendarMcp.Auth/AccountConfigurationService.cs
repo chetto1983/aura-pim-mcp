@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Models;
+using CalendarMcp.Core.Security;
 using CalendarMcp.Core.Tenancy;
 using Microsoft.Extensions.Logging;
 
@@ -22,14 +23,83 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private readonly ILogger<AccountConfigurationService> _logger;
     private readonly ITenantContext _tenantContext;
+    private readonly Action<string, string> _replaceFile;
 
+    /// <param name="replaceFile">Moves the finished temp file over the config file. A seam so a test
+    /// can make the move fail; production uses <see cref="File.Move(string, string, bool)"/>.</param>
     public AccountConfigurationService(
         ILogger<AccountConfigurationService> logger,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        Action<string, string>? replaceFile = null)
     {
         _logger = logger;
         _tenantContext = tenantContext;
+        _replaceFile = replaceFile ?? ((tmp, path) => File.Move(tmp, path, overwrite: true));
     }
+
+    public async Task<int> ProtectStoredPasswordsAsync(PasswordProtector protector, CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct);
+        try
+        {
+            var (root, accountsArray) = await ReadConfigAsync(ct);
+            var count = 0;
+            foreach (var node in accountsArray)
+            {
+                if (node is not JsonObject account) continue;
+                var config = account["ProviderConfig"] as JsonObject ?? account["providerConfig"] as JsonObject;
+                if (config is null) continue;
+                foreach (var key in config.Select(p => p.Key).Where(ProviderSecrets.IsSecretKey).ToList())
+                {
+                    if (config[key] is not JsonValue value || !value.TryGetValue<string>(out var stored)) continue;
+                    if (string.IsNullOrEmpty(stored) || PasswordProtector.IsProtected(stored)) continue;
+                    config[key] = protector.Protect(stored);
+                    count++;
+                }
+            }
+
+            if (count > 0)
+                await WriteConfigAsync(root, ct);
+            return count;
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public async Task MergeProviderConfigAsync(
+        string accountId, IReadOnlyDictionary<string, string> expectedStored,
+        IReadOnlyDictionary<string, string> next, CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct);
+        try
+        {
+            var (root, accountsArray) = await ReadConfigAsync(ct);
+            var index = FindAccountIndex(accountsArray, accountId);
+            if (index < 0 || !NodeOwnedBy(accountsArray[index], _tenantContext.RequireTenantId()))
+                throw new InvalidOperationException($"Account '{accountId}' not found.");
+
+            var node = accountsArray[index]!.AsObject();
+            var key = node.ContainsKey("providerConfig") && !node.ContainsKey("ProviderConfig") ? "providerConfig" : "ProviderConfig";
+            if (!SameConfig(GetStringDictProperty(node, "ProviderConfig"), expectedStored))
+                throw new ConcurrencyException(accountId);
+
+            node[key] = DictionaryToNode(next);
+            await WriteConfigAsync(root, ct);
+
+            _logger.LogInformation("Changed the provider config of account '{AccountId}'", accountId);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    // Keys in any case, as every reader of the file matches them; values exactly, a password above all.
+    private static bool SameConfig(Dictionary<string, string> stored, IReadOnlyDictionary<string, string> expected) =>
+        stored.Count == expected.Count &&
+        expected.All(kv => stored.TryGetValue(kv.Key, out var value) && string.Equals(value, kv.Value, StringComparison.Ordinal));
 
     public async Task<IReadOnlyList<AccountInfo>> GetAllAccountsFromConfigAsync(CancellationToken ct = default)
     {
@@ -208,11 +278,43 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
         return (root, accounts);
     }
 
-    private static async Task WriteConfigAsync(JsonObject root, CancellationToken ct)
+    /// <summary>
+    /// Writes the whole file to a temp file beside it, flushed to the disk, then moves it over the
+    /// original, so a crash, a power cut or a full disk leaves the old file whole rather than half
+    /// of the new one.
+    /// </summary>
+    private async Task WriteConfigAsync(JsonObject root, CancellationToken ct)
     {
         var configPath = GetConfigPath();
-        var json = root.ToJsonString(WriteOptions);
-        await File.WriteAllTextAsync(configPath, json, ct);
+        var tmpPath = configPath + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await JsonSerializer.SerializeAsync(stream, root, WriteOptions, ct);
+                // Past the OS cache: a rename can reach the disk before the data it names (a mini PC losing power).
+                stream.Flush(flushToDisk: true);
+            }
+            _replaceFile(tmpPath, configPath);
+        }
+        catch
+        {
+            DeleteTempFile(tmpPath);
+            throw;
+        }
+    }
+
+    // Best effort: the failure the caller hears about is the write's, not the cleanup's.
+    private void DeleteTempFile(string tmpPath)
+    {
+        try
+        {
+            File.Delete(tmpPath);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Could not delete {TempFile} after a failed write: {Failure}", tmpPath, e.GetType().Name);
+        }
     }
 
     /// <summary>
@@ -300,7 +402,7 @@ public sealed class AccountConfigurationService : IAccountConfigurationService
     private static string ToPascal(string camelName) =>
         char.ToUpperInvariant(camelName[0]) + camelName[1..];
 
-    private static JsonObject DictionaryToNode(Dictionary<string, string> dict)
+    private static JsonObject DictionaryToNode(IReadOnlyDictionary<string, string> dict)
     {
         var obj = new JsonObject();
         foreach (var (key, value) in dict)
