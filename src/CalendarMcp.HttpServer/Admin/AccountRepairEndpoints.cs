@@ -16,7 +16,7 @@ public static class AccountRepairEndpoints
     public const string AllowPrivateHostsHeader = "X-Aura-Allow-Private-Hosts";
 
     // A change of any of these would send the stored password to a server it was not given to (A3).
-    private static readonly string[] ServerKeys = ["imapHost", "imapPort", "smtpHost", "smtpPort"];
+    private static readonly string[] PasswordBoundKeys = ["imapHost", "imapPort", "smtpHost", "smtpPort"];
 
     public static RouteGroupBuilder MapAccountRepairEndpoints(this RouteGroupBuilder admin)
     {
@@ -101,16 +101,18 @@ public static class AccountRepairEndpoints
         var stored = existing.ProviderConfig;
         if (Changes(stored, changes, "username"))
             return VerifyResults.Refused("username_immutable");
-        if (!changes.ContainsKey("password") && ServerKeys.Any(key => Changes(stored, changes, key)))
+        if (!changes.ContainsKey("password") && PasswordBoundKeys.Any(key => Changes(stored, changes, key)))
             return VerifyResults.Refused("password_required");
 
         var merged = new Dictionary<string, string>(stored, StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in ProviderSecrets.ProtectIncoming(changes, protector))
             merged[key] = value;
-        // A member's PATCH stores false even on an account an administrator made: whoever last named the servers is
-        // whose permission the account keeps.
-        var allowPrivate = HeaderGrantsPrivateHosts(request);
-        var (next, inputError) = ImapProviderInput.ForWrite(merged, allowPrivate);
+        // The permission follows whoever last chose the servers (ledger Ruling 28): a PATCH that changes one stores
+        // the caller's header, so a member's stores false even on an account an administrator made; any other PATCH
+        // keeps what is stored and is checked with it, as «Prova di nuovo» is. An administrator's password change
+        // cannot grant a member's account a private host, and a member can repair an office server's password.
+        var choosesServers = ImapProviderInput.ServerKeys.Any(key => Changes(stored, changes, key, StringComparison.OrdinalIgnoreCase));
+        var (next, inputError) = ImapProviderInput.ForWrite(merged, choosesServers ? HeaderGrantsPrivateHosts(request) : null);
         if (next is null)
             return VerifyResults.Refused(inputError!);
         var (valid, validationError) = TenantProviderConfig.Validate(existing.Provider, next);
@@ -138,8 +140,11 @@ public static class AccountRepairEndpoints
         return Results.Ok(AdminEndpoints.AccountBody(existing, smtpWarning));
     }
 
-    // A value the request names and the store does not hold as it is: absent there counts as different.
-    private static bool Changes(IReadOnlyDictionary<string, string> stored, IReadOnlyDictionary<string, string> changes, string key) =>
+    // A value the request names and the store does not hold as it is: absent there counts as different. A host or a
+    // TLS mode in another case is the same server, which is all the permission asks.
+    private static bool Changes(
+        IReadOnlyDictionary<string, string> stored, IReadOnlyDictionary<string, string> changes, string key,
+        StringComparison comparison = StringComparison.Ordinal) =>
         changes.TryGetValue(key, out var value) &&
-        !(stored.TryGetValue(key, out var current) && string.Equals(current, value, StringComparison.Ordinal));
+        !(stored.TryGetValue(key, out var current) && string.Equals(current, value, comparison));
 }

@@ -257,15 +257,19 @@ file says the fork does not have, this file wins.
       check runs on the config as it will be stored, password already encrypted, so a typed `ENC:` password is read
       as typed. A blocking failure is `422 {"error":"verify_failed","step","reason"}` and nothing is stored; a sending
       server that cannot be reached or refuses TLS is stored with `smtpWarning` in the `201`.
-    - **Private hosts.** The check on create and PATCH connects to a private address only when the request carries
-      `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
+    - **Private hosts.** The check on create, and on a PATCH that changes the servers, connects to a private address
+      only when the request carries `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
       That holds for the sending server too: a private SMTP host without the header is `422
       {"step":"smtp","reason":"smtp_unreachable"}` and nothing is stored, because the warning is for a server that
       cannot be reached, not for one this caller may not reach.
     - **The account remembers the permission, and every connection is held to it** (Aura ledger Ruling 25,
-      2026-11-23). Create and PATCH store `providerConfig.allowPrivateHosts`, `"true"` only when that request carried
-      the header and `"false"` otherwise, so a member's PATCH sets `false` even on an account an administrator made:
-      whoever last named the servers is whose permission counts. The key sits in the provider config, beside
+      2026-11-23). It follows whoever last chose the servers (Ruling 28). Create, and a PATCH that changes any of
+      `imapHost`, `imapPort`, `imapSecurity`, `smtpHost`, `smtpPort`, `smtpSecurity` (a value in another case is no
+      change), store `providerConfig.allowPrivateHosts`, `"true"` only when that request carried the header and
+      `"false"` otherwise, so a member's server change sets `false` even on an account an administrator made. Any
+      other PATCH, a password change among them, is checked with the stored permission and leaves the key as it was,
+      absent included: an administrator's password change cannot grant a member's account a private host, and a member
+      can repair the password of an administrator's office-server account. The key sits in the provider config, beside
       `imapSecurity`, where `ImapAccountConfig.From` reads it at every connection. Only the server writes it: a create
       or PATCH whose body names it, in any case and with any value, is `400 {"error":"server_owned_key"}`, the way
       `none` is `tls_required` and not silently upgraded. Every connection for a stored account, the watch's and
@@ -282,8 +286,8 @@ file says the fork does not have, this file wins.
       config it is given and adds no key: both are the operator's, and what they store without the key counts as
       allowed too. A key that is there but says anything other than `true` is not allowed.
     - **One source of the permission.** `ImapAccountConfig.AllowPrivateHosts` has no default, and the check and every
-      connection read it from the config they are handed (`ImapProviderService.AllowsPrivateHosts`): create and PATCH
-      write it first, `verify` hands over the stored config. A guarded connection is bounded by the MailKit client's
+      connection read it from the config they are handed (`ImapProviderService.AllowsPrivateHosts`): create and a
+      server-changing PATCH write it first, any other PATCH and `verify` hand over the stored one. A guarded connection is bounded by the MailKit client's
       `Timeout` and answers a `TimeoutException`, as MailKit's own connect does.
     - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
       `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
@@ -291,8 +295,8 @@ file says the fork does not have, this file wins.
       For the same reason it is held to the account's stored `allowPrivateHosts` (absent is allowed), not to the
       caller's header (Aura ledger Ruling 27, 2026-11-23): an administrator checking a member's account whose host
       now resolves private gets the refusal its watch gets, and a member checking an administrator's account on an
-      office server passes, as its watch reads it. Create and PATCH use the header, because the header is what they
-      store.
+      office server passes, as its watch reads it. Create and a server-changing PATCH use the header, because the
+      header is what they store.
     - **`PATCH /admin/accounts/{id}/provider-config`** with `{"providerConfig":{…}}`, IMAP only (`not_patchable`):
       a key absent or `""` keeps what is stored, a password is never trimmed, a different `username` is
       `username_immutable` (another mailbox is another account), and a changed `imapHost`, `imapPort`, `smtpHost` or

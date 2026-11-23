@@ -32,6 +32,9 @@ internal static class ImapProviderInput
         ("smtpHost", "smtpSecurity", "smtpPort", ImapProviderService.DefaultSmtpPort)
     ];
 
+    /// <summary>The keys that choose the servers: each one's host, port and security.</summary>
+    public static IEnumerable<string> ServerKeys => Servers.SelectMany(server => new[] { server.Host, server.Port, server.Security });
+
     /// <summary>Two keys that differ only in case: which of them a reader takes would be an accident.</summary>
     public static bool HasDuplicateKeys(IEnumerable<string> keys) =>
         keys.GroupBy(key => key, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1);
@@ -46,13 +49,13 @@ internal static class ImapProviderInput
     /// <summary>
     /// For what a create or a PATCH would store: host names a resolver takes, ports in 1-65535, and each security
     /// key <c>ssl</c> or <c>starttls</c>, or taken from its port when absent (993 and 465 are <c>ssl</c>, any other
-    /// <c>starttls</c>). Answers the config with both keys written in lower case, or the error. The config also
-    /// records <paramref name="allowPrivateHosts"/>, the permission of the request that names these servers, which
-    /// replaces what was stored: every later connection for the account is held to it.
+    /// <c>starttls</c>). Answers the config with both keys written in lower case, or the error. A non-null
+    /// <paramref name="allowPrivateHosts"/>, the permission of a request that chooses these servers, replaces what
+    /// was stored, and every later connection for the account is held to it; null keeps the key as it is.
     /// <paramref name="config"/> has no duplicate keys (<see cref="HasDuplicateKeys"/>).
     /// </summary>
     public static (Dictionary<string, string>? Config, string? Error) ForWrite(
-        IReadOnlyDictionary<string, string> config, bool allowPrivateHosts)
+        IReadOnlyDictionary<string, string> config, bool? allowPrivateHosts)
     {
         var result = new Dictionary<string, string>(config, StringComparer.OrdinalIgnoreCase);
         foreach (var (hostKey, securityKey, portKey, defaultPort) in Servers)
@@ -77,9 +80,13 @@ internal static class ImapProviderInput
             }
         }
 
-        // Removed first: the dictionary ignores case, and a stored key in another case would keep its spelling.
-        result.Remove(ImapProviderService.AllowPrivateHostsKey);
-        result[ImapProviderService.AllowPrivateHostsKey] = allowPrivateHosts ? "true" : "false";
+        if (allowPrivateHosts is { } allow)
+        {
+            // Removed first: the dictionary ignores case, and a stored key in another case would keep its spelling.
+            result.Remove(ImapProviderService.AllowPrivateHostsKey);
+            result[ImapProviderService.AllowPrivateHostsKey] = allow ? "true" : "false";
+        }
+
         return (result, null);
     }
 

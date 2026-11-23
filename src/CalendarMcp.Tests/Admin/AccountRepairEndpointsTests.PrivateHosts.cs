@@ -48,36 +48,81 @@ public sealed partial class AccountRepairEndpointsTests
         Assert.IsFalse(Exists(pipeline, NewId));
     }
 
+    // Ruling 28: the permission follows whoever last chose the servers. A PATCH that changes one of the keys
+    // ImapProviderInput.ForWrite owns stores the caller's header; any other PATCH is checked with the stored
+    // permission and leaves it as it is, as «Prova di nuovo» does.
+
     [TestMethod]
-    [DataRow(true, "true")]
-    [DataRow(false, "false")]
-    public async Task Patch_StoresThePermission_FromTheHeader(bool header, string stored)
+    [DataRow("imapHost", "imap.example.net")]
+    [DataRow("imapPort", "143")]
+    [DataRow("imapSecurity", "starttls")]
+    [DataRow("smtpHost", "smtp.example.net")]
+    [DataRow("smtpPort", "587")]
+    [DataRow("smtpSecurity", "starttls")]
+    public async Task Patch_ByAMember_ThatChangesTheServers_OfAnAccountAnAdminMade_StoresFalse(string key, string value)
     {
         var verifier = new FakeVerifier();
         await using var pipeline = new AdminPipeline(verifier);
-        Assert.IsNull(StoredPermission(pipeline, AdminPipeline.MailId), "the seeded account predates the key");
+        pipeline.SetStored(AdminPipeline.MailId, AllowKey, "true");
 
         var (status, _) = await pipeline.PatchAsync(
-            ProviderConfig(AdminPipeline.MailId), Patch(new() { ["password"] = "nuova" }), allowPrivate: header);
+            ProviderConfig(AdminPipeline.MailId), Patch(new() { [key] = value, ["password"] = "nuova" }));
 
         Assert.AreEqual(200, status);
-        Assert.AreEqual(stored, StoredPermission(pipeline, AdminPipeline.MailId));
-        Assert.AreEqual(header, verifier.Calls.Single().Read!.AllowPrivateHosts, "the check reads what is stored");
+        Assert.AreEqual("false", StoredPermission(pipeline, AdminPipeline.MailId));
+        Assert.IsFalse(verifier.Calls.Single().AllowPrivate, "the check is held to what is stored");
     }
 
     [TestMethod]
-    public async Task Patch_ByAMember_OnAnAccountAnAdminMade_StoresFalse()
+    public async Task Patch_ByAnAdmin_ThatChangesTheServers_OfAMembersAccount_StoresTrue()
     {
         var verifier = new FakeVerifier();
         await using var pipeline = new AdminPipeline(verifier);
-        await pipeline.PostAsync("/admin/accounts", Create(ImapConfig()), allowPrivate: true);
-        Assert.AreEqual("true", StoredPermission(pipeline, NewId));
-        pipeline.Clock.Now += TimeSpan.FromSeconds(30);
+        pipeline.SetStored(AdminPipeline.MailId, AllowKey, "false");
 
-        var (status, _) = await pipeline.PatchAsync(ProviderConfig(NewId), Patch(new() { ["inboxFolder"] = "Archivio" }));
+        var (status, _) = await pipeline.PatchAsync(ProviderConfig(AdminPipeline.MailId),
+            Patch(new() { ["imapHost"] = "mail.office.example", ["password"] = "nuova" }), allowPrivate: true);
 
         Assert.AreEqual(200, status);
-        Assert.AreEqual("false", StoredPermission(pipeline, NewId), "whoever last changed the servers is whose permission counts");
+        Assert.AreEqual("true", StoredPermission(pipeline, AdminPipeline.MailId));
+        Assert.IsTrue(verifier.Calls.Single().AllowPrivate);
+    }
+
+    [TestMethod]
+    [DataRow("false", true, "an administrator's password change cannot grant a member's account a private host")]
+    [DataRow("true", false, "a member can repair the password of an administrator's office-server account")]
+    [DataRow(null, false, "an account stored before the key keeps having none")]
+    public async Task Patch_ThatChangesNoServer_IsHeldToTheStoredPermission_AndKeepsIt(string? stored, bool header, string why)
+    {
+        var verifier = new FakeVerifier();
+        await using var pipeline = new AdminPipeline(verifier);
+        pipeline.SetStored(AdminPipeline.MailId, AllowKey, stored);
+
+        var (status, _) = await pipeline.PatchAsync(
+            ProviderConfig(AdminPipeline.MailId), Patch(new() { ["password"] = "nuova", ["inboxFolder"] = "Archivio" }),
+            allowPrivate: header);
+
+        Assert.AreEqual(200, status, why);
+        Assert.AreEqual(stored, StoredPermission(pipeline, AdminPipeline.MailId), why);
+        Assert.AreEqual(stored is null or "true", verifier.Calls.Single().AllowPrivate, why);
+    }
+
+    [TestMethod]
+    public async Task Patch_NamingTheStoredServersAsTheyAre_ChangesNoServer()
+    {
+        var verifier = new FakeVerifier();
+        await using var pipeline = new AdminPipeline(verifier);
+        pipeline.SetStored(AdminPipeline.MailId, AllowKey, "true");
+
+        var (status, _) = await pipeline.PatchAsync(ProviderConfig(AdminPipeline.MailId), Patch(new()
+        {
+            ["imapHost"] = "imap.example.com", ["imapPort"] = "993", ["imapSecurity"] = "SSL",
+            ["smtpHost"] = "smtp.example.com", ["smtpPort"] = "465", ["smtpSecurity"] = "ssl",
+            ["password"] = "nuova"
+        }));
+
+        Assert.AreEqual(200, status);
+        Assert.AreEqual("true", StoredPermission(pipeline, AdminPipeline.MailId), "the cockpit may send back what it shows");
     }
 
     [TestMethod]

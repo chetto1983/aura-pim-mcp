@@ -209,8 +209,8 @@ public partial class ImapProviderService
     /// before they existed (see <see cref="ImapConnections.Options"/>).
     /// </summary>
     /// <param name="AllowPrivateHosts">
-    /// Whether every connection for this account may reach a private address. Create and PATCH store it from the
-    /// request that last named the servers. An account stored before the key existed has none and is allowed: until
+    /// Whether every connection for this account may reach a private address. Create, and a PATCH that changes the servers,
+    /// store it from that request (ledger Ruling 28). An account stored before the key existed has none and is allowed: until
     /// then only the operator could write an account, and an office mail server on a private network is real. A key
     /// that is there and says anything but <c>true</c> is not allowed, so a damaged value fails closed.
     /// </param>
