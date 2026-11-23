@@ -199,6 +199,11 @@ public partial class ImapProviderService
             "Re-list the folder to get current IDs.");
     }
 
+    /// <summary>Whether a stored provider config may reach a private address (see <see cref="ImapAccountConfig.AllowPrivateHosts"/>).</summary>
+    public static bool AllowsPrivateHosts(IReadOnlyDictionary<string, string> providerConfig) =>
+        !providerConfig.TryGetValue(AllowPrivateHostsKey, out var allow) ||
+        string.Equals(allow, "true", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// An account's provider config, read. <c>ImapSecurity</c>/<c>SmtpSecurity</c> are null on an account stored
     /// before they existed (see <see cref="ImapConnections.Options"/>).
@@ -246,8 +251,7 @@ public partial class ImapProviderService
                 JunkFolder: Get(pc, "junkFolder", DefaultJunk),
                 ImapSecurity: Optional(pc, "imapSecurity"),
                 SmtpSecurity: Optional(pc, "smtpSecurity"),
-                AllowPrivateHosts: !pc.TryGetValue(AllowPrivateHostsKey, out var allow) ||
-                                   string.Equals(allow, "true", StringComparison.OrdinalIgnoreCase));
+                AllowPrivateHosts: AllowsPrivateHosts(pc));
 
             static string Get(IReadOnlyDictionary<string, string> d, string key, string fallback) =>
                 Optional(d, key) ?? fallback;

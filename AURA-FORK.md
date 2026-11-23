@@ -255,7 +255,7 @@ file says the fork does not have, this file wins.
       check runs on the config as it will be stored, password already encrypted, so a typed `ENC:` password is read
       as typed. A blocking failure is `422 {"error":"verify_failed","step","reason"}` and nothing is stored; a sending
       server that cannot be reached or refuses TLS is stored with `smtpWarning` in the `201`.
-    - **Private hosts.** The check connects to a private address only when the request carries
+    - **Private hosts.** The check on create and PATCH connects to a private address only when the request carries
       `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
       That holds for the sending server too: a private SMTP host without the header is `422
       {"step":"smtp","reason":"smtp_unreachable"}` and nothing is stored, because the warning is for a server that
@@ -281,6 +281,11 @@ file says the fork does not have, this file wins.
     - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
       `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
       run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.
+      For the same reason it is held to the account's stored `allowPrivateHosts` (absent is allowed), not to the
+      caller's header (Aura ledger Ruling 27, 2026-11-23): an administrator checking a member's account whose host
+      now resolves private gets the refusal its watch gets, and a member checking an administrator's account on an
+      office server passes, as its watch reads it. Create and PATCH use the header, because the header is what they
+      store.
     - **`PATCH /admin/accounts/{id}/provider-config`** with `{"providerConfig":{…}}`, IMAP only (`not_patchable`):
       a key absent or `""` keeps what is stored, a password is never trimmed, a different `username` is
       `username_immutable` (another mailbox is another account), and a changed `imapHost`, `imapPort`, `smtpHost` or

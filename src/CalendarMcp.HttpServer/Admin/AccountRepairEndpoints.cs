@@ -49,7 +49,6 @@ public static class AccountRepairEndpoints
 
     private static async Task<IResult> VerifyAccount(
         string accountId,
-        HttpRequest request,
         IAccountConfigurationService configService,
         VerifyThrottle throttle,
         IImapAccountVerifier verifier,
@@ -61,8 +60,12 @@ public static class AccountRepairEndpoints
         if (!IsImap(account.Provider) || !ImapProviderInput.IsVerifiable(account.ProviderConfig))
             return VerifyResults.Refused("not_verifiable");
 
+        // The check is of what the watch does (spec A8), so it is held to the account's stored permission, as every
+        // connection for it is, and not to the caller's: an administrator's check must not pass where the watch is
+        // refused (ledger Ruling 27). Create and PATCH use the header, because the header is what they store.
         var (refusal, smtpWarning) = await CheckAsync(
-            accountId, account.ProviderConfig, AllowsPrivateHosts(request), throttle, verifier, ct);
+            accountId, account.ProviderConfig, ImapProviderService.AllowsPrivateHosts(account.ProviderConfig),
+            throttle, verifier, ct);
         return refusal ?? Results.Ok(smtpWarning is null ? new { ok = true } : (object)new { ok = true, smtpWarning });
     }
 

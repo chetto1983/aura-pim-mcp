@@ -98,4 +98,38 @@ public sealed partial class AccountRepairEndpointsTests
         Assert.IsEmpty(verifier.Calls);
         Assert.AreEqual(before, pipeline.StoredAccount(AdminPipeline.MailId).ToJsonString());
     }
+
+    // «Prova di nuovo» checks what the watch does (spec A8, ledger Ruling 27): the stored account's permission, not
+    // the caller's. The real verifier and the real guard, against a scripted IMAP server on loopback; the sending
+    // server is a loopback port nothing listens on, which is a warning and not a refusal (A4).
+    [TestMethod]
+    [DataRow("false", true, 422, "an administrator checking a member's account gets the refusal its watch gets")]
+    [DataRow("false", false, 422, "and so does the member")]
+    [DataRow("true", true, 200, "an administrator's account still passes")]
+    [DataRow("true", false, 200, "even when a member checks it, as its watch still reads it")]
+    [DataRow(null, false, 200, "an account stored before the key is allowed, as at runtime")]
+    public async Task Verify_IsHeldToTheStoredPermission_NotTheCallers(string? stored, bool header, int expected, string why)
+    {
+        await using var imap = Providers.ScriptedMailServer.ImapWithEmptyInbox();
+        await using var pipeline = new AdminPipeline(verifier: null);
+        pipeline.SetStored(AdminPipeline.MailId, "imapHost", imap.Address.Host);
+        pipeline.SetStored(AdminPipeline.MailId, "imapPort", imap.Address.Port.ToString());
+        pipeline.SetStored(AdminPipeline.MailId, "imapSecurity", "none");
+        pipeline.SetStored(AdminPipeline.MailId, "smtpHost", "127.0.0.1");
+        pipeline.SetStored(AdminPipeline.MailId, "smtpPort", "9");
+        pipeline.SetStored(AdminPipeline.MailId, AllowKey, stored);
+
+        var (status, body) = await pipeline.PostAsync(Verify(AdminPipeline.MailId), allowPrivate: header);
+
+        Assert.AreEqual(expected, status, why);
+        if (expected == 422)
+        {
+            AssertVerifyFailed(body, "imap", "unreachable");
+            Assert.AreEqual(0, imap.Connections, "refused before anything connected");
+        }
+        else
+        {
+            Assert.AreEqual(1, imap.Connections, why);
+        }
+    }
 }
