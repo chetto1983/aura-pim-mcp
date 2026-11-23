@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
@@ -57,6 +58,34 @@ public sealed class CalendarActionToolTests
             () => tool.DispatchAction(action, new CalendarActionArguments()));
 
         Assert.AreEqual(expectedMessage, error.Message);
+    }
+
+    // Measured 2026-11-23: told the account was optional on send_email, a model left it out on every send, and
+    // the server chose the sender by the recipient's domain, out of the reviewer's sight.
+    [TestMethod]
+    public async Task SendEmail_WithoutAnAccount_IsRefusedAndSaysWhereToFindOne()
+    {
+        using var services = CreateServices();
+        var tool = CreateTool(services);
+
+        var error = await Assert.ThrowsExactlyAsync<McpException>(() => tool.DispatchAction("send_email",
+            new CalendarActionArguments { To = ["someone@example.org"], Subject = "Prova", Body = "Testo" }));
+
+        StringAssert.Contains(error.Message, "accountId");
+        StringAssert.Contains(error.Message, "list_accounts");
+    }
+
+    [TestMethod]
+    public void TheToolTellsTheModelThatSendEmailNeedsAnAccount()
+    {
+        var method = typeof(CalendarActionTool).GetMethod(nameof(CalendarActionTool.Calendar))!;
+        var tool = method.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
+        var account = method.GetParameters().Single(p => p.Name == "accountId")
+            .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
+
+        StringAssert.Contains(tool, "- send_email: send an email, optional attachments. Requires accountId, to, subject.");
+        StringAssert.Contains(account, "Required on send_email,");
+        Assert.DoesNotContain("send_email (omit", account);
     }
 
     [TestMethod]

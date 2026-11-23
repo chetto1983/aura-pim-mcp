@@ -92,7 +92,7 @@ public sealed partial class CalendarActionTool
         - get_emails: recent emails, newest first. accountId, count, unreadOnly, folder optional.
         - get_email_details: full email body and attachments. Requires accountId, emailId.
         - search_emails: full-text email search. Requires query. accountId, count, fromDate, toDate, folder optional.
-        - send_email: send an email, optional attachments. Requires to, subject. accountId, body, bodyFormat, cc, attachments, textBody, htmlBody optional.
+        - send_email: send an email, optional attachments. Requires accountId, to, subject. body, bodyFormat, cc, attachments, textBody, htmlBody optional.
         - list_calendars: list calendars. accountId optional.
         - get_calendar_events: events on a range of local days in timeZone. Requires timeZone. accountId, calendarId, startDate, endDate, count optional. Each event's eventId is an opaque reference that names its account; the event actions below take it unchanged and no accountId.
         - get_calendar_event_details: full event detail. Requires timeZone, calendarId, eventId.
@@ -124,7 +124,7 @@ public sealed partial class CalendarActionTool
         RequestContext<CallToolRequestParams> requestContext,
         [Description("Required. The operation to perform -- see the tool description for each action's required and optional fields.")]
         string action,
-        [Description("Account id. Optional filter on get_emails/search_emails/list_calendars/get_calendar_events/get_contacts/search_contacts (omit for all accounts); optional target for create_event/create_contact (omit for the first account that permits it) and send_email (omit to match the first recipient's domain, then the first account that may send). Required on get_email_details, get_contact_details, update_contact, delete_contact, delete_email, mark_email_read, move_email, get_email_attachment, get_unsubscribe_info, unsubscribe_from_email. NOT used by the event actions that take an eventId -- the reference names the account. Obtain from list_accounts.")]
+        [Description("Account id. Optional filter on get_emails/search_emails/list_calendars/get_calendar_events/get_contacts/search_contacts (omit for all accounts); optional target for create_event/create_contact (omit for the first account that permits it). Required on send_email, get_email_details, get_contact_details, update_contact, delete_contact, delete_email, mark_email_read, move_email, get_email_attachment, get_unsubscribe_info, unsubscribe_from_email. NOT used by the event actions that take an eventId -- the reference names the account. Obtain from list_accounts.")]
         string? accountId = null,
         [Description("Calendar id. Required for get_calendar_event_details and update_event; optional for delete_event/respond_to_event (default 'primary'); optional scoping filter for get_calendar_events; optional target for create_event. Obtain from list_calendars, or pass 'primary' for the default calendar.")]
         string? calendarId = null,
