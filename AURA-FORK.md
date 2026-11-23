@@ -259,8 +259,25 @@ file says the fork does not have, this file wins.
       `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
       That holds for the sending server too: a private SMTP host without the header is `422
       {"step":"smtp","reason":"smtp_unreachable"}` and nothing is stored, because the warning is for a server that
-      cannot be reached, not for one this caller may not reach, and `send_email` opens SMTP without the guard and
-      sends the password with AUTH.
+      cannot be reached, not for one this caller may not reach.
+    - **The account remembers the permission, and every connection is held to it** (Aura ledger Ruling 25,
+      2026-11-23). Create and PATCH store `providerConfig.allowPrivateHosts`, `"true"` only when that request carried
+      the header and `"false"` otherwise, so a member's PATCH sets `false` even on an account an administrator made:
+      whoever last named the servers is whose permission counts. The key sits in the provider config, beside
+      `imapSecurity`, where `ImapAccountConfig.From` reads it at every connection. Only the server writes it: a create
+      or PATCH whose body names it, in any case and with any value, is `400 {"error":"server_owned_key"}`, the way
+      `none` is `tls_required` and not silently upgraded. Every connection for a stored account, the watch's and
+      the pooled IMAP session and the SMTP of `send_email` alike, is a socket `HostGuard` opened with that
+      permission (`ImapConnections` has no other way to connect): the host is resolved once and the checked address
+      is the one connected, so a name that resolved publicly, or not at all, when it was saved and points at a
+      private address later reaches nothing and sends no password. Such a refusal reads as `provider_transient` for
+      the watch (nothing was connected, so a retry costs no login and a name that turns public again reads again) and
+      as a non-retryable tool error that does not name the address. The pool reopens a session when the permission
+      changes, so an administrator's session does not outlive a member's PATCH.
+    - **An account stored before the key has none and counts as allowed.** Until then only the operator could create
+      an account (Aura's Governance was administrator-only, and the CLI is the operator's), and an office mail server
+      on a private address is real. The CLI writes no key, and `PUT` stores the provider config it is given and adds
+      none, so an account either writes without the key counts as allowed too: both are the operator's. A key that is there but says anything other than `true` is not allowed.
     - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
       `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
       run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.
@@ -277,9 +294,9 @@ file says the fork does not have, this file wins.
       operator-only, and Aura must never forward it.
     - **One check per account every 30 s** (`VerifyThrottle`), on create, verify and PATCH alike:
       `429 {"error":"too_many_attempts"}` without connecting, because each attempt is logins a provider counts.
-    - **The pool follows a change.** `ImapProviderService` remembers the host, port, security, username and
-      password each pooled session was opened with, and reopens it when the registry says otherwise; its keys match
-      account ids in any case.
+    - **The pool follows a change.** `ImapProviderService` remembers the host, port, security, username, password
+      and private-hosts permission each pooled session was opened with, and reopens it when the registry says
+      otherwise; its keys match account ids in any case.
 
 12. **Finding a mailbox's servers from its address (`Discovery/`, `POST /admin/discover`).** Aura's connect screen
     asks before it asks for a password (account connect/repair design, A6 and A7). Upstream has nothing like it.

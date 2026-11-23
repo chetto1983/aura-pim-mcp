@@ -10,10 +10,13 @@ namespace CalendarMcp.Tests.Admin;
 
 public sealed partial class AccountRepairEndpointsTests
 {
-    private static JsonObject WithoutPassword(JsonObject account)
+    // Every PATCH also writes the private-hosts permission (AccountRepairEndpointsTests.PrivateHosts.cs), so what a
+    // PATCH keeps is compared without it.
+    private static JsonObject Without(JsonObject account, params string[] keys)
     {
         var copy = (JsonObject)account.DeepClone();
-        ((JsonObject)copy["ProviderConfig"]!).Remove("password");
+        foreach (var key in keys)
+            ((JsonObject)copy["ProviderConfig"]!).Remove(key);
         return copy;
     }
 
@@ -28,7 +31,9 @@ public sealed partial class AccountRepairEndpointsTests
 
         Assert.AreEqual(200, status);
         var after = pipeline.StoredAccount(AdminPipeline.MailId);
-        Assert.AreEqual(WithoutPassword(before).ToJsonString(), WithoutPassword(after).ToJsonString());
+        Assert.AreEqual(
+            Without(before, "password", AllowKey).ToJsonString(), Without(after, "password", AllowKey).ToJsonString());
+        Assert.AreEqual("false", after["ProviderConfig"]![AllowKey]!.GetValue<string>(), "a member's PATCH");
         Assert.AreEqual("nuova", pipeline.Protector.Unprotect(after["ProviderConfig"]!["password"]!.GetValue<string>()));
         Assert.AreEqual(AdminPipeline.MailId, body.GetProperty("id").GetString());
         Assert.AreEqual("Posta", body.GetProperty("displayName").GetString());
@@ -71,7 +76,9 @@ public sealed partial class AccountRepairEndpointsTests
         var (status, _) = await pipeline.PatchAsync(ProviderConfig(AdminPipeline.MailId), Patch(new() { ["password"] = "", ["imapHost"] = "" }));
 
         Assert.AreEqual(200, status);
-        Assert.AreEqual(before, pipeline.StoredAccount(AdminPipeline.MailId).ToJsonString());
+        var after = pipeline.StoredAccount(AdminPipeline.MailId);
+        Assert.AreEqual(before, Without(after, AllowKey).ToJsonString());
+        Assert.AreEqual("false", after["ProviderConfig"]![AllowKey]!.GetValue<string>(), "a member's PATCH");
     }
 
     [TestMethod]

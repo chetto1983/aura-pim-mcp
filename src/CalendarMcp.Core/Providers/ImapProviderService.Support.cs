@@ -203,13 +203,20 @@ public partial class ImapProviderService
     /// An account's provider config, read. <c>ImapSecurity</c>/<c>SmtpSecurity</c> are null on an account stored
     /// before they existed (see <see cref="ImapConnections.Options"/>).
     /// </summary>
+    /// <param name="AllowPrivateHosts">
+    /// Whether every connection for this account may reach a private address. Create and PATCH store it from the
+    /// request that last named the servers. An account stored before the key existed has none and is allowed: until
+    /// then only the operator could write an account, and an office mail server on a private network is real. A key
+    /// that is there and says anything but <c>true</c> is not allowed, so a damaged value fails closed.
+    /// </param>
     internal sealed record ImapAccountConfig(
         string AccountId,
         string ImapHost, int ImapPort,
         string SmtpHost, int SmtpPort,
         string Username, string Password,
         string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder,
-        string? ImapSecurity = null, string? SmtpSecurity = null)
+        string? ImapSecurity = null, string? SmtpSecurity = null,
+        bool AllowPrivateHosts = true)
     {
         /// <exception cref="ProviderOperationException">The username or the password is missing.</exception>
         /// <exception cref="System.Security.Cryptography.CryptographicException">
@@ -238,7 +245,9 @@ public partial class ImapProviderService
                 TrashFolder: Get(pc, "trashFolder", DefaultTrash),
                 JunkFolder: Get(pc, "junkFolder", DefaultJunk),
                 ImapSecurity: Optional(pc, "imapSecurity"),
-                SmtpSecurity: Optional(pc, "smtpSecurity"));
+                SmtpSecurity: Optional(pc, "smtpSecurity"),
+                AllowPrivateHosts: !pc.TryGetValue(AllowPrivateHostsKey, out var allow) ||
+                                   string.Equals(allow, "true", StringComparison.OrdinalIgnoreCase));
 
             static string Get(IReadOnlyDictionary<string, string> d, string key, string fallback) =>
                 Optional(d, key) ?? fallback;
@@ -256,7 +265,8 @@ public partial class ImapProviderService
             builder.Append($"AccountId = {AccountId}, ImapHost = {ImapHost}, ImapPort = {ImapPort}, ");
             builder.Append($"ImapSecurity = {ImapSecurity}, SmtpHost = {SmtpHost}, SmtpPort = {SmtpPort}, ");
             builder.Append($"SmtpSecurity = {SmtpSecurity}, Username = {Username}, InboxFolder = {InboxFolder}, ");
-            builder.Append($"SentFolder = {SentFolder}, TrashFolder = {TrashFolder}, JunkFolder = {JunkFolder}");
+            builder.Append($"SentFolder = {SentFolder}, TrashFolder = {TrashFolder}, JunkFolder = {JunkFolder}, ");
+            builder.Append($"AllowPrivateHosts = {AllowPrivateHosts}");
             return true;
         }
     }

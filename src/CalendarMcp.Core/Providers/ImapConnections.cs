@@ -11,13 +11,15 @@ namespace CalendarMcp.Core.Providers;
 /// <summary>
 /// How an IMAP account's two servers are reached, for the provider and for the verification alike. A connection
 /// is two stages, so a caller can tell a refused connection from a refused login: <c>Connect*</c>, then
-/// <see cref="LogInAsync(ImapClient, ImapAccountConfig, CancellationToken)"/>. <c>Open*</c> is both.
+/// <see cref="LogInAsync(ImapClient, ImapAccountConfig, CancellationToken)"/>. <c>Open*</c> is both, for the provider,
+/// with the permission the account was stored with. Every connection is a socket <see cref="HostGuard"/> opened, so
+/// there is no path that reaches a host without its check.
 /// </summary>
 internal static class ImapConnections
 {
-    public static async Task<ImapClient> OpenImapAsync(ImapAccountConfig cfg, Socket? socket, CancellationToken ct)
+    public static async Task<ImapClient> OpenImapAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct)
     {
-        var client = await ConnectImapAsync(cfg, socket, ct);
+        var client = await ConnectImapAsync(guard, cfg, cfg.AllowPrivateHosts, ct);
         try
         {
             await LogInAsync(client, cfg, ct);
@@ -30,9 +32,9 @@ internal static class ImapConnections
         }
     }
 
-    public static async Task<SmtpClient> OpenSmtpAsync(ImapAccountConfig cfg, Socket? socket, CancellationToken ct)
+    public static async Task<SmtpClient> OpenSmtpAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct)
     {
-        var client = await ConnectSmtpAsync(cfg, socket, ct);
+        var client = await ConnectSmtpAsync(guard, cfg, cfg.AllowPrivateHosts, ct);
         try
         {
             await LogInAsync(client, cfg, ct);
@@ -46,11 +48,19 @@ internal static class ImapConnections
     }
 
     // ImapNoCodes.NewClient, not new ImapClient(): the provider reads NO [NOPERM] and NO [CANNOT] from it.
-    public static Task<ImapClient> ConnectImapAsync(ImapAccountConfig cfg, Socket? socket, CancellationToken ct) =>
-        ConnectAsync(ImapNoCodes.NewClient(), cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, socket, ct);
+    /// <exception cref="PrivateAddressException">The host resolves to a private address and <paramref name="allowPrivate"/> is false.</exception>
+    public static async Task<ImapClient> ConnectImapAsync(HostGuard guard, ImapAccountConfig cfg, bool allowPrivate, CancellationToken ct)
+    {
+        var socket = await guard.ConnectAsync(cfg.ImapHost, cfg.ImapPort, allowPrivate, ct);
+        return await ConnectAsync(ImapNoCodes.NewClient(), socket, cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, ct);
+    }
 
-    public static Task<SmtpClient> ConnectSmtpAsync(ImapAccountConfig cfg, Socket? socket, CancellationToken ct) =>
-        ConnectAsync(new SmtpClient(), cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpSecurity, socket, ct);
+    /// <exception cref="PrivateAddressException">The host resolves to a private address and <paramref name="allowPrivate"/> is false.</exception>
+    public static async Task<SmtpClient> ConnectSmtpAsync(HostGuard guard, ImapAccountConfig cfg, bool allowPrivate, CancellationToken ct)
+    {
+        var socket = await guard.ConnectAsync(cfg.SmtpHost, cfg.SmtpPort, allowPrivate, ct);
+        return await ConnectAsync(new SmtpClient(), socket, cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpSecurity, ct);
+    }
 
     public static Task LogInAsync(ImapClient client, ImapAccountConfig cfg, CancellationToken ct) =>
         client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
@@ -82,22 +92,18 @@ internal static class ImapConnections
     // AsyncSmtpClient.cs#L667-671 and #L422-427), so the certificate is checked against the configured name and
     // not against the address the socket was opened to.
     private static async Task<T> ConnectAsync<T>(
-        T client, string host, int port, string? security, Socket? socket, CancellationToken ct)
+        T client, Socket socket, string host, int port, string? security, CancellationToken ct)
         where T : IMailService
     {
         try
         {
-            var options = Options(security);
-            if (socket is null)
-                await client.ConnectAsync(host, port, options, ct);
-            else
-                await client.ConnectAsync(socket, host, port, options, ct);
+            await client.ConnectAsync(socket, host, port, Options(security), ct);
             return client;
         }
         catch
         {
             client.Dispose();
-            socket?.Dispose();
+            socket.Dispose();
             throw;
         }
     }

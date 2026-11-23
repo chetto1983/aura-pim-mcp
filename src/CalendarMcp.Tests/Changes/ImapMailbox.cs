@@ -72,6 +72,7 @@ internal sealed class ImapMailbox : IAsyncDisposable
         Provider = new ImapProviderService(
             new SingleAccountRegistry(account),
             new PasswordProtector(new EphemeralDataProtectionProvider()),
+            new HostGuard(),
             NullLogger<ImapProviderService>.Instance);
     }
 

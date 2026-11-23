@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using CalendarMcp.Core.Changes;
+using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using Google;
 using Google.Apis.Auth.OAuth2.Responses;
@@ -66,6 +67,7 @@ public class ProviderFailuresTests
         [new TimeoutException(), "provider_transient"],
         [new TaskCanceledException("HttpClient.Timeout"), "provider_transient"],
         [new IOException("reset"), "provider_transient"],
+        [new PrivateAddressException("imap.example.org", IPAddress.Parse("10.0.0.5")), "provider_transient"],
         [new SocketException(), "provider_transient"],
         [new ImapProtocolException("bye"), "provider_transient"],
         [new ServiceNotConnectedException(), "provider_transient"],

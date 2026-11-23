@@ -167,7 +167,7 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
             return new VerifyOutcome(imap, null);
 
         // A warning is for an SMTP server that does not answer. A host this caller may not reach blocks like a
-        // refused login: stored, it would get the password at the first send, which opens SMTP with no guard.
+        // refused login: the account is stored with this caller's permission, so no send could ever reach it.
         var refused = false;
         var smtp = await StepAsync(accountId, VerifyReasons.Smtp, SmtpBudget, async (stage, token) =>
         {
@@ -188,8 +188,7 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
 
     private async Task<VerifyFailure?> ImapAsync(ImapAccountConfig cfg, bool allowPrivate, Stage stage, CancellationToken ct)
     {
-        var socket = await guard.ConnectAsync(cfg.ImapHost, cfg.ImapPort, allowPrivate, ct);
-        using var client = await ImapConnections.ConnectImapAsync(cfg, socket, ct);
+        using var client = await ImapConnections.ConnectImapAsync(guard, cfg, allowPrivate, ct);
 
         stage.Current = VerifyReasons.Auth;
         await ImapConnections.LogInAsync(client, cfg, ct);
@@ -203,8 +202,7 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
 
     private async Task<VerifyFailure?> SmtpAsync(ImapAccountConfig cfg, bool allowPrivate, Stage stage, CancellationToken ct)
     {
-        var socket = await guard.ConnectAsync(cfg.SmtpHost, cfg.SmtpPort, allowPrivate, ct);
-        using var client = await ImapConnections.ConnectSmtpAsync(cfg, socket, ct);
+        using var client = await ImapConnections.ConnectSmtpAsync(guard, cfg, allowPrivate, ct);
 
         stage.Current = VerifyReasons.Auth;
         await ImapConnections.LogInAsync(client, cfg, ct);

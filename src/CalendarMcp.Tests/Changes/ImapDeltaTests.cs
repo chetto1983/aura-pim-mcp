@@ -146,6 +146,7 @@ public class ImapDeltaTests
         await using var provider = new ImapProviderService(
             new SingleAccountRegistry(account),
             new PasswordProtector(new EphemeralDataProtectionProvider()),
+            new HostGuard(),
             NullLogger<ImapProviderService>.Instance);
         var forged = ChangesCursor.Of("imap.mail", "INBOX", new { uidValidity = 1, lastUid = 5, boundUid = 5, modSeq = (ulong?)null });
 

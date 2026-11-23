@@ -30,6 +30,12 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public const string DefaultTrash = "[Gmail]/Trash";
     public const string DefaultJunk = "[Gmail]/Spam";
 
+    /// <summary>
+    /// The provider-config key that says whether this account's servers may be on a private network. Only the
+    /// server writes it (see <see cref="ImapAccountConfig.AllowPrivateHosts"/>).
+    /// </summary>
+    public const string AllowPrivateHostsKey = "allowPrivateHosts";
+
     private const string ProviderName = "imap";
 
     private const MessageSummaryItems EnvelopeItems =
@@ -42,6 +48,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
 
     private readonly IAccountRegistry _accountRegistry;
     private readonly PasswordProtector _passwordProtector;
+    private readonly HostGuard _guard;
     private readonly ILogger<ImapProviderService> _logger;
 
     // Gmail (and most IMAP hosts) cap the number of simultaneous connections per
@@ -59,10 +66,12 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
     public ImapProviderService(
         IAccountRegistry accountRegistry,
         PasswordProtector passwordProtector,
+        HostGuard guard,
         ILogger<ImapProviderService> logger)
     {
         _accountRegistry = accountRegistry;
         _passwordProtector = passwordProtector;
+        _guard = guard;
         _logger = logger;
     }
 
@@ -204,7 +213,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             await EvictClientAsync(conn);
         }
 
-        var fresh = await ImapConnections.OpenImapAsync(cfg, null, ct);
+        var fresh = await ImapConnections.OpenImapAsync(_guard, cfg, ct);
         conn.Client = fresh;
         conn.OpenedWith = PooledImapConnection.Login(cfg);
         return (fresh, false);
@@ -247,11 +256,14 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public ImapClient? Client { get; set; }
 
-        /// <summary>What <see cref="Client"/> connected to and logged in with.</summary>
-        public (string Host, int Port, string? Security, string Username, string Password) OpenedWith { get; set; }
+        /// <summary>
+        /// What <see cref="Client"/> connected to and logged in with, and whether it could reach a private address:
+        /// a session the administrator's permission opened is not kept for an account a member has since changed.
+        /// </summary>
+        public (string Host, int Port, string? Security, string Username, string Password, bool AllowPrivateHosts) OpenedWith { get; set; }
 
-        public static (string, int, string?, string, string) Login(ImapAccountConfig cfg) =>
-            (cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, cfg.Username, cfg.Password);
+        public static (string, int, string?, string, string, bool) Login(ImapAccountConfig cfg) =>
+            (cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, cfg.Username, cfg.Password, cfg.AllowPrivateHosts);
     }
 
     // ── Email operations ─────────────────────────────────────────────
@@ -462,7 +474,7 @@ public partial class ImapProviderService : IImapProviderService, IAsyncDisposabl
             { Text = body };
         }
 
-        using (var smtp = await ImapConnections.OpenSmtpAsync(cfg, null, cancellationToken))
+        using (var smtp = await ImapConnections.OpenSmtpAsync(_guard, cfg, cancellationToken))
         {
             await smtp.SendAsync(message, cancellationToken);
             await smtp.DisconnectAsync(true, cancellationToken);

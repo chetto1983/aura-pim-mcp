@@ -17,6 +17,7 @@ internal static class ImapProviderInput
     public const string InvalidPort = "invalid_port";
     public const string InvalidHost = "invalid_host";
     public const string DuplicateKey = "duplicate_key";
+    public const string ServerOwnedKey = "server_owned_key";
 
     private const string Ssl = "ssl";
     private const string StartTls = "starttls";
@@ -36,12 +37,22 @@ internal static class ImapProviderInput
         keys.GroupBy(key => key, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1);
 
     /// <summary>
+    /// A key only the server writes. Like <c>none</c> for TLS, a value the server would have to override is refused,
+    /// not silently replaced: no client has a reason to send it, since no answer ever carries a provider config.
+    /// </summary>
+    public static bool NamesServerOwnedKey(IEnumerable<string> keys) =>
+        keys.Any(key => string.Equals(key, ImapProviderService.AllowPrivateHostsKey, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// For what a create or a PATCH would store: host names a resolver takes, ports in 1-65535, and each security
     /// key <c>ssl</c> or <c>starttls</c>, or taken from its port when absent (993 and 465 are <c>ssl</c>, any other
-    /// <c>starttls</c>). Answers the config with both keys written in lower case, or the error.
+    /// <c>starttls</c>). Answers the config with both keys written in lower case, or the error. The config also
+    /// records <paramref name="allowPrivateHosts"/>, the permission of the request that names these servers, which
+    /// replaces what was stored: every later connection for the account is held to it.
     /// <paramref name="config"/> has no duplicate keys (<see cref="HasDuplicateKeys"/>).
     /// </summary>
-    public static (Dictionary<string, string>? Config, string? Error) ForWrite(IReadOnlyDictionary<string, string> config)
+    public static (Dictionary<string, string>? Config, string? Error) ForWrite(
+        IReadOnlyDictionary<string, string> config, bool allowPrivateHosts)
     {
         var result = new Dictionary<string, string>(config, StringComparer.OrdinalIgnoreCase);
         foreach (var (hostKey, securityKey, portKey, defaultPort) in Servers)
@@ -66,6 +77,9 @@ internal static class ImapProviderInput
             }
         }
 
+        // Removed first: the dictionary ignores case, and a stored key in another case would keep its spelling.
+        result.Remove(ImapProviderService.AllowPrivateHostsKey);
+        result[ImapProviderService.AllowPrivateHostsKey] = allowPrivateHosts ? "true" : "false";
         return (result, null);
     }
 

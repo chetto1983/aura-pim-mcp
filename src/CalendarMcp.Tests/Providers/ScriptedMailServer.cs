@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -16,6 +17,8 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly string? _greeting;
     private readonly Func<string, string?> _answer;
+    private readonly ConcurrentQueue<string> _heard = new();
+    private int _connections;
 
     private ScriptedMailServer(string? greeting, Func<string, string?> answer)
     {
@@ -26,6 +29,38 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
     }
 
     public (string Host, int Port) Address => ("127.0.0.1", ((IPEndPoint)_listener.LocalEndpoint).Port);
+
+    /// <summary>How many clients connected.</summary>
+    public int Connections => Volatile.Read(ref _connections);
+
+    /// <summary>Every line a client sent, in order.</summary>
+    public IReadOnlyCollection<string> Heard => _heard;
+
+    /// <summary>An SMTP server that offers AUTH PLAIN, takes any login and accepts any mail, so a send runs to its end.</summary>
+    public static ScriptedMailServer SmtpWithAuth()
+    {
+        var inData = false;
+        return new("220 scripted ESMTP", line =>
+        {
+            if (inData)
+            {
+                inData = line != ".";
+                return inData ? null : "250 queued";
+            }
+
+            var verb = line.Split(' ')[0].ToUpperInvariant();
+            inData = verb == "DATA";
+            return verb switch
+            {
+                "EHLO" => "250-scripted\r\n250 AUTH PLAIN",
+                "AUTH" => "235 accepted",
+                "MAIL" or "RCPT" => "250 ok",
+                "DATA" => "354 go on",
+                "QUIT" => "221 bye",
+                _ => "502 not scripted"
+            };
+        });
+    }
 
     /// <summary>An SMTP server whose EHLO lists no AUTH line, so a client never logs in.</summary>
     public static ScriptedMailServer SmtpWithoutAuth() => new("220 scripted ESMTP", line =>
@@ -111,6 +146,7 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
             while (true)
             {
                 var client = await _listener.AcceptTcpClientAsync(_stop.Token);
+                Interlocked.Increment(ref _connections);
                 _ = ServeAsync(client);
             }
         }
@@ -131,6 +167,7 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
 
             while (await reader.ReadLineAsync(_stop.Token) is { } line)
             {
+                _heard.Enqueue(line);
                 if (_answer(line) is not { } answer)
                     continue;
 

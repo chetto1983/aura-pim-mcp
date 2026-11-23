@@ -27,18 +27,20 @@ public static class AccountRepairEndpoints
 
     internal static bool IsImap(string provider) => ChangesProviders.Family(provider) == ChangesProviders.Imap;
 
+    internal static bool AllowsPrivateHosts(HttpRequest request) =>
+        string.Equals(request.Headers[AllowPrivateHostsHeader].ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// The throttle, then the check: <c>Refusal</c> is the answer when either says no, otherwise the check passed,
     /// with the sending server's warning if it had one.
     /// </summary>
     internal static async Task<(IResult? Refusal, string? SmtpWarning)> CheckAsync(
-        string accountId, IReadOnlyDictionary<string, string> providerConfig, HttpRequest request,
+        string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate,
         VerifyThrottle throttle, IImapAccountVerifier verifier, CancellationToken ct)
     {
         if (!throttle.TryEnter(accountId))
             return (VerifyResults.TooMany(), null);
 
-        var allowPrivate = string.Equals(request.Headers[AllowPrivateHostsHeader].ToString(), "true", StringComparison.OrdinalIgnoreCase);
         var outcome = await verifier.VerifyAsync(accountId, providerConfig, allowPrivate, ct);
         return outcome.Blocking is { } failure ? (VerifyResults.Failed(failure), null) : (null, outcome.SmtpWarning);
     }
@@ -59,7 +61,8 @@ public static class AccountRepairEndpoints
         if (!IsImap(account.Provider) || !ImapProviderInput.IsVerifiable(account.ProviderConfig))
             return VerifyResults.Refused("not_verifiable");
 
-        var (refusal, smtpWarning) = await CheckAsync(accountId, account.ProviderConfig, request, throttle, verifier, ct);
+        var (refusal, smtpWarning) = await CheckAsync(
+            accountId, account.ProviderConfig, AllowsPrivateHosts(request), throttle, verifier, ct);
         return refusal ?? Results.Ok(smtpWarning is null ? new { ok = true } : (object)new { ok = true, smtpWarning });
     }
 
@@ -88,6 +91,8 @@ public static class AccountRepairEndpoints
         var incoming = body.ProviderConfig ?? [];
         if (ImapProviderInput.HasDuplicateKeys(incoming.Keys))
             return VerifyResults.Refused(ImapProviderInput.DuplicateKey);
+        if (ImapProviderInput.NamesServerOwnedKey(incoming.Keys))
+            return VerifyResults.Refused(ImapProviderInput.ServerOwnedKey);
 
         var changes = incoming
             .Where(kv => !string.IsNullOrEmpty(kv.Value))
@@ -101,14 +106,17 @@ public static class AccountRepairEndpoints
         var merged = new Dictionary<string, string>(stored, StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in ProviderSecrets.ProtectIncoming(changes, protector))
             merged[key] = value;
-        var (next, inputError) = ImapProviderInput.ForWrite(merged);
+        // A member's PATCH stores false even on an account an administrator made: whoever last named the servers is
+        // whose permission the account keeps.
+        var allowPrivate = AllowsPrivateHosts(request);
+        var (next, inputError) = ImapProviderInput.ForWrite(merged, allowPrivate);
         if (next is null)
             return VerifyResults.Refused(inputError!);
         var (valid, validationError) = TenantProviderConfig.Validate(existing.Provider, next);
         if (!valid)
             return Results.BadRequest(new { error = validationError });
 
-        var (refusal, smtpWarning) = await CheckAsync(accountId, next, request, throttle, verifier, ct);
+        var (refusal, smtpWarning) = await CheckAsync(accountId, next, allowPrivate, throttle, verifier, ct);
         if (refusal is not null)
             return refusal;
 
