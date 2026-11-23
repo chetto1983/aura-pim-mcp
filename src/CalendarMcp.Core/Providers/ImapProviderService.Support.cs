@@ -220,8 +220,8 @@ public partial class ImapProviderService
         string SmtpHost, int SmtpPort,
         string Username, string Password,
         string InboxFolder, string SentFolder, string TrashFolder, string JunkFolder,
-        string? ImapSecurity = null, string? SmtpSecurity = null,
-        bool AllowPrivateHosts = true)
+        string? ImapSecurity, string? SmtpSecurity,
+        bool AllowPrivateHosts)
     {
         /// <exception cref="ProviderOperationException">The username or the password is missing.</exception>
         /// <exception cref="System.Security.Cryptography.CryptographicException">

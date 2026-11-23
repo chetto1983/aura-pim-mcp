@@ -199,6 +199,7 @@ internal sealed class FakeVerifier : IImapAccountVerifier
 {
     private readonly List<Call> _calls = [];
 
+    /// <param name="AllowPrivate">What the config handed to the check allows, as the real verifier reads it.</param>
     public sealed record Call(string AccountId, Dictionary<string, string> Config, bool AllowPrivate, ImapProviderService.ImapAccountConfig? Read);
 
     public PasswordProtector Protector { get; set; } = null!;
@@ -212,10 +213,11 @@ internal sealed class FakeVerifier : IImapAccountVerifier
     public IReadOnlyList<Call> Calls => _calls;
 
     public Task<VerifyOutcome> VerifyAsync(
-        string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate, CancellationToken ct)
+        string accountId, IReadOnlyDictionary<string, string> providerConfig, CancellationToken ct)
     {
         During?.Invoke();
         var config = new Dictionary<string, string>(providerConfig, StringComparer.OrdinalIgnoreCase);
+        var allowPrivate = ImapProviderService.AllowsPrivateHosts(providerConfig);
         try
         {
             var read = ImapProviderService.ImapAccountConfig.From(accountId, providerConfig, Protector);

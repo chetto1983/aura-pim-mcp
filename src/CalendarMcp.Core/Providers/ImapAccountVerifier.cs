@@ -24,8 +24,9 @@ public sealed record VerifyOutcome(VerifyFailure? Blocking, string? SmtpWarning)
 public interface IImapAccountVerifier
 {
     /// <summary>
-    /// Logs in to the IMAP server and runs the watch's first read, then connects and logs in to SMTP. Only public
-    /// addresses are connected unless <paramref name="allowPrivate"/>. A cancelled <paramref name="ct"/> throws.
+    /// Logs in to the IMAP server and runs the watch's first read, then connects and logs in to SMTP. Private
+    /// addresses are connected only when the config's <c>allowPrivateHosts</c> allows them, as for every connection
+    /// the account makes (<see cref="ImapProviderService.AllowsPrivateHosts"/>). A cancelled <paramref name="ct"/> throws.
     /// </summary>
     /// <remarks>
     /// The caller validates <paramref name="providerConfig"/> first (the admin API's <c>ImapProviderInput</c>): a
@@ -34,7 +35,7 @@ public interface IImapAccountVerifier
     /// <see cref="VerifyOutcome"/>; what is thrown on bad input names a bug in the caller, not a mail server.
     /// </remarks>
     Task<VerifyOutcome> VerifyAsync(
-        string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate, CancellationToken ct);
+        string accountId, IReadOnlyDictionary<string, string> providerConfig, CancellationToken ct);
 }
 
 /// <summary>
@@ -150,7 +151,7 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
     internal TimeSpan SmtpBudget { get; set; } = TimeSpan.FromSeconds(8);
 
     public async Task<VerifyOutcome> VerifyAsync(
-        string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate, CancellationToken ct)
+        string accountId, IReadOnlyDictionary<string, string> providerConfig, CancellationToken ct)
     {
         ImapAccountConfig cfg;
         try
@@ -162,18 +163,18 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
             return new VerifyOutcome(Failed(accountId, VerifyReasons.Imap, VerifyReasons.Auth, e), null);
         }
 
-        var imap = await StepAsync(accountId, VerifyReasons.Imap, ImapBudget, (stage, token) => ImapAsync(cfg, allowPrivate, stage, token), ct);
+        var imap = await StepAsync(accountId, VerifyReasons.Imap, ImapBudget, (stage, token) => ImapAsync(cfg, stage, token), ct);
         if (imap is not null)
             return new VerifyOutcome(imap, null);
 
-        // A warning is for an SMTP server that does not answer. A host this caller may not reach blocks like a
-        // refused login: the account is stored with this caller's permission, so no send could ever reach it.
+        // A warning is for an SMTP server that does not answer. A host this account may not reach blocks like a
+        // refused login: every send is held to the same permission, so none could ever reach it.
         var refused = false;
         var smtp = await StepAsync(accountId, VerifyReasons.Smtp, SmtpBudget, async (stage, token) =>
         {
             try
             {
-                return await SmtpAsync(cfg, allowPrivate, stage, token);
+                return await SmtpAsync(cfg, stage, token);
             }
             catch (PrivateAddressException)
             {
@@ -186,9 +187,9 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
             : new VerifyOutcome(null, smtp.Reason);
     }
 
-    private async Task<VerifyFailure?> ImapAsync(ImapAccountConfig cfg, bool allowPrivate, Stage stage, CancellationToken ct)
+    private async Task<VerifyFailure?> ImapAsync(ImapAccountConfig cfg, Stage stage, CancellationToken ct)
     {
-        using var client = await ImapConnections.ConnectImapAsync(guard, cfg, allowPrivate, ct);
+        using var client = await ImapConnections.ConnectImapAsync(guard, cfg, ct);
 
         stage.Current = VerifyReasons.Auth;
         await ImapConnections.LogInAsync(client, cfg, ct);
@@ -200,9 +201,9 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
         return null;
     }
 
-    private async Task<VerifyFailure?> SmtpAsync(ImapAccountConfig cfg, bool allowPrivate, Stage stage, CancellationToken ct)
+    private async Task<VerifyFailure?> SmtpAsync(ImapAccountConfig cfg, Stage stage, CancellationToken ct)
     {
-        using var client = await ImapConnections.ConnectSmtpAsync(guard, cfg, allowPrivate, ct);
+        using var client = await ImapConnections.ConnectSmtpAsync(guard, cfg, ct);
 
         stage.Current = VerifyReasons.Auth;
         await ImapConnections.LogInAsync(client, cfg, ct);

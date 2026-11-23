@@ -219,15 +219,15 @@ public static class AdminEndpoints
                 return VerifyResults.Refused(ImapProviderInput.DuplicateKey);
             if (ImapProviderInput.NamesServerOwnedKey(request.ProviderConfig.Keys))
                 return VerifyResults.Refused(ImapProviderInput.ServerOwnedKey);
-            var allowPrivate = AccountRepairEndpoints.AllowsPrivateHosts(httpRequest);
-            var (checkedConfig, inputError) = ImapProviderInput.ForWrite(providerConfig, allowPrivate);
+            var (checkedConfig, inputError) = ImapProviderInput.ForWrite(
+                providerConfig, AccountRepairEndpoints.HeaderGrantsPrivateHosts(httpRequest));
             if (checkedConfig is null)
                 return VerifyResults.Refused(inputError!);
 
             // The check reads what will be stored, so a typed password that starts with ENC: is read as typed.
             providerConfig = checkedConfig;
             (var refusal, smtpWarning) = await AccountRepairEndpoints.CheckAsync(
-                accountId, providerConfig, allowPrivate, throttle, verifier, ct);
+                accountId, providerConfig, throttle, verifier, ct);
             if (refusal is not null)
                 return refusal;
         }

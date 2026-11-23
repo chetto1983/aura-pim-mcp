@@ -30,6 +30,21 @@ public class HostGuardTests
     [DataRow("::ffff:127.0.0.1")]
     [DataRow("::ffff:10.0.0.1")]
     [DataRow("::ffff:192.168.0.1")]
+    // IANA special-purpose blocks (see HostGuard.IsPrivate) and multicast.
+    [DataRow("198.18.0.1")]
+    [DataRow("198.19.255.254")]
+    [DataRow("192.0.0.8")]
+    [DataRow("192.0.0.170")]
+    [DataRow("224.0.0.1")]
+    [DataRow("239.255.255.250")]
+    [DataRow("240.0.0.1")]
+    [DataRow("255.255.255.255")]
+    [DataRow("::10.0.0.5")]
+    [DataRow("::127.0.0.1")]
+    [DataRow("64:ff9b::10.0.0.5")]
+    [DataRow("64:ff9b::7f00:1")]
+    [DataRow("2002:0a00:0005::1")]
+    [DataRow("2002:7f00:0001::1")]
     public async Task Refuses127001AndRfc1918AndMappedV6(string address)
     {
         var connected = new List<IPEndPoint>();
@@ -60,6 +75,12 @@ public class HostGuardTests
     [DataRow("172.32.0.0")]
     [DataRow("203.0.113.7")]
     [DataRow("2001:db8::1")]
+    [DataRow("198.17.255.255")]
+    [DataRow("198.20.0.0")]
+    [DataRow("192.0.1.1")]
+    [DataRow("223.255.255.255")]
+    [DataRow("64:ff9b::203.0.113.7")]
+    [DataRow("2002:cb00:7107::1")]
     public async Task ANeighbourOfAPrivateRange_IsPublic(string address)
     {
         var connected = new List<IPEndPoint>();

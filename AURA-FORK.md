@@ -210,7 +210,9 @@ file says the fork does not have, this file wins.
      without the key was stored before it existed and keeps MailKit's `Auto`. `ImapConnections` opens every
      IMAP and SMTP connection, the provider's included.
    - **Private addresses.** `HostGuard` resolves the host once, refuses loopback, RFC 1918, link-local, CGNAT,
-     ULA, the unspecified addresses and IPv4-mapped forms unless the caller allows them, and hands MailKit the
+     192.0.0.0/24, 198.18.0.0/15, multicast and reserved 224.0.0.0/3, ULA, the unspecified addresses,
+     IPv4-compatible `::/96`, and the IPv4-mapped, NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) forms of a refused
+     IPv4 address (IANA's special-purpose registries, read 2026-11-23) unless the caller allows them, and hands MailKit the
      socket it connected to a checked address (`ConnectAsync(Socket, host, ...)`, where the host still names the
      server for the certificate check).
    - **The server's line is logged.** A failure logs the account id, step, stage, the exception's type and the
@@ -275,9 +277,14 @@ file says the fork does not have, this file wins.
       as a non-retryable tool error that does not name the address. The pool reopens a session when the permission
       changes, so an administrator's session does not outlive a member's PATCH.
     - **An account stored before the key has none and counts as allowed.** Until then only the operator could create
-      an account (Aura's Governance was administrator-only, and the CLI is the operator's), and an office mail server
-      on a private address is real. The CLI writes no key, and `PUT` stores the provider config it is given and adds
-      none, so an account either writes without the key counts as allowed too: both are the operator's. A key that is there but says anything other than `true` is not allowed.
+      an account (Aura's Governance was administrator-only), and an office mail server on a private address is real.
+      Outside the API an IMAP account comes only from editing the account file by hand, and `PUT` stores the provider
+      config it is given and adds no key: both are the operator's, and what they store without the key counts as
+      allowed too. A key that is there but says anything other than `true` is not allowed.
+    - **One source of the permission.** `ImapAccountConfig.AllowPrivateHosts` has no default, and the check and every
+      connection read it from the config they are handed (`ImapProviderService.AllowsPrivateHosts`): create and PATCH
+      write it first, `verify` hands over the stored config. A guarded connection is bounded by the MailKit client's
+      `Timeout` and answers a `TimeoutException`, as MailKit's own connect does.
     - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
       `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
       run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.

@@ -11,15 +11,15 @@ namespace CalendarMcp.Core.Providers;
 /// <summary>
 /// How an IMAP account's two servers are reached, for the provider and for the verification alike. A connection
 /// is two stages, so a caller can tell a refused connection from a refused login: <c>Connect*</c>, then
-/// <see cref="LogInAsync(ImapClient, ImapAccountConfig, CancellationToken)"/>. <c>Open*</c> is both, for the provider,
-/// with the permission the account was stored with. Every connection is a socket <see cref="HostGuard"/> opened, so
+/// <see cref="LogInAsync(ImapClient, ImapAccountConfig, CancellationToken)"/>. <c>Open*</c> is both. Every connection
+/// is a socket <see cref="HostGuard"/> opened with the config's <see cref="ImapAccountConfig.AllowPrivateHosts"/>, so
 /// there is no path that reaches a host without its check.
 /// </summary>
 internal static class ImapConnections
 {
     public static async Task<ImapClient> OpenImapAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct)
     {
-        var client = await ConnectImapAsync(guard, cfg, cfg.AllowPrivateHosts, ct);
+        var client = await ConnectImapAsync(guard, cfg, ct);
         try
         {
             await LogInAsync(client, cfg, ct);
@@ -34,7 +34,7 @@ internal static class ImapConnections
 
     public static async Task<SmtpClient> OpenSmtpAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct)
     {
-        var client = await ConnectSmtpAsync(guard, cfg, cfg.AllowPrivateHosts, ct);
+        var client = await ConnectSmtpAsync(guard, cfg, ct);
         try
         {
             await LogInAsync(client, cfg, ct);
@@ -48,19 +48,13 @@ internal static class ImapConnections
     }
 
     // ImapNoCodes.NewClient, not new ImapClient(): the provider reads NO [NOPERM] and NO [CANNOT] from it.
-    /// <exception cref="PrivateAddressException">The host resolves to a private address and <paramref name="allowPrivate"/> is false.</exception>
-    public static async Task<ImapClient> ConnectImapAsync(HostGuard guard, ImapAccountConfig cfg, bool allowPrivate, CancellationToken ct)
-    {
-        var socket = await guard.ConnectAsync(cfg.ImapHost, cfg.ImapPort, allowPrivate, ct);
-        return await ConnectAsync(ImapNoCodes.NewClient(), socket, cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, ct);
-    }
+    /// <exception cref="PrivateAddressException">The host resolves to a private address the config may not reach.</exception>
+    public static Task<ImapClient> ConnectImapAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct) =>
+        ConnectAsync(ImapNoCodes.NewClient(), guard, cfg.ImapHost, cfg.ImapPort, cfg.ImapSecurity, cfg.AllowPrivateHosts, ct);
 
-    /// <exception cref="PrivateAddressException">The host resolves to a private address and <paramref name="allowPrivate"/> is false.</exception>
-    public static async Task<SmtpClient> ConnectSmtpAsync(HostGuard guard, ImapAccountConfig cfg, bool allowPrivate, CancellationToken ct)
-    {
-        var socket = await guard.ConnectAsync(cfg.SmtpHost, cfg.SmtpPort, allowPrivate, ct);
-        return await ConnectAsync(new SmtpClient(), socket, cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpSecurity, ct);
-    }
+    /// <exception cref="PrivateAddressException">The host resolves to a private address the config may not reach.</exception>
+    public static Task<SmtpClient> ConnectSmtpAsync(HostGuard guard, ImapAccountConfig cfg, CancellationToken ct) =>
+        ConnectAsync(new SmtpClient(), guard, cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpSecurity, cfg.AllowPrivateHosts, ct);
 
     public static Task LogInAsync(ImapClient client, ImapAccountConfig cfg, CancellationToken ct) =>
         client.AuthenticateAsync(cfg.Username, cfg.Password, ct);
@@ -91,20 +85,47 @@ internal static class ImapConnections
     // SslStream.AuthenticateAsClientAsync (MailKit 4.18.1 AsyncImapClient.cs#L751-755 and #L507-512,
     // AsyncSmtpClient.cs#L667-671 and #L422-427), so the certificate is checked against the configured name and
     // not against the address the socket was opened to.
-    private static async Task<T> ConnectAsync<T>(
-        T client, Socket socket, string host, int port, string? security, CancellationToken ct)
+    // MailKit's own connect bounds resolving and connecting by the client's Timeout and answers a TimeoutException
+    // when that runs out (MailKit 4.18.1 SocketUtils.cs#L236-249); a pre-connected socket skips that, so it is
+    // restored here around the guard.
+    internal static async Task<T> ConnectAsync<T>(
+        T client, HostGuard guard, string host, int port, string? security, bool allowPrivate, CancellationToken ct)
         where T : IMailService
     {
         try
         {
-            await client.ConnectAsync(socket, host, port, Options(security), ct);
+            var socket = await GuardedSocketAsync(guard, host, port, allowPrivate, client.Timeout, ct);
+            try
+            {
+                await client.ConnectAsync(socket, host, port, Options(security), ct);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+
             return client;
         }
         catch
         {
             client.Dispose();
-            socket.Dispose();
             throw;
+        }
+    }
+
+    private static async Task<Socket> GuardedSocketAsync(
+        HostGuard guard, string host, int port, bool allowPrivate, int timeoutMs, CancellationToken ct)
+    {
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bound.CancelAfter(timeoutMs);
+        try
+        {
+            return await guard.ConnectAsync(host, port, allowPrivate, bound.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Connecting to '{host}' took longer than {timeoutMs} ms.");
         }
     }
 }

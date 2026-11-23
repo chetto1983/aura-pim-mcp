@@ -27,7 +27,8 @@ public static class AccountRepairEndpoints
 
     internal static bool IsImap(string provider) => ChangesProviders.Family(provider) == ChangesProviders.Imap;
 
-    internal static bool AllowsPrivateHosts(HttpRequest request) =>
+    /// <summary>What the request grants: Aura sends the header only for an identity that may name a private host.</summary>
+    internal static bool HeaderGrantsPrivateHosts(HttpRequest request) =>
         string.Equals(request.Headers[AllowPrivateHostsHeader].ToString(), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
@@ -35,13 +36,13 @@ public static class AccountRepairEndpoints
     /// with the sending server's warning if it had one.
     /// </summary>
     internal static async Task<(IResult? Refusal, string? SmtpWarning)> CheckAsync(
-        string accountId, IReadOnlyDictionary<string, string> providerConfig, bool allowPrivate,
+        string accountId, IReadOnlyDictionary<string, string> providerConfig,
         VerifyThrottle throttle, IImapAccountVerifier verifier, CancellationToken ct)
     {
         if (!throttle.TryEnter(accountId))
             return (VerifyResults.TooMany(), null);
 
-        var outcome = await verifier.VerifyAsync(accountId, providerConfig, allowPrivate, ct);
+        var outcome = await verifier.VerifyAsync(accountId, providerConfig, ct);
         return outcome.Blocking is { } failure ? (VerifyResults.Failed(failure), null) : (null, outcome.SmtpWarning);
     }
 
@@ -60,12 +61,9 @@ public static class AccountRepairEndpoints
         if (!IsImap(account.Provider) || !ImapProviderInput.IsVerifiable(account.ProviderConfig))
             return VerifyResults.Refused("not_verifiable");
 
-        // The check is of what the watch does (spec A8), so it is held to the account's stored permission, as every
-        // connection for it is, and not to the caller's: an administrator's check must not pass where the watch is
-        // refused (ledger Ruling 27). Create and PATCH use the header, because the header is what they store.
-        var (refusal, smtpWarning) = await CheckAsync(
-            accountId, account.ProviderConfig, ImapProviderService.AllowsPrivateHosts(account.ProviderConfig),
-            throttle, verifier, ct);
+        // The check is of what the watch does (spec A8): the stored config, its stored permission included, and not
+        // the caller's header, so an administrator's check cannot pass where the watch is refused (ledger Ruling 27).
+        var (refusal, smtpWarning) = await CheckAsync(accountId, account.ProviderConfig, throttle, verifier, ct);
         return refusal ?? Results.Ok(smtpWarning is null ? new { ok = true } : (object)new { ok = true, smtpWarning });
     }
 
@@ -111,7 +109,7 @@ public static class AccountRepairEndpoints
             merged[key] = value;
         // A member's PATCH stores false even on an account an administrator made: whoever last named the servers is
         // whose permission the account keeps.
-        var allowPrivate = AllowsPrivateHosts(request);
+        var allowPrivate = HeaderGrantsPrivateHosts(request);
         var (next, inputError) = ImapProviderInput.ForWrite(merged, allowPrivate);
         if (next is null)
             return VerifyResults.Refused(inputError!);
@@ -119,7 +117,7 @@ public static class AccountRepairEndpoints
         if (!valid)
             return Results.BadRequest(new { error = validationError });
 
-        var (refusal, smtpWarning) = await CheckAsync(accountId, next, allowPrivate, throttle, verifier, ct);
+        var (refusal, smtpWarning) = await CheckAsync(accountId, next, throttle, verifier, ct);
         if (refusal is not null)
             return refusal;
 

@@ -150,6 +150,35 @@ public class AccountHostPermissionTests
         Assert.AreEqual(1, imap.Connections, "the pooled session was dropped, and no new one was opened");
     }
 
+    // ── A connection that never answers ─────────────────────────────
+
+    private static HostGuard Hanging() => new(
+        (_, _) => Task.FromResult(new[] { IPAddress.Parse("203.0.113.10") }),
+        async (_, ct) =>
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("unreachable");
+        });
+
+    [TestMethod]
+    public async Task Connect_ThatNeverAnswers_TimesOutAtTheClientsTimeout()
+    {
+        var client = new MailKit.Net.Smtp.SmtpClient { Timeout = 200 };
+
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() => ImapConnections.ConnectAsync(
+            client, Hanging(), "smtp.example.org", 587, "starttls", allowPrivate: false, default));
+    }
+
+    [TestMethod]
+    public async Task Connect_TheCallerGoingAway_IsNotATimeout()
+    {
+        using var gone = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var client = new MailKit.Net.Smtp.SmtpClient { Timeout = Timeout.Infinite };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => ImapConnections.ConnectAsync(
+            client, Hanging(), "smtp.example.org", 587, "starttls", allowPrivate: false, gone.Token));
+    }
+
     // ── How the key reads ───────────────────────────────────────────
 
     [TestMethod]

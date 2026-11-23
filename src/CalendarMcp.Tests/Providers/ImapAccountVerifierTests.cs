@@ -79,7 +79,7 @@ public class ImapAccountVerifierTests
         var config = Config(scram.Address, ("127.0.0.1", ClosedPort()));
         config["password"] = "pasted-with-a-newline\n";
 
-        var outcome = await Verifier(logs).VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier(logs).VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "auth_failed"), null), outcome);
         var line = logs.Lines.Single();
@@ -115,7 +115,7 @@ public class ImapAccountVerifierTests
         await mailbox.DeliverAsync(ImapMailbox.Mail());
 
         var outcome = await Verifier().VerifyAsync(
-            AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp, mailbox.Account.ProviderConfig["username"]), true, default);
+            AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp, mailbox.Account.ProviderConfig["username"]), default);
 
         Assert.AreEqual(new VerifyOutcome(null, null), outcome);
     }
@@ -127,7 +127,7 @@ public class ImapAccountVerifierTests
         var config = Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp);
         config["password"] = "wrong-" + ImapMailbox.Password;
 
-        var outcome = await Verifier(logs).VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier(logs).VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "auth_failed"), null), outcome);
         var line = logs.Lines.Single();
@@ -143,7 +143,7 @@ public class ImapAccountVerifierTests
         var config = Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp);
         config["imapSecurity"] = "starttls";
 
-        var outcome = await Verifier().VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "tls_failed"), null), outcome);
     }
@@ -151,7 +151,7 @@ public class ImapAccountVerifierTests
     [TestMethod]
     public async Task Verify_ClosedPort_IsUnreachable()
     {
-        var outcome = await Verifier().VerifyAsync(AccountId, Config(("127.0.0.1", ClosedPort()), ImapServers.GreenMailSmtp), true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, Config(("127.0.0.1", ClosedPort()), ImapServers.GreenMailSmtp), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
     }
@@ -161,7 +161,7 @@ public class ImapAccountVerifierTests
     {
         var logs = new CapturingLogs();
 
-        var outcome = await Verifier(logs).VerifyAsync(AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp), false, default);
+        var outcome = await Verifier(logs).VerifyAsync(AccountId, Member(Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp)), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
         var line = logs.Lines.Single();
@@ -193,7 +193,7 @@ public class ImapAccountVerifierTests
         var verifier = Verifier(logs, guard: guard);
         verifier.ImapBudget = TimeSpan.FromMilliseconds(200);
 
-        var outcome = await verifier.VerifyAsync(AccountId, Config(("mail.example.com", 993), ("smtp.example.com", 465)), false, default);
+        var outcome = await verifier.VerifyAsync(AccountId, Member(Config(("mail.example.com", 993), ("smtp.example.com", 465))), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
         Assert.Contains("NotSupportedException", logs.Lines.Single());
@@ -214,7 +214,7 @@ public class ImapAccountVerifierTests
     [TestMethod]
     public async Task Verify_PrivateAddressForAnAdmin_Connects()
     {
-        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp), true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp), default);
 
         Assert.AreEqual(new VerifyOutcome(null, null), outcome);
     }
@@ -226,7 +226,7 @@ public class ImapAccountVerifierTests
         var verifier = Verifier();
         verifier.ImapBudget = TimeSpan.FromMilliseconds(300);
 
-        var outcome = await verifier.VerifyAsync(AccountId, Config(silent.Address, ImapServers.GreenMailSmtp), true, default);
+        var outcome = await verifier.VerifyAsync(AccountId, Config(silent.Address, ImapServers.GreenMailSmtp), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "unreachable"), null), outcome);
     }
@@ -240,13 +240,13 @@ public class ImapAccountVerifierTests
         using var gone = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            Verifier().VerifyAsync(AccountId, config, true, gone.Token));
+            Verifier().VerifyAsync(AccountId, config, gone.Token));
     }
 
     [TestMethod]
     public async Task Verify_SmtpDown_PassesWithAWarning()
     {
-        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, ("127.0.0.1", ClosedPort())), true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, ("127.0.0.1", ClosedPort())), default);
 
         Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
     }
@@ -259,7 +259,7 @@ public class ImapAccountVerifierTests
         await using var imap = ScriptedMailServer.ImapWithEmptyInbox();
         var config = Config((ScriptedMailServer.PublicImapHost, imap.Address.Port), ("smtp.internal.test", 465));
 
-        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, config, false, default);
+        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, Member(config), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("smtp", "smtp_unreachable"), null), outcome);
     }
@@ -282,7 +282,7 @@ public class ImapAccountVerifierTests
                 return socket;
             });
 
-        var outcome = await Verifier(guard: guard).VerifyAsync(AccountId, config, false, default);
+        var outcome = await Verifier(guard: guard).VerifyAsync(AccountId, Member(config), default);
 
         Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
     }
@@ -293,7 +293,7 @@ public class ImapAccountVerifierTests
         await using var imap = ScriptedMailServer.ImapWithEmptyInbox();
         var config = Config((ScriptedMailServer.PublicImapHost, imap.Address.Port), ("smtp.internal.test", 465));
 
-        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
     }
@@ -305,7 +305,7 @@ public class ImapAccountVerifierTests
 
         // Dovecot takes any user with the fixture password; the GreenMail with auth holds this user with another one.
         var outcome = await Verifier(logs).VerifyAsync(
-            AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailAuthSmtp, ImapServers.GreenMailAuthUser), true, default);
+            AccountId, Config(ImapServers.Dovecot, ImapServers.GreenMailAuthSmtp, ImapServers.GreenMailAuthUser), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("smtp", "smtp_auth_failed"), null), outcome);
         Assert.Contains("535", logs.Lines.Single());
@@ -316,7 +316,7 @@ public class ImapAccountVerifierTests
     {
         await using var noAuth = ScriptedMailServer.SmtpWithoutAuth();
 
-        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, noAuth.Address), true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, Config(ImapServers.Dovecot, noAuth.Address), default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("smtp", "smtp_auth_failed"), null), outcome);
     }
@@ -327,7 +327,7 @@ public class ImapAccountVerifierTests
         var config = Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp);
         config["inboxFolder"] = "Watched";
 
-        var outcome = await Verifier().VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier().VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "mailbox_refused"), null), outcome);
     }
@@ -339,7 +339,7 @@ public class ImapAccountVerifierTests
         var config = Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp);
         config["password"] = protector.Protect(ImapMailbox.Password);
 
-        var outcome = await Verifier(protector: protector).VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier(protector: protector).VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(null, null), outcome);
     }
@@ -350,7 +350,7 @@ public class ImapAccountVerifierTests
         var config = Config(ImapServers.Dovecot, ImapServers.GreenMailSmtp);
         config["password"] = Protector().Protect(ImapMailbox.Password);
 
-        var outcome = await Verifier(protector: Protector()).VerifyAsync(AccountId, config, true, default);
+        var outcome = await Verifier(protector: Protector()).VerifyAsync(AccountId, config, default);
 
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("imap", "auth_failed"), null), outcome);
     }
@@ -367,6 +367,13 @@ public class ImapAccountVerifierTests
         ["username"] = username ?? $"{Guid.NewGuid():N}@example.com",
         ["password"] = ImapMailbox.Password
     };
+
+    /// <summary>The config as a member's create stores it: no private address. Without the key it is allowed.</summary>
+    private static Dictionary<string, string> Member(Dictionary<string, string> config)
+    {
+        config[ImapProviderService.AllowPrivateHostsKey] = "false";
+        return config;
+    }
 
     private static PasswordProtector Protector() => new(new EphemeralDataProtectionProvider());
 
