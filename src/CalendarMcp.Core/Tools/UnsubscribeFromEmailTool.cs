@@ -182,7 +182,9 @@ public sealed class UnsubscribeFromEmailTool(
                 Success = false,
                 Method = "mailto",
                 Message = "Failed to send unsubscribe email",
-                ErrorDetails = ex.Message
+                // What send_email's own failure says (ToolGuard.Failure): a raw message can name what the caller
+                // must not learn, such as the private address a mail server's name now resolves to.
+                ErrorDetails = ProviderErrorFormatter.Format(ex)
             };
         }
     }
