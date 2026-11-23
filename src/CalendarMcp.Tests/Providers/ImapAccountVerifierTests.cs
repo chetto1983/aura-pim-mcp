@@ -251,6 +251,30 @@ public class ImapAccountVerifierTests
         Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
     }
 
+    // A warning is for a server that does not answer. A host this caller may not reach is another matter: stored,
+    // it would receive the password at the first send, which opens SMTP with no guard.
+    [TestMethod]
+    public async Task Verify_PrivateSmtpForAMember_Blocks()
+    {
+        await using var imap = ScriptedMailServer.ImapWithEmptyInbox();
+        var config = Config((ScriptedMailServer.PublicImapHost, imap.Address.Port), ("smtp.internal.test", 465));
+
+        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, config, false, default);
+
+        Assert.AreEqual(new VerifyOutcome(new VerifyFailure("smtp", "smtp_unreachable"), null), outcome);
+    }
+
+    [TestMethod]
+    public async Task Verify_PrivateSmtpForAnAdmin_IsOnlyAWarningWhenItDoesNotAnswer()
+    {
+        await using var imap = ScriptedMailServer.ImapWithEmptyInbox();
+        var config = Config((ScriptedMailServer.PublicImapHost, imap.Address.Port), ("smtp.internal.test", 465));
+
+        var outcome = await Verifier(guard: imap.GuardWithPrivateSmtp()).VerifyAsync(AccountId, config, true, default);
+
+        Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
+    }
+
     [TestMethod]
     public async Task Verify_SmtpWrongPassword_Blocks()
     {

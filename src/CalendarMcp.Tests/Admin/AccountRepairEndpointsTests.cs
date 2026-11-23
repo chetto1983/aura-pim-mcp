@@ -259,6 +259,45 @@ public sealed partial class AccountRepairEndpointsTests
         Assert.IsFalse(Exists(pipeline, NewId));
     }
 
+    // What the real verifier answers for a private SMTP host is in ImapAccountVerifierTests: through the endpoints a
+    // member cannot name a plaintext IMAP server, so no real one is reachable here. This is what the endpoints do
+    // with that answer, and the header decides it as the real guard does.
+    private static Func<ImapProviderService.ImapAccountConfig, VerifyOutcome> PrivateSmtpRefusedUnlessAdmin(FakeVerifier verifier) =>
+        _ => verifier.Calls[^1].AllowPrivate
+            ? new VerifyOutcome(null, VerifyReasons.SmtpUnreachable)
+            : new VerifyOutcome(new VerifyFailure(VerifyReasons.Smtp, VerifyReasons.SmtpUnreachable), null);
+
+    [TestMethod]
+    public async Task Create_PrivateSmtpHostForAMember_Is422_AndStoresNothing()
+    {
+        var verifier = new FakeVerifier();
+        verifier.Answer = PrivateSmtpRefusedUnlessAdmin(verifier);
+        await using var pipeline = new AdminPipeline(verifier);
+        var config = ImapConfig();
+        config["smtpHost"] = "10.0.0.5";
+
+        var (status, body) = await pipeline.PostAsync("/admin/accounts", Create(config));
+
+        Assert.AreEqual(422, status);
+        AssertVerifyFailed(body, "smtp", "smtp_unreachable");
+        Assert.IsFalse(Exists(pipeline, NewId));
+    }
+
+    [TestMethod]
+    public async Task Create_PrivateSmtpHostForAnAdmin_Is201()
+    {
+        var verifier = new FakeVerifier();
+        verifier.Answer = PrivateSmtpRefusedUnlessAdmin(verifier);
+        await using var pipeline = new AdminPipeline(verifier);
+        var config = ImapConfig();
+        config["smtpHost"] = "10.0.0.5";
+
+        var (status, _) = await pipeline.PostAsync("/admin/accounts", Create(config), allowPrivate: true);
+
+        Assert.AreEqual(201, status);
+        Assert.IsTrue(Exists(pipeline, NewId));
+    }
+
     // ── Verify ──────────────────────────────────────────────────────
 
     [TestMethod]

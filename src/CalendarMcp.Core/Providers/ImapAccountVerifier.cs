@@ -104,6 +104,7 @@ public static class VerifyReasons
     private static string ByStatus(SmtpStatusCode status) => (int)status is >= 400 and < 500 ? SmtpUnreachable : SmtpAuthFailed;
 
     // PrivateAddressException is an IOException: a host a member may not reach reads as one that cannot be reached.
+    // For SMTP the verifier tells them apart, because only a server that cannot be reached is a warning.
     private static bool IsUnreachable(Exception failure) => failure is SocketException or IOException or TimeoutException
         or OperationCanceledException or ProtocolException or CommandException or ServiceNotConnectedException;
 
@@ -165,8 +166,22 @@ internal sealed class ImapAccountVerifier(HostGuard guard, PasswordProtector pro
         if (imap is not null)
             return new VerifyOutcome(imap, null);
 
-        var smtp = await StepAsync(accountId, VerifyReasons.Smtp, SmtpBudget, (stage, token) => SmtpAsync(cfg, allowPrivate, stage, token), ct);
-        return smtp is null or { Reason: VerifyReasons.SmtpAuthFailed }
+        // A warning is for an SMTP server that does not answer. A host this caller may not reach blocks like a
+        // refused login: stored, it would get the password at the first send, which opens SMTP with no guard.
+        var refused = false;
+        var smtp = await StepAsync(accountId, VerifyReasons.Smtp, SmtpBudget, async (stage, token) =>
+        {
+            try
+            {
+                return await SmtpAsync(cfg, allowPrivate, stage, token);
+            }
+            catch (PrivateAddressException)
+            {
+                refused = true;
+                throw;
+            }
+        }, ct);
+        return refused || smtp is null or { Reason: VerifyReasons.SmtpAuthFailed }
             ? new VerifyOutcome(smtp, null)
             : new VerifyOutcome(null, smtp.Reason);
     }

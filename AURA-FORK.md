@@ -257,6 +257,10 @@ file says the fork does not have, this file wins.
       server that cannot be reached or refuses TLS is stored with `smtpWarning` in the `201`.
     - **Private hosts.** The check connects to a private address only when the request carries
       `X-Aura-Allow-Private-Hosts: true`, which Aura sets for an identity holding `identity.create` only.
+      That holds for the sending server too: a private SMTP host without the header is `422
+      {"step":"smtp","reason":"smtp_unreachable"}` and nothing is stored, because the warning is for a server that
+      cannot be reached, not for one this caller may not reach, and `send_email` opens SMTP without the guard and
+      sends the password with AUTH.
     - **`POST /admin/accounts/{id}/verify`** checks the account as stored: `200 {"ok":true,"smtpWarning"?}`, `422`,
       `404`, `429`, or `400 not_verifiable` for an account that is not IMAP or whose stored config the check cannot
       run on. A stored `none` is checked as it is: only the operator can have written it, and the watch reads with it.

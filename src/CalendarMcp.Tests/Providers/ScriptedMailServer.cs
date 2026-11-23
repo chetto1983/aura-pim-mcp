@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using CalendarMcp.Core.Providers;
 
 namespace CalendarMcp.Tests.Providers;
 
@@ -66,6 +67,40 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
         });
     }
 
+    /// <summary>An IMAP server with one empty inbox that takes any login: all a verification asks of it.</summary>
+    public static ScriptedMailServer ImapWithEmptyInbox() => new("* OK [CAPABILITY IMAP4rev1 UIDPLUS] scripted", line =>
+    {
+        var words = line.Split(' ');
+        var tag = words[0];
+        return words.ElementAtOrDefault(1)?.ToUpperInvariant() switch
+        {
+            "CAPABILITY" => $"* CAPABILITY IMAP4rev1 UIDPLUS\r\n{tag} OK done",
+            "LOGIN" => $"{tag} OK [CAPABILITY IMAP4rev1 UIDPLUS] logged in",
+            "LIST" => $"* LIST (\\HasNoChildren) \"/\" INBOX\r\n{tag} OK done",
+            "EXAMINE" or "SELECT" => $"* 0 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] ok\r\n* OK [UIDNEXT 1] ok\r\n{tag} OK [READ-ONLY] done",
+            "LOGOUT" => $"* BYE\r\n{tag} OK bye",
+            _ => $"{tag} BAD not scripted"
+        };
+    });
+
+    /// <summary>
+    /// A guard that resolves <see cref="PublicImapHost"/> to a public address this server answers on, and every
+    /// other host to 10.0.0.5, which nothing answers on: the IMAP step passes and the SMTP host is a private one.
+    /// </summary>
+    public HostGuard GuardWithPrivateSmtp() => new(
+        (host, _) => Task.FromResult(new[] { IPAddress.Parse(host == PublicImapHost ? "203.0.113.10" : "10.0.0.5") }),
+        async (endpoint, ct) =>
+        {
+            if (endpoint.Address.ToString() != "203.0.113.10")
+                throw new SocketException((int)SocketError.TimedOut);
+
+            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, Address.Port), ct);
+            return socket;
+        });
+
+    public const string PublicImapHost = "imap.public.test";
+
     /// <summary>Accepts the connection and never sends a greeting.</summary>
     public static ScriptedMailServer Silent() => new(null, _ => null);
 
@@ -96,8 +131,13 @@ internal sealed class ScriptedMailServer : IAsyncDisposable
 
             while (await reader.ReadLineAsync(_stop.Token) is { } line)
             {
-                if (_answer(line) is { } answer)
-                    await WriteAsync(stream, answer);
+                if (_answer(line) is not { } answer)
+                    continue;
+
+                await WriteAsync(stream, answer);
+                // A server that says BYE hangs up, and a client's LOGOUT waits for that.
+                if (answer.StartsWith("* BYE", StringComparison.Ordinal))
+                    break;
             }
         }
         catch (Exception e) when (e is IOException or SocketException or OperationCanceledException or ObjectDisposedException)

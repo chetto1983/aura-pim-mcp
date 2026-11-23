@@ -274,4 +274,34 @@ public sealed partial class AccountRepairEndpointsTests
         Assert.IsTrue(PasswordProtector.IsProtected(stored));
         Assert.AreEqual("nuova", pipeline.Protector.Unprotect(stored));
     }
+
+    [TestMethod]
+    public async Task Patch_PrivateSmtpHostForAMember_Is422_AndStoresNothing()
+    {
+        var verifier = new FakeVerifier();
+        verifier.Answer = PrivateSmtpRefusedUnlessAdmin(verifier);
+        await using var pipeline = new AdminPipeline(verifier);
+        var before = File.ReadAllText(pipeline.ConfigPath);
+
+        var (status, body) = await pipeline.PatchAsync(ProviderConfig(AdminPipeline.MailId),
+            Patch(new() { ["smtpHost"] = "10.0.0.5", ["password"] = "nuova" }));
+
+        Assert.AreEqual(422, status);
+        AssertVerifyFailed(body, "smtp", "smtp_unreachable");
+        Assert.AreEqual(before, File.ReadAllText(pipeline.ConfigPath));
+    }
+
+    [TestMethod]
+    public async Task Patch_PrivateSmtpHostForAnAdmin_Is200()
+    {
+        var verifier = new FakeVerifier();
+        verifier.Answer = PrivateSmtpRefusedUnlessAdmin(verifier);
+        await using var pipeline = new AdminPipeline(verifier);
+
+        var (status, _) = await pipeline.PatchAsync(ProviderConfig(AdminPipeline.MailId),
+            Patch(new() { ["smtpHost"] = "10.0.0.5", ["password"] = "nuova" }), allowPrivate: true);
+
+        Assert.AreEqual(200, status);
+        Assert.AreEqual("10.0.0.5", pipeline.StoredConfig(AdminPipeline.MailId)["smtpHost"]!.GetValue<string>());
+    }
 }
