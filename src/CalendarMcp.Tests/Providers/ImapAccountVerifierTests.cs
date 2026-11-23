@@ -264,6 +264,29 @@ public class ImapAccountVerifierTests
         Assert.AreEqual(new VerifyOutcome(new VerifyFailure("smtp", "smtp_unreachable"), null), outcome);
     }
 
+    // The block is for an address the caller may not reach, not for every SMTP failure of a member.
+    [TestMethod]
+    public async Task Verify_PublicSmtpThatDoesNotAnswerForAMember_IsOnlyAWarning()
+    {
+        await using var imap = ScriptedMailServer.ImapWithEmptyInbox();
+        var config = Config((ScriptedMailServer.PublicImapHost, imap.Address.Port), ("smtp.public.test", 465));
+        var guard = new HostGuard(
+            (host, _) => Task.FromResult(new[] { IPAddress.Parse(host == ScriptedMailServer.PublicImapHost ? "203.0.113.10" : "203.0.113.20") }),
+            async (endpoint, ct) =>
+            {
+                if (endpoint.Address.ToString() == "203.0.113.20")
+                    throw new SocketException((int)SocketError.TimedOut);
+
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                await socket.ConnectAsync(new IPEndPoint(IPAddress.Loopback, imap.Address.Port), ct);
+                return socket;
+            });
+
+        var outcome = await Verifier(guard: guard).VerifyAsync(AccountId, config, false, default);
+
+        Assert.AreEqual(new VerifyOutcome(null, "smtp_unreachable"), outcome);
+    }
+
     [TestMethod]
     public async Task Verify_PrivateSmtpForAnAdmin_IsOnlyAWarningWhenItDoesNotAnswer()
     {

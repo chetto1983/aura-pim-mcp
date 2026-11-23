@@ -272,6 +272,9 @@ file says the fork does not have, this file wins.
       until the PATCH names `ssl` or `starttls`), is checked, and is written by
       `MergeProviderConfigAsync`, which replaces only `ProviderConfig` and answers `409 {"error":"changed"}` if the
       stored config moved while it was checked. `200` is `PUT`'s body plus `smtpWarning`. `PUT` is not checked.
+    - **`PUT /admin/accounts/{id}` is not guarded.** `UpdateAccount` (`Admin/AdminEndpoints.cs`) runs no
+      `ForWrite`, no `HostGuard` and no verification: it can store any host, private ones included. It is
+      operator-only, and Aura must never forward it.
     - **One check per account every 30 s** (`VerifyThrottle`), on create, verify and PATCH alike:
       `429 {"error":"too_many_attempts"}` without connecting, because each attempt is logins a provider counts.
     - **The pool follows a change.** `ImapProviderService` remembers the host, port, security, username and
