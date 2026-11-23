@@ -85,6 +85,10 @@ file says the fork does not have, this file wins.
    the upstream implementation class, constructed per call through `ActivatorUtilities` (no
    tool class is registered in DI), so upstream fixes reach it without a copy.
 
+   - **`send_email` requires `accountId`** (`CalendarActionTool.Delegated.cs`, 2026-11-23). Upstream routes a
+     send with no account by the recipient's domain, out of sight of whoever reviews it; told the account
+     was optional, Aura's model left it out on every send. Upstream's `SendEmailTool` keeps its routing.
+
    - **Events are addressed by an opaque reference** (`CalendarActionTool.Calendar.cs`).
      `get_calendar_events` and `create_event` return `eventId = EventRef(accountId, id)`;
      `get_calendar_event_details`, `update_event`, `delete_event` and `respond_to_event` take
