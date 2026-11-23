@@ -149,7 +149,7 @@ public class MailDiscoveryTests
                 connected.Add(endpoint);
                 return Task.FromException<Socket>(new SocketException((int)SocketError.ConnectionRefused));
             });
-        using var http = new HttpClient(AutoconfigClient.CreateHandler(guard));
+        using var http = new HttpClient(guard.CreatePublicHttpHandler());
 
         var xml = await new AutoconfigClient(http, NullLogger<AutoconfigClient>.Instance).FetchIspAsync("example.org", default);
 
@@ -161,7 +161,7 @@ public class MailDiscoveryTests
     [TestMethod]
     public async Task Isp_DoesNotFollowRedirects()
     {
-        Assert.IsFalse(AutoconfigClient.CreateHandler(new HostGuard()).AllowAutoRedirect);
+        Assert.IsFalse(new HostGuard().CreatePublicHttpHandler().AllowAutoRedirect);
 
         var http = new FakeHttp().On(_ => true, _ => new HttpResponseMessage(HttpStatusCode.Found)
         {
@@ -195,8 +195,8 @@ public class MailDiscoveryTests
         var refusing = new HostGuard(
             (_, _) => Task.FromResult(new[] { IPAddress.Parse("203.0.113.7") }),
             (_, _) => Task.FromException<Socket>(new SocketException((int)SocketError.ConnectionRefused)));
-        using var unresolvedHttp = new HttpClient(AutoconfigClient.CreateHandler(unresolved));
-        using var refusingHttp = new HttpClient(AutoconfigClient.CreateHandler(refusing));
+        using var unresolvedHttp = new HttpClient(unresolved.CreatePublicHttpHandler());
+        using var refusingHttp = new HttpClient(refusing.CreatePublicHttpHandler());
 
         Assert.IsNull(await new AutoconfigClient(unresolvedHttp, NullLogger<AutoconfigClient>.Instance).FetchIspAsync("example.org", default));
         await Assert.ThrowsAsync<HttpRequestException>(() =>

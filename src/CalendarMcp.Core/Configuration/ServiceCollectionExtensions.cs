@@ -86,7 +86,7 @@ public static class ServiceCollectionExtensions
         }));
         services.AddSingleton<IMxLookup, MxLookup>();
         services.AddHttpClient(AutoconfigClient.HttpClientName, client => client.Timeout = AutoconfigClient.Timeout)
-            .ConfigurePrimaryHttpMessageHandler(provider => AutoconfigClient.CreateHandler(provider.GetRequiredService<HostGuard>()));
+            .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<HostGuard>().CreatePublicHttpHandler());
         services.AddSingleton<IAutoconfigClient>(provider => new AutoconfigClient(
             provider.GetRequiredService<IHttpClientFactory>().CreateClient(AutoconfigClient.HttpClientName),
             provider.GetRequiredService<ILogger<AutoconfigClient>>()));
@@ -98,11 +98,9 @@ public static class ServiceCollectionExtensions
             DiscoveryBudget.Default,
             provider.GetRequiredService<ILogger<MailDiscovery>>()));
 
-        // Register HttpClient for unsubscribe requests
-        services.AddHttpClient("Unsubscribe", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        // A one-click unsubscribe URL is a mail sender's: guarded, no private address, no redirect followed.
+        services.AddHttpClient(UnsubscribeExecutor.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(provider => provider.GetRequiredService<HostGuard>().CreatePublicHttpHandler());
 
         // Register unsubscribe executor
         services.AddSingleton<UnsubscribeExecutor>();

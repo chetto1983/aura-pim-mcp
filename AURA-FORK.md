@@ -344,6 +344,15 @@ file says the fork does not have, this file wins.
     - **The password fallback is Google's only.** Outlook.com refuses basic authentication, so its preset carries
       `passwordFallback: false` and no servers.
 
+13. **A one-click unsubscribe reaches only a public address, and answers only its status** (`Utilities/
+    UnsubscribeExecutor.cs`, 2026-11-23). Upstream POSTs to a mail's `List-Unsubscribe` URL with a plain client that
+    follows redirects, and returns the far side's body or the exception's text: whoever can mail the inbox could
+    make the PIM read its own network. The `Unsubscribe` client now has `HostGuard.CreatePublicHttpHandler()`, the
+    handler discovery uses (no private address, no redirect, no proxy), and a refused or failed POST answers
+    `Unsubscribe request returned HTTP <status>` or `Failed to execute one-click unsubscribe` with no
+    `ErrorDetails`. The mailto path gives `ProviderErrorFormatter`'s summary, as `send_email` does, not the
+    exception's text. Stored ICS/DAV/JSON URLs are still fetched unguarded.
+
 ## Build / run (sidecar)
 
 ```bash
@@ -405,7 +414,9 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
   its summary, and the sentence in `includeBodyPreview`'s description, which `CalendarActionTool.cs`
   repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`, and the mail discovery registrations (change 12): the
-  memory cache, `ILookupClient`, `IMxLookup`, the `Autoconfig` client with its guarded handler, and `MailDiscovery`.
+  memory cache, `ILookupClient`, `IMxLookup`, the `Autoconfig` client with its guarded handler, and `MailDiscovery`;
+  and the `Unsubscribe` client's guarded handler (change 13), which `UnsubscribeExecutor.cs` relies on: an upstream
+  edit there that reads the response body or returns `ex.Message` reopens it.
 - An upgrade of AngleSharp or AngleSharp.Css, both pinned, reopens `SelectorCost`, `MarkupShape`, the
   allocation allowance and every stack figure in `MailBody` and `HiddenText`: they are measurements of
   that engine's code. A new pseudo-class reads as infinite cost in `SelectorCost` until it is added, with

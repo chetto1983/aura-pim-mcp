@@ -28,6 +28,25 @@ public sealed class HostGuard
         _connect = connect;
     }
 
+    /// <summary>
+    /// A handler for requests to a URL someone else named (a domain's autoconfig, a mail's List-Unsubscribe): every
+    /// connection goes through this guard with no private address allowed, and no redirect is followed, since a
+    /// redirect is a second URL the same someone names. No proxy: with one, the connect callback would see the
+    /// proxy's address instead of the host the URL named.
+    /// </summary>
+    internal SocketsHttpHandler CreatePublicHttpHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        UseProxy = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+        ConnectCallback = async (context, ct) =>
+        {
+            var socket = await ConnectAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, allowPrivate: false, ct);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+    };
+
     /// <summary>A connected socket to the first of the host's addresses that answers.</summary>
     /// <exception cref="PrivateAddressException">An address is private and <paramref name="allowPrivate"/> is false.</exception>
     public async Task<Socket> ConnectAsync(string host, int port, bool allowPrivate, CancellationToken ct)

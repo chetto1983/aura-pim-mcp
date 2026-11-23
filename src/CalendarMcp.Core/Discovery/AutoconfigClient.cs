@@ -34,23 +34,6 @@ public sealed class AutoconfigClient(HttpClient http, ILogger<AutoconfigClient> 
     public const int MaxBodyBytes = 64 * 1024;
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(4);
 
-    /// <summary>
-    /// The handler every autoconfig request goes through. No proxy: with one, the connect callback would see the
-    /// proxy's address instead of the host the domain named.
-    /// </summary>
-    internal static SocketsHttpHandler CreateHandler(HostGuard guard) => new()
-    {
-        AllowAutoRedirect = false,
-        UseCookies = false,
-        UseProxy = false,
-        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-        ConnectCallback = async (context, ct) =>
-        {
-            var socket = await guard.ConnectAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, allowPrivate: false, ct);
-            return new NetworkStream(socket, ownsSocket: true);
-        }
-    };
-
     /// <summary>The first of the two URLs that holds a config; if neither does and one could not be asked, that failure.</summary>
     public async Task<string?> FetchIspAsync(string domain, CancellationToken ct)
     {
