@@ -76,9 +76,9 @@ attachment has `attachmentId` — feed that to `get_email_attachment`.
 Moves to Trash/Bin on most providers (recoverable for some retention
 window). Treat as not-recoverable when planning user-visible actions.
 
-### `mark_email_as_read(accountId, emailId, isRead=true)`
+### `mark_email_read(accountId, emailId, isRead)`
 
-Pass `isRead=false` to mark unread.
+`isRead` is required: `true` marks the email read, `false` unread.
 
 ### `move_email(accountId, emailId, destination)`
 
@@ -96,7 +96,7 @@ then find the message with `get_emails`/`search_emails` and `folder`.
 
 ### Bulk operations
 
-`bulk_delete_emails(items[])`, `bulk_mark_emails_as_read(items[])`,
+`bulk_delete_emails(items[])`, `bulk_mark_emails_read(items[], isRead)`,
 `bulk_move_emails(items[], destination)` all take an array of
 `{accountId, emailId}` items (max 50). Each item succeeds or fails
 independently; the response contains per-item `success`/`error`

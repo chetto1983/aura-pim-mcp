@@ -49,7 +49,7 @@ Each account carries six independent grants. Tools map onto them as follows:
 
 | Permission | Tools it gates |
 |---|---|
-| `emailRead` | `get_emails`, `search_emails`, `get_email_details`, `get_email_attachment`, `get_contextual_email_summary`, `get_unsubscribe_info`, `delete_email`, `move_email`, `mark_email_as_read`, `bulk_delete_emails`, `bulk_move_emails`, `bulk_mark_emails_as_read` |
+| `emailRead` | `get_emails`, `search_emails`, `get_email_details`, `get_email_attachment`, `get_contextual_email_summary`, `get_unsubscribe_info`, `delete_email`, `move_email`, `mark_email_read`, `bulk_delete_emails`, `bulk_move_emails`, `bulk_mark_emails_read` |
 | `emailSend` | `send_email`, `unsubscribe_from_email` |
 | `calendarRead` | `list_calendars`, `get_calendar_events`, `get_calendar_event_details` |
 | `calendarWrite` | `create_event`, `update_event`, `delete_event`, `respond_to_event` |
@@ -420,27 +420,33 @@ List all calendars from specific account or all accounts.
 ```
 
 #### `get_calendar_events`
-Get events (past/present/future) for specific account or all accounts.
+Get the events overlapping a range of local days, for one account or all accounts.
 
 **Parameters**:
+- `timeZone` (required): IANA timezone; `startDate` and `endDate` are local dates in it
 - `accountId` (optional): Specific account ID, or omit for all accounts
-- `calendarId` (optional): Specific calendar ID
-- `startDate`: Start of date range (ISO 8601)
-- `endDate`: End of date range (ISO 8601)
-- `count` (default: 50): Max events to return
+- `calendarId` (optional): Specific calendar ID; alone, it picks the one account that has it
+- `startDate` (optional, default today): First local date of the range
+- `endDate` (optional, default 6 days after `startDate`): Last local date, inclusive
+- `count` (default: 50): Max events to return per account
 - `includeAttendeeDetails` (default: false): Add `attendeeDetails`, each attendee's response, to every event
 
-**Returns**:
+**Returns** (`eventId` is an opaque reference that names its account; pass it back unchanged):
 ```json
 {
+  "timezone": "Europe/Rome",
   "events": [
     {
-      "id": "evt-123",
+      "eventId": "eyJhIjoid29yay1hY2NvdW50IiwiZSI6ImV2dC0xMjMifQ==",
       "accountId": "work-account",
       "calendarId": "cal-123",
       "subject": "Team Meeting",
-      "start": "2025-12-05T14:00:00Z",
-      "end": "2025-12-05T15:00:00Z",
+      "start_utc": "2025-12-05T14:00:00Z",
+      "start_local": "2025-12-05T15:00:00",
+      "end_utc": "2025-12-05T15:00:00Z",
+      "end_local": "2025-12-05T16:00:00",
+      "start_date": null,
+      "end_date": null,
       "location": "Conference Room A",
       "attendees": ["colleague@example.com"],
       "isAllDay": false,
@@ -460,48 +466,26 @@ Get events (past/present/future) for specific account or all accounts.
 }
 ```
 
-#### `find_available_times`
-Find free time slots across specified or all calendars.
-
-**Parameters**:
-- `accountIds` (optional): Array of account IDs, or omit for all accounts
-- `duration`: Duration in minutes (e.g., 60 for 1 hour)
-- `startDate`: Start of search range
-- `endDate`: End of search range
-- `workingHoursOnly` (default: true): Only suggest during working hours
-
-**Returns**:
-```json
-{
-  "availableSlots": [
-    {
-      "start": "2025-12-05T10:00:00Z",
-      "end": "2025-12-05T11:00:00Z",
-      "allAccountsFree": true,
-      "busyAccounts": []
-    }
-  ]
-}
-```
-
 #### `create_event`
 Create calendar event in specific calendar (without `accountId`, the first enabled account that permits calendar writes is used).
 
 **Parameters**:
-- `accountId` (optional): Specific account, or let router decide
+- `subject` (required): Event subject
+- `start` (required): Start date/time (ISO 8601); a date for an all-day event
+- `end` (required): End date/time (ISO 8601); the exclusive end date for an all-day event
+- `accountId` (optional): Specific account, or omit for the first account that permits calendar writes
 - `calendarId` (optional): Specific calendar within account
-- `subject`: Event subject
-- `start`: Start date/time (ISO 8601)
-- `end`: End date/time (ISO 8601)
+- `timeZone` (optional): The user's IANA timezone; pass it so the event lands at the right local time
+- `isAllDay` (default: false): An all-day event
 - `location` (optional): Event location
 - `attendees` (optional): Array of attendee emails
 - `body` (optional): Event description
 
-**Returns**:
+**Returns** (`eventId` is the reference the other event tools take):
 ```json
 {
   "success": true,
-  "eventId": "evt-456",
+  "eventId": "eyJhIjoid29yay1hY2NvdW50IiwiZSI6ImV2dC00NTYifQ==",
   "accountUsed": "work-account",
   "calendarUsed": "cal-123"
 }
@@ -518,12 +502,16 @@ Update existing calendar event.
 - `end` (optional): New end time
 - `location` (optional): New location
 - `attendees` (optional): New attendee list
+- `timeZone` (optional): The user's IANA timezone; required when changing `start` or `end`
+- `isAllDay` (optional): `true` or `false` to change it, with both `start` and `end`; omit to keep it
 
 **Returns**:
 ```json
 {
   "success": true,
-  "eventId": "evt-456"
+  "eventId": "eyJhIjoid29yay1hY2NvdW50IiwiZSI6ImV2dC00NTYifQ==",
+  "accountUsed": "work-account",
+  "calendarUsed": "cal-123"
 }
 ```
 
@@ -539,7 +527,7 @@ Delete calendar event (requires organizer permissions or edit access).
 {
   "success": true,
   "message": "Event deleted successfully",
-  "eventId": "evt-456",
+  "eventId": "eyJhIjoid29yay1hY2NvdW50IiwiZSI6ImV2dC00NTYifQ==",
   "accountUsed": "work-account",
   "calendarUsed": "default"
 }
@@ -559,7 +547,7 @@ Respond to a calendar event invitation with accept, tentative, or decline.
 {
   "success": true,
   "message": "Event response sent: decline",
-  "eventId": "evt-456",
+  "eventId": "eyJhIjoid29yay1hY2NvdW50IiwiZSI6ImV2dC00NTYifQ==",
   "response": "declined",
   "accountUsed": "work-account",
   "calendarUsed": "default"
@@ -727,19 +715,18 @@ User: "Show me my unread emails"
 
 ### Write Operations
 
-For write operations (send_email, create_event, create_contact, etc.), exactly ONE account must be selected:
+For write operations (send_email, create_event, create_contact, etc.), exactly ONE account is used:
 
-1. **Router Decision**: Smart router determines best account
-2. **Ambiguity Handling**: If unclear, ask user to specify
-3. **Execution**: Perform operation on selected account only
-4. **Confirmation**: Return which account was used
+1. **send_email**: `accountId` is required; there is no routing by recipient domain
+2. **create_event / create_contact**: `accountId`, or the first account that permits the write
+3. **Event updates**: the account comes from the `eventId` reference
+4. **Confirmation**: The result names the account used (`accountUsed`)
 
 **Example**:
 ```
 User: "Send email to john@acme.com about project update"
-→ MCP tool: send_email(to="john@acme.com", ...)
-→ Router: Extract domain "acme.com" → matches "acme-work" account
-→ Execute: Send via acme-work account
+→ MCP tool: list_accounts(); the user has two accounts and named neither, so ask which
+→ MCP tool: send_email(accountId="acme-work", to=["john@acme.com"], ...)
 → Return: { success: true, accountUsed: "acme-work" }
 ```
 
@@ -797,28 +784,14 @@ Workflow:
    5 unread requiring attention"
 ```
 
-### Example 4: Find Meeting Time Across All Calendars
-```
-AI Assistant receives: "Find a 1-hour slot next week where I'm free across all calendars"
-
-Workflow:
-1. Calculate date range (next week)
-2. Call find_available_times(duration=60, startDate, endDate)
-3. Analyze all accounts' calendars in parallel
-4. Return slots where ALL accounts are free
-5. Present options to user
-```
-
-### Example 5: Smart Email Sending
+### Example 4: Sending From the Right Account
 ```
 AI Assistant receives: "Send email to sarah@example.com saying I'll be 10 minutes late"
 
 Workflow:
-1. Call send_email(to="sarah@example.com", body="...")
-2. Router extracts domain "example.com"
-3. Router finds account with matching domain: "work-account"
-4. Send via work-account
-5. Confirm: "Sent from your work account"
+1. Call list_accounts() and pick the account the user named, or ask which one
+2. Call send_email(accountId="work-account", to=["sarah@example.com"], subject="...", body="...")
+3. Confirm: "Sent from your work account"
 ```
 
 ## Error Handling

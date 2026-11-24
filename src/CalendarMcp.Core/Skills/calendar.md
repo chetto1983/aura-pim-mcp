@@ -46,10 +46,10 @@ used.
   off unless you need other people's responses; big meetings make the
   result large.
 
-Returns events sorted by start time, each with `eventId` (an opaque reference), `accountId,
-calendarId, subject, start_utc/start_local, end_utc/end_local,
-start_date/end_date, location, attendees, isAllDay, organizer,
-responseStatus`. `start_date`/`end_date` are set only for all-day events
+Returns events sorted by start time, each with `eventId` (an opaque
+reference), `accountId`, `calendarId`, `subject`, `start_utc`/`start_local`,
+`end_utc`/`end_local`, `start_date`/`end_date`, `location`, `attendees`,
+`isAllDay`, `organizer` and `responseStatus`. `start_date`/`end_date` are set only for all-day events
 (null otherwise). `responseStatus` is the account owner's own answer:
 `accepted`, `tentative`, `declined` or `notResponded`. Events the owner
 organized count as `accepted`. ICS accounts can't tell which attendee is

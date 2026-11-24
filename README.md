@@ -2,8 +2,9 @@
 
 > **Aura fork (`aura-pim-mcp`).** This README is upstream's. In this fork the MCP, attachment
 > and admin endpoints take an OAuth bearer issued by Aura, not an API key; there is no Blazor
-> admin UI; and the 29 tools are served as one curated `calendar` tool. See
-> [AURA-FORK.md](AURA-FORK.md) for every difference.
+> admin UI; and upstream's 29 tools are served one per operation, under the names Aura uses
+> (`mark_email_read`, `bulk_mark_emails_read`), with opaque event references and a required
+> sending account on `send_email`. See [AURA-FORK.md](AURA-FORK.md) for every difference.
 
 A Model Context Protocol (MCP) server that gives AI assistants access to email, calendar, and contact data across multiple accounts — Microsoft 365, Outlook.com, Google Workspace, IMAP/SMTP mailboxes, CalDAV/CardDAV (including iCloud), ICS feeds, and JSON calendar files.
 

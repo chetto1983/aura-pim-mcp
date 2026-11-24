@@ -50,11 +50,11 @@ obvious clusters.
                               then bulk_delete_emails
    - Meeting invites → keep, see scenario 6
    - Action-required → keep, address one-by-one
-   - Notifications → bulk_mark_emails_as_read
+   - Notifications → bulk_mark_emails_read
 
 4. Apply in batches:
    bulk_delete_emails(items=[ {accountId, emailId}, ... ])
-   bulk_mark_emails_as_read(items=[ ... ])
+   bulk_mark_emails_read(items=[ ... ], isRead=true)
 ```
 
 ## 2. Schedule a meeting from an email thread

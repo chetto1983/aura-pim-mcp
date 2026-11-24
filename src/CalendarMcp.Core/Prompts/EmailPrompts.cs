@@ -57,7 +57,7 @@ public sealed class EmailPrompts
             1. Call get_email_details with emailId="{emailId}" and accountId="{accountId}" to read the full message.
             2. Draft a {tone} reply that addresses the key points in the email.
             3. Present the draft to me for review before sending.
-            4. Ask if I'd like to adjust anything, then call send_email if I approve.
+            4. Ask if I'd like to adjust anything, then call send_email with accountId="{accountId}" if I approve.
 
             Reply tone: {tone}
             - professional: formal, courteous, clear

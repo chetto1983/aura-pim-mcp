@@ -60,9 +60,9 @@ than reconstructing the steps yourself.
 - **Accounts / meta**: `list_accounts`, `get_guide`
 - **Email read**: `get_emails`, `search_emails`, `get_email_details`,
   `get_email_attachment`, `get_contextual_email_summary`
-- **Email write**: `send_email`, `delete_email`, `mark_email_as_read`,
+- **Email write**: `send_email`, `delete_email`, `mark_email_read`,
   `move_email`
-- **Email bulk**: `bulk_delete_emails`, `bulk_mark_emails_as_read`,
+- **Email bulk**: `bulk_delete_emails`, `bulk_mark_emails_read`,
   `bulk_move_emails`
 - **Email unsubscribe**: `get_unsubscribe_info`, `unsubscribe_from_email`
 - **Calendar read**: `list_calendars`, `get_calendar_events`,
