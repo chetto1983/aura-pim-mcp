@@ -16,43 +16,25 @@ public sealed class DeleteEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<DeleteEventTool> logger)
 {
-    [McpServerTool, Description("Delete a calendar event. Always pass accountId — without it, the first configured account is used which may be wrong. Obtain eventId and accountId from get_calendar_events or get_calendar_event_details before calling this tool.")]
+    [McpServerTool, Description("Delete a calendar event. Pass the eventId reference from get_calendar_events or create_event; it identifies the account.")]
     public async Task<string> DeleteEvent(
-        [Description("Event ID to delete. Must be obtained from get_calendar_events or get_calendar_event_details.")] string eventId,
-        [Description("Account ID that owns the event. Always provide this — omitting it routes to the first account, which may not own the event.")] string? accountId = null,
+        [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,
         [Description("Calendar ID containing the event, or omit for default calendar")] string? calendarId = null)
     {
-        logger.LogInformation("Deleting event: eventId={EventId}, accountId={AccountId}, calendarId={CalendarId}",
-            eventId, accountId, calendarId);
+        logger.LogInformation("Deleting event: eventId={EventId}, calendarId={CalendarId}",
+            eventId, calendarId);
 
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
+        var (accountId, rawEventId) = EventRef.Resolve(eventId);
 
-        // Determine which account to use
-        Models.AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            account = await ToolGuard.RequireAccountAsync(
-                accountRegistry, accountId, Models.AccountPermission.CalendarWrite);
-        }
-        else
-        {
-            // Fall back to the first account that actually permits the write, so a
-            // scoped-out account at the head of the list doesn't hijack the operation.
-            var accounts = await accountRegistry.GetAllAccountsAsync();
-            var candidates = ToolGuard.FilterByPermission(
-                accounts, Models.AccountPermission.CalendarWrite, logger, "delete_event");
-            var first = candidates.FirstOrDefault();
-            if (first == null)
-                throw new McpException("No enabled account permits delete event");
-            account = first;
-        }
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, Models.AccountPermission.CalendarWrite);
 
         try
         {
             // Delete event
             var provider = providerFactory.GetProvider(account.Provider);
             await provider.DeleteEventAsync(
-                account.Id, calendarId ?? "primary", eventId, CancellationToken.None);
+                account.Id, calendarId ?? "primary", rawEventId, CancellationToken.None);
 
             var result = new
             {
@@ -69,6 +51,10 @@ public sealed class DeleteEventTool(
             {
                 WriteIndented = true
             });
+        }
+        catch (McpException ex) when (EventRef.Quotes(ex, rawEventId))
+        {
+            throw EventRef.Requote(ex, eventId, rawEventId);
         }
         catch (Exception ex) when (ex is not McpException)
         {

@@ -19,9 +19,8 @@ public sealed class UpdateEventTool(
 {
     [McpServerTool, Description("Update an existing calendar event. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) when updating start/end times so events are updated at the correct local time.")]
     public async Task<string> UpdateEvent(
-        [Description("Account ID that owns the event. Obtain from list_accounts.")] string accountId,
         [Description("Calendar ID that contains the event. Obtain from list_calendars.")] string calendarId,
-        [Description("Event ID to update. Obtain from get_calendar_events or get_calendar_event_details.")] string eventId,
+        [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,
         [Description("New event subject/title")] string? subject = null,
         [Description("New event start date and time (ISO 8601 format). For an all-day event, a date (yyyy-MM-dd).")] DateTime? start = null,
         [Description("New event end date and time (ISO 8601 format). For an all-day event, the exclusive end date (yyyy-MM-dd).")] DateTime? end = null,
@@ -30,12 +29,11 @@ public sealed class UpdateEventTool(
         [Description("IANA timezone name for the event times (e.g. `America/Chicago`, `America/New_York`, `Europe/London`). Required when updating start or end times.")] string? timeZone = null,
         [Description("Set true to make the event all-day (start/end become dates, end exclusive) or false to make it timed. Requires both start and end. Pass true when moving an existing all-day event. Omit to leave it unchanged.")] bool? isAllDay = null)
     {
-        logger.LogInformation("Updating event: eventId={EventId}, accountId={AccountId}, calendarId={CalendarId}",
-            eventId, accountId, calendarId);
+        logger.LogInformation("Updating event: eventId={EventId}, calendarId={CalendarId}",
+            eventId, calendarId);
 
-        ToolGuard.RequireNonEmpty(accountId, nameof(accountId));
         ToolGuard.RequireNonEmpty(calendarId, nameof(calendarId));
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
+        var (accountId, rawEventId) = EventRef.Resolve(eventId);
 
         if (isAllDay.HasValue)
         {
@@ -56,7 +54,7 @@ public sealed class UpdateEventTool(
         {
             var provider = providerFactory.GetProvider(account.Provider);
             await provider.UpdateEventAsync(
-                accountId, calendarId, eventId, subject, start, end, location, attendees, timeZone, isAllDay, CancellationToken.None);
+                accountId, calendarId, rawEventId, subject, start, end, location, attendees, timeZone, isAllDay, CancellationToken.None);
 
             return JsonSerializer.Serialize(new
             {
@@ -65,6 +63,10 @@ public sealed class UpdateEventTool(
                 accountUsed = accountId,
                 calendarUsed = calendarId
             }, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (McpException ex) when (EventRef.Quotes(ex, rawEventId))
+        {
+            throw EventRef.Requote(ex, eventId, rawEventId);
         }
         catch (Exception ex) when (ex is not McpException)
         {

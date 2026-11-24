@@ -16,18 +16,17 @@ public sealed class RespondToEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<RespondToEventTool> logger)
 {
-    [McpServerTool, Description("Accept, tentatively accept, or decline a calendar event invitation. Always pass accountId — without it, the first configured account is used which may be wrong. Obtain eventId and accountId from get_calendar_events or get_calendar_event_details before calling this tool.")]
+    [McpServerTool, Description("Accept, tentatively accept, or decline a calendar event invitation. Pass the eventId reference from get_calendar_events; it identifies the account.")]
     public async Task<string> RespondToEvent(
-        [Description("Event ID to respond to. Must be obtained from get_calendar_events or get_calendar_event_details.")] string eventId,
+        [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,
         [Description("Response: 'accept', 'tentative', or 'decline'")] string response,
-        [Description("Account ID that received the invitation. Always provide this — omitting it routes to the first account, which may not have the event.")] string? accountId = null,
         [Description("Calendar ID containing the event, or omit for default calendar")] string? calendarId = null,
         [Description("Optional message to include with the response")] string? comment = null)
     {
-        logger.LogInformation("Responding to event: eventId={EventId}, response={Response}, accountId={AccountId}, calendarId={CalendarId}",
-            eventId, response, accountId, calendarId);
+        logger.LogInformation("Responding to event: eventId={EventId}, response={Response}, calendarId={CalendarId}",
+            eventId, response, calendarId);
 
-        ToolGuard.RequireNonEmpty(eventId, nameof(eventId));
+        var (accountId, rawEventId) = EventRef.Resolve(eventId);
         ToolGuard.RequireNonEmpty(response, nameof(response));
 
         // Validate response type
@@ -39,32 +38,15 @@ public sealed class RespondToEventTool(
             throw new McpException("Invalid response type. Valid values are: accept, tentative, decline");
         }
 
-        // Determine which account to use
-        Models.AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            account = await ToolGuard.RequireAccountAsync(
-                accountRegistry, accountId, Models.AccountPermission.CalendarWrite);
-        }
-        else
-        {
-            // Fall back to the first account that actually permits the write, so a
-            // scoped-out account at the head of the list doesn't hijack the operation.
-            var accounts = await accountRegistry.GetAllAccountsAsync();
-            var candidates = ToolGuard.FilterByPermission(
-                accounts, Models.AccountPermission.CalendarWrite, logger, "respond_to_event");
-            var first = candidates.FirstOrDefault();
-            if (first == null)
-                throw new McpException("No enabled account permits respond to event");
-            account = first;
-        }
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, Models.AccountPermission.CalendarWrite);
 
         try
         {
             // Respond to event
             var provider = providerFactory.GetProvider(account.Provider);
             await provider.RespondToEventAsync(
-                account.Id, calendarId ?? "primary", eventId, response, comment, CancellationToken.None);
+                account.Id, calendarId ?? "primary", rawEventId, response, comment, CancellationToken.None);
 
             var result = new
             {
@@ -83,6 +65,10 @@ public sealed class RespondToEventTool(
             {
                 WriteIndented = true
             });
+        }
+        catch (McpException ex) when (EventRef.Quotes(ex, rawEventId))
+        {
+            throw EventRef.Requote(ex, eventId, rawEventId);
         }
         catch (Exception ex) when (ex is not McpException)
         {

@@ -103,35 +103,6 @@ public sealed class CalendarActionToolTests
         }
     }
 
-    [TestMethod]
-    public void WithEventRefs_ReplacesProviderIdWithDecodableReference()
-    {
-        const string upstream = """
-            {"timezone":"UTC","events":[{"id":"raw-1","accountId":"acct","subject":"Standup","start_date":null}]}
-            """;
-
-        var rewritten = JsonNode.Parse(CalendarActionTool.WithEventRefs(upstream))!;
-        var evt = rewritten["events"]![0]!.AsObject();
-
-        Assert.IsFalse(evt.ContainsKey("id"), "The raw provider id must not reach the caller.");
-        Assert.AreEqual("acct", evt["accountId"]!.GetValue<string>());
-        Assert.AreEqual("Standup", evt["subject"]!.GetValue<string>());
-        Assert.IsTrue(evt.ContainsKey("start_date"), "Fields upstream adds must pass through untouched.");
-        Assert.IsTrue(EventRef.TryDecode(evt["eventId"]!.GetValue<string>(), out var accountId, out var eventId));
-        Assert.AreEqual("acct", accountId);
-        Assert.AreEqual("raw-1", eventId);
-    }
-
-    [TestMethod]
-    [DataRow("""{"events":[{"eventId":"x","accountId":"acct"}]}""")]
-    [DataRow("""{"events":[{"id":"raw-1","accountId":"acct","eventId":"upstream-own"}]}""")]
-    [DataRow("""{"events":[{"id":42,"accountId":"acct"}]}""")]
-    [DataRow("""{"items":[]}""")]
-    public void WithEventRefs_FailsLoudlyWhenUpstreamShapeChanges(string upstream)
-    {
-        Assert.ThrowsExactly<InvalidOperationException>(() => CalendarActionTool.WithEventRefs(upstream));
-    }
-
     private static CalendarActionTool CreateTool(IServiceProvider services) =>
         new(services);
 

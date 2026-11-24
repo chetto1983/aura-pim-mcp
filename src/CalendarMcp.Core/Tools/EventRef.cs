@@ -1,14 +1,16 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ModelContextProtocol;
 
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
 /// Opaque calendar-event reference minted by <c>get_calendar_events</c> and
-/// consumed only by <c>get_calendar_event_details</c> (MCP-05, D-20). Encodes
-/// the account id alongside the provider's own event id so the detail action
-/// never asks the caller for an <c>accountId</c> -- the account is resolved
+/// consumed by <c>get_calendar_event_details</c>, <c>update_event</c>, <c>delete_event</c> and
+/// <c>respond_to_event</c> (MCP-05, D-20). Encodes
+/// the account id alongside the provider's own event id so those tools
+/// never ask the caller for an <c>accountId</c> -- the account is resolved
 /// server-side from the reference itself, and a missing or malformed
 /// reference is rejected outright rather than silently resolved against a
 /// default account.
@@ -72,4 +74,27 @@ internal static class EventRef
             return false;
         }
     }
+
+    /// <summary>
+    /// The account and provider id a caller's reference wraps. A missing or malformed reference
+    /// is rejected, never resolved against a default account.
+    /// </summary>
+    public static (string AccountId, string EventId) Resolve(string? reference)
+    {
+        ToolGuard.RequireNonEmpty(reference, "eventId");
+        if (!TryDecode(reference, out var accountId, out var eventId))
+        {
+            throw new McpException(
+                "eventId is not a valid event reference. Obtain it from the eventId field returned by get_calendar_events or create_event -- do not construct or guess one.");
+        }
+
+        return (accountId, eventId);
+    }
+
+    /// <summary>An error that quotes the provider id quotes the reference instead: the caller only holds that.</summary>
+    public static bool Quotes(McpException error, string eventId) =>
+        error.Message.Contains(eventId, StringComparison.Ordinal);
+
+    public static McpException Requote(McpException error, string reference, string eventId) =>
+        new(error.Message.Replace(eventId, reference, StringComparison.Ordinal), error);
 }

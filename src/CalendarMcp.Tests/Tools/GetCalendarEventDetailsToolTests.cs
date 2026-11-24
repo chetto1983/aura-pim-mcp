@@ -13,6 +13,7 @@ namespace CalendarMcp.Tests.Tools;
 public class GetCalendarEventDetailsToolTests
 {
     private const string TestTimeZone = "America/Chicago";
+    private static readonly string Reference = EventRef.Encode("acc-1", "ev-1");
 
     [TestMethod]
     public async Task GetCalendarEventDetails_InvalidTimeZone_ThrowsMcpException()
@@ -23,12 +24,12 @@ public class GetCalendarEventDetailsToolTests
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetCalendarEventDetails("Invalid/Zone", "acc-1", "cal-1", "ev-1"));
+            () => tool.GetCalendarEventDetails("Invalid/Zone", "cal-1", Reference));
         Assert.IsTrue(ex.Message.Contains("Invalid IANA timezone"));
     }
 
     [TestMethod]
-    public async Task GetCalendarEventDetails_EmptyAccountId_ThrowsMcpException()
+    public async Task GetCalendarEventDetails_RejectsAProviderIdPassedAsReference()
     {
         var regExp = new IAccountRegistryCreateExpectations();
         var factExp = new IProviderServiceFactoryCreateExpectations();
@@ -36,8 +37,8 @@ public class GetCalendarEventDetailsToolTests
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetCalendarEventDetails(TestTimeZone, "", "cal-1", "ev-1"));
-        Assert.AreEqual("accountId is required", ex.Message);
+            () => tool.GetCalendarEventDetails(TestTimeZone, "cal-1", "ev-1"));
+        StringAssert.StartsWith(ex.Message, "eventId is not a valid event reference.");
     }
 
     [TestMethod]
@@ -49,7 +50,7 @@ public class GetCalendarEventDetailsToolTests
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", ""));
+            () => tool.GetCalendarEventDetails(TestTimeZone, "cal-1", ""));
         Assert.AreEqual("eventId is required", ex.Message);
     }
 
@@ -65,7 +66,7 @@ public class GetCalendarEventDetailsToolTests
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetCalendarEventDetails(TestTimeZone, "nonexistent", "cal-1", "ev-1"));
+            () => tool.GetCalendarEventDetails(TestTimeZone, "cal-1", EventRef.Encode("nonexistent", "ev-1")));
         Assert.AreEqual("Account 'nonexistent' not found", ex.Message);
         regExp.Verify();
     }
@@ -73,6 +74,7 @@ public class GetCalendarEventDetailsToolTests
     [TestMethod]
     public async Task GetCalendarEventDetails_EventNotFound_ThrowsMcpException()
     {
+        var missing = EventRef.Encode("acc-1", "missing-ev");
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
 
         var regExp = new IAccountRegistryCreateExpectations();
@@ -80,7 +82,7 @@ public class GetCalendarEventDetailsToolTests
             .ReturnValue(Task.FromResult<AccountInfo?>(account));
 
         var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.GetCalendarEventDetailsAsync("acc-1", "cal-1", "missing", Arg.Any<CancellationToken>())
+        provExp.Setups.GetCalendarEventDetailsAsync("acc-1", "cal-1", "missing-ev", Arg.Any<CancellationToken>())
             .ReturnValue(Task.FromResult<CalendarEvent?>(null));
 
         var factExp = new IProviderServiceFactoryCreateExpectations();
@@ -90,8 +92,10 @@ public class GetCalendarEventDetailsToolTests
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", "missing"));
+            () => tool.GetCalendarEventDetails(TestTimeZone, "cal-1", missing));
         Assert.IsTrue(ex.Message.Contains("not found"));
+        StringAssert.Contains(ex.Message, missing);
+        Assert.DoesNotContain("missing-ev", ex.Message);
         regExp.Verify();
         factExp.Verify();
         provExp.Verify();
@@ -119,10 +123,13 @@ public class GetCalendarEventDetailsToolTests
         var tool = new GetCalendarEventDetailsTool(regExp.Instance(), factExp.Instance(),
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
-        var result = await tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", "ev-1");
+        var result = await tool.GetCalendarEventDetails(TestTimeZone, "cal-1", Reference);
         var doc = JsonDocument.Parse(result);
 
-        Assert.AreEqual("ev-1", doc.RootElement.GetProperty("id").GetString());
+        Assert.AreEqual(Reference, doc.RootElement.GetProperty("eventId").GetString());
+        Assert.AreEqual("eventId", doc.RootElement.EnumerateObject().First().Name);
+        Assert.IsFalse(doc.RootElement.TryGetProperty("id", out _));
+        Assert.IsFalse(doc.RootElement.TryGetProperty("accountId", out _));
         Assert.AreEqual("Team Standup", doc.RootElement.GetProperty("subject").GetString());
         Assert.AreEqual(TestTimeZone, doc.RootElement.GetProperty("timezone").GetString());
 
@@ -169,7 +176,7 @@ public class GetCalendarEventDetailsToolTests
         var tool = new GetCalendarEventDetailsTool(regExp.Instance(), factExp.Instance(),
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
-        return JsonDocument.Parse(await tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", "ev-1")).RootElement.Clone();
+        return JsonDocument.Parse(await tool.GetCalendarEventDetails(TestTimeZone, "cal-1", Reference)).RootElement.Clone();
     }
 
     /// <summary>A stranger's invitation lands on the calendar with no one accepting it, so its body is a mail's.</summary>
@@ -225,7 +232,7 @@ public class GetCalendarEventDetailsToolTests
         var tool = new GetCalendarEventDetailsTool(regExp.Instance(), factExp.Instance(),
             NullLogger<GetCalendarEventDetailsTool>.Instance);
 
-        var result = await tool.GetCalendarEventDetails(TestTimeZone, "acc-1", "cal-1", "all-day");
+        var result = await tool.GetCalendarEventDetails(TestTimeZone, "cal-1", EventRef.Encode("acc-1", "all-day"));
         var root = JsonDocument.Parse(result).RootElement;
 
         Assert.AreEqual("2026-09-23", root.GetProperty("start_date").GetString());
@@ -235,4 +242,8 @@ public class GetCalendarEventDetailsToolTests
         Assert.AreEqual("2026-09-23T05:00:00Z", root.GetProperty("start_utc").GetString());
         provExp.Verify();
     }
+
+    [TestMethod]
+    public void GetCalendarEventDetails_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId(typeof(GetCalendarEventDetailsTool), nameof(GetCalendarEventDetailsTool.GetCalendarEventDetails));
 }

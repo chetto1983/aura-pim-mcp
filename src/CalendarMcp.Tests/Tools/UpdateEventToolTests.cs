@@ -12,11 +12,12 @@ namespace CalendarMcp.Tests.Tools;
 [TestClass]
 public class UpdateEventToolTests
 {
+    private static readonly string Reference = EventRef.Encode("acc-1", "ev-1");
     private static readonly DateTime Start = new(2025, 6, 1, 10, 0, 0);
     private static readonly DateTime End = new(2025, 6, 1, 11, 0, 0);
 
     [TestMethod]
-    public async Task UpdateEvent_Success()
+    public async Task UpdateEvent_ForwardsTheDecodedEventAndEchoesTheReference()
     {
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
 
@@ -37,11 +38,12 @@ public class UpdateEventToolTests
         var tool = new UpdateEventTool(regExp.Instance(), factExp.Instance(),
             NullLogger<UpdateEventTool>.Instance);
 
-        var result = await tool.UpdateEvent("acc-1", "cal-1", "ev-1", subject: "Updated", start: Start, end: End, timeZone: "America/Chicago");
+        var result = await tool.UpdateEvent("cal-1", Reference, subject: "Updated", start: Start, end: End, timeZone: "America/Chicago");
         var doc = JsonDocument.Parse(result);
 
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.AreEqual("ev-1", doc.RootElement.GetProperty("eventId").GetString());
+        Assert.AreEqual(Reference, doc.RootElement.GetProperty("eventId").GetString());
+        Assert.DoesNotContain("\"ev-1\"", result);
 
         regExp.Verify();
         factExp.Verify();
@@ -60,7 +62,7 @@ public class UpdateEventToolTests
             NullLogger<UpdateEventTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.UpdateEvent("nonexistent", "cal-1", "ev-1"));
+            () => tool.UpdateEvent("cal-1", EventRef.Encode("nonexistent", "ev-1")));
         Assert.AreEqual("Account 'nonexistent' not found", ex.Message);
         regExp.Verify();
     }
@@ -76,7 +78,7 @@ public class UpdateEventToolTests
             NullLogger<UpdateEventTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.UpdateEvent("acc-1", "cal-1", "ev-1", start: Start, isAllDay: isAllDay));
+            () => tool.UpdateEvent("cal-1", Reference, start: Start, isAllDay: isAllDay));
 
         Assert.AreEqual("isAllDay requires both start and end.", ex.Message);
     }
@@ -104,10 +106,25 @@ public class UpdateEventToolTests
             NullLogger<UpdateEventTool>.Instance);
 
         // Start and End share a date (10:00-11:00), so this becomes a one-day event.
-        await tool.UpdateEvent("acc-1", "cal-1", "ev-1", start: Start, end: End, isAllDay: true);
+        await tool.UpdateEvent("cal-1", Reference, start: Start, end: End, isAllDay: true);
 
         regExp.Verify();
         factExp.Verify();
         provExp.Verify();
     }
+
+    [TestMethod]
+    public async Task UpdateEvent_RejectsAProviderIdPassedAsReference()
+    {
+        var tool = new UpdateEventTool(new IAccountRegistryCreateExpectations().Instance(),
+            new IProviderServiceFactoryCreateExpectations().Instance(), NullLogger<UpdateEventTool>.Instance);
+
+        var ex = await Assert.ThrowsExactlyAsync<McpException>(() => tool.UpdateEvent("cal-1", "ev-1"));
+
+        StringAssert.StartsWith(ex.Message, "eventId is not a valid event reference.");
+    }
+
+    [TestMethod]
+    public void UpdateEvent_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId(typeof(UpdateEventTool), nameof(UpdateEventTool.UpdateEvent));
 }

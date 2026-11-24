@@ -109,7 +109,9 @@ public class GetCalendarEventsToolTests
         var eventsArray = doc.RootElement.GetProperty("events");
 
         Assert.AreEqual(1, eventsArray.GetArrayLength());
-        Assert.AreEqual("ev1", eventsArray[0].GetProperty("id").GetString());
+        Assert.AreEqual(EventRef.Encode("acc-1", "ev1"), eventsArray[0].GetProperty("eventId").GetString());
+        Assert.IsFalse(eventsArray[0].TryGetProperty("id", out _), "The raw provider id must not reach the caller.");
+        Assert.AreEqual("ev1", eventsArray[0].RawId());
         Assert.AreEqual(TestTimeZone, doc.RootElement.GetProperty("timezone").GetString());
 
         // Verify UTC and local time fields are present
@@ -176,8 +178,8 @@ public class GetCalendarEventsToolTests
 
         // Events from both accounts are merged and sorted by start time (ev2 is earlier).
         Assert.AreEqual(2, eventsArray.GetArrayLength());
-        Assert.AreEqual("ev2", eventsArray[0].GetProperty("id").GetString());
-        Assert.AreEqual("ev1", eventsArray[1].GetProperty("id").GetString());
+        Assert.AreEqual("ev2", eventsArray[0].RawId());
+        Assert.AreEqual("ev1", eventsArray[1].RawId());
 
         regExp.Verify();
         factExp.Verify();
@@ -216,7 +218,7 @@ public class GetCalendarEventsToolTests
         var eventsArray = doc.RootElement.GetProperty("events");
 
         Assert.AreEqual(1, eventsArray.GetArrayLength());
-        Assert.AreEqual("ev1", eventsArray[0].GetProperty("id").GetString());
+        Assert.AreEqual("ev1", eventsArray[0].RawId());
 
         regExp.Verify();
         factExp.Verify();
@@ -315,7 +317,7 @@ public class GetCalendarEventsToolTests
         var doc = JsonDocument.Parse(result);
 
         Assert.AreEqual(1, doc.RootElement.GetProperty("events").GetArrayLength());
-        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].GetProperty("id").GetString());
+        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].RawId());
         Assert.AreEqual("primary", doc.RootElement.GetProperty("events")[0].GetProperty("calendarId").GetString());
         // No "not found" warning for the primary alias.
         Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
@@ -443,7 +445,7 @@ public class GetCalendarEventsToolTests
         var doc = JsonDocument.Parse(result);
 
         Assert.AreEqual(1, doc.RootElement.GetProperty("events").GetArrayLength());
-        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].GetProperty("id").GetString());
+        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].RawId());
         Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
 
         regExp.Verify();
@@ -490,7 +492,7 @@ public class GetCalendarEventsToolTests
         var eventsArray = doc.RootElement.GetProperty("events");
 
         Assert.AreEqual(1, eventsArray.GetArrayLength());
-        Assert.AreEqual("ev1", eventsArray[0].GetProperty("id").GetString());
+        Assert.AreEqual("ev1", eventsArray[0].RawId());
         Assert.AreEqual(TestTimeZone, doc.RootElement.GetProperty("timezone").GetString());
 
         regExp.Verify();
@@ -596,7 +598,7 @@ public class GetCalendarEventsToolTests
         var doc = JsonDocument.Parse(result);
 
         Assert.AreEqual(1, doc.RootElement.GetProperty("events").GetArrayLength());
-        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].GetProperty("id").GetString());
+        Assert.AreEqual("ev1", doc.RootElement.GetProperty("events")[0].RawId());
         // No spurious warning for the skipped email-only account.
         Assert.AreEqual(JsonValueKind.Null, doc.RootElement.GetProperty("warnings").ValueKind);
 
@@ -755,8 +757,8 @@ public class GetCalendarEventsToolTests
         var result = await tool.GetCalendarEvents(TestTimeZone, new DateTime(2026, 9, 22), new DateTime(2026, 9, 23), "acc-1");
         var events = JsonDocument.Parse(result).RootElement.GetProperty("events");
 
-        Assert.AreEqual("evening", events[0].GetProperty("id").GetString());
-        Assert.AreEqual("all-day", events[1].GetProperty("id").GetString());
+        Assert.AreEqual("evening", events[0].RawId());
+        Assert.AreEqual("all-day", events[1].RawId());
     }
 
     [TestMethod]
@@ -819,7 +821,7 @@ public class GetCalendarEventsToolTests
 
     private static string[] EventIds(string result) =>
         JsonDocument.Parse(result).RootElement.GetProperty("events").EnumerateArray()
-            .Select(e => e.GetProperty("id").GetString()!)
+            .Select(e => e.RawId()!)
             .ToArray();
 
     [TestMethod]

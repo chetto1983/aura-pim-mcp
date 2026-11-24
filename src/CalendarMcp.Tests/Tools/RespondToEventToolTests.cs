@@ -12,6 +12,8 @@ namespace CalendarMcp.Tests.Tools;
 [TestClass]
 public class RespondToEventToolTests
 {
+    private static readonly string Reference = EventRef.Encode("acc-1", "ev-1");
+
     [TestMethod]
     public async Task RespondToEvent_InvalidResponse_ThrowsMcpException()
     {
@@ -21,7 +23,7 @@ public class RespondToEventToolTests
             NullLogger<RespondToEventTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.RespondToEvent("ev-1", "invalid"));
+            () => tool.RespondToEvent(Reference, "invalid"));
         Assert.IsTrue(ex.Message.Contains("Invalid response type"));
     }
 
@@ -48,10 +50,12 @@ public class RespondToEventToolTests
         var tool = new RespondToEventTool(regExp.Instance(), factExp.Instance(),
             NullLogger<RespondToEventTool>.Instance);
 
-        var result = await tool.RespondToEvent("ev-1", response, "acc-1");
+        var result = await tool.RespondToEvent(Reference, response);
         var doc = JsonDocument.Parse(result);
 
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.AreEqual(Reference, doc.RootElement.GetProperty("eventId").GetString());
+        Assert.DoesNotContain("\"ev-1\"", result);
 
         regExp.Verify();
         factExp.Verify();
@@ -70,8 +74,23 @@ public class RespondToEventToolTests
             NullLogger<RespondToEventTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.RespondToEvent("ev-1", "accept", "nonexistent"));
+            () => tool.RespondToEvent(EventRef.Encode("nonexistent", "ev-1"), "accept"));
         Assert.AreEqual("Account 'nonexistent' not found", ex.Message);
         regExp.Verify();
     }
+
+    [TestMethod]
+    public async Task RespondToEvent_RejectsAProviderIdPassedAsReference()
+    {
+        var tool = new RespondToEventTool(new IAccountRegistryCreateExpectations().Instance(),
+            new IProviderServiceFactoryCreateExpectations().Instance(), NullLogger<RespondToEventTool>.Instance);
+
+        var ex = await Assert.ThrowsExactlyAsync<McpException>(() => tool.RespondToEvent("ev-1", "accept"));
+
+        StringAssert.StartsWith(ex.Message, "eventId is not a valid event reference.");
+    }
+
+    [TestMethod]
+    public void RespondToEvent_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId(typeof(RespondToEventTool), nameof(RespondToEventTool.RespondToEvent));
 }

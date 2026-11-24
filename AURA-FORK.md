@@ -89,12 +89,12 @@ file says the fork does not have, this file wins.
      send with no account by the recipient's domain, out of sight of whoever reviews it; told the account
      was optional, Aura's model left it out on every send. Upstream's `SendEmailTool` keeps its routing.
 
-   - **Events are addressed by an opaque reference** (`CalendarActionTool.Calendar.cs`).
+   - **Events are addressed by an opaque reference** (`EventRef.cs`, minted and resolved inside `GetCalendarEventsTool`,
+     `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool` and `RespondToEventTool`).
      `get_calendar_events` and `create_event` return `eventId = EventRef(accountId, id)`;
      `get_calendar_event_details`, `update_event`, `delete_event` and `respond_to_event` take
      that reference and no `accountId`. Each result echoes the reference, never the provider
-     id, and an upstream error quoting the provider id quotes the reference instead. The
-     rewrite fails loudly if upstream renames an id field or starts emitting its own `eventId`.
+     id, and an error quoting the provider id quotes the reference instead.
    - **Required value-type parameters are checked by the forwarder.** Every parameter of the
      multiplexed schema is optional, so where upstream declares a non-nullable value type
      (`isRead` on `mark_email_read`/`bulk_mark_emails_read`, `start`/`end` on `create_event`)

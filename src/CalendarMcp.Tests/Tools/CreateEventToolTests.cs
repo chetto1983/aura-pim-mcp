@@ -16,7 +16,7 @@ public class CreateEventToolTests
     private static readonly DateTime End = new(2025, 6, 1, 11, 0, 0);
 
     [TestMethod]
-    public async Task CreateEvent_SpecificAccount_Success()
+    public async Task CreateEvent_ReturnsAReferenceToTheCreatedEvent()
     {
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
 
@@ -40,7 +40,8 @@ public class CreateEventToolTests
         var doc = JsonDocument.Parse(result);
 
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.AreEqual("new-event-id", doc.RootElement.GetProperty("eventId").GetString());
+        Assert.AreEqual(EventRef.Encode("acc-1", "new-event-id"), doc.RootElement.GetProperty("eventId").GetString());
+        Assert.DoesNotContain("\"new-event-id\"", result);
 
         regExp.Verify();
         factExp.Verify();
@@ -90,6 +91,7 @@ public class CreateEventToolTests
 
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
         Assert.AreEqual("acc-1", doc.RootElement.GetProperty("accountUsed").GetString());
+        Assert.AreEqual(EventRef.Encode("acc-1", "ev-id"), doc.RootElement.GetProperty("eventId").GetString());
 
         regExp.Verify();
         factExp.Verify();
@@ -140,7 +142,7 @@ public class CreateEventToolTests
             new DateTime(2026, 10, 1, startHour, 0, 0), new DateTime(2026, 10, endDay, endHour, 0, 0),
             "acc-1", timeZone: "America/Chicago", isAllDay: true);
 
-        Assert.AreEqual("all-day-id", JsonDocument.Parse(result).RootElement.GetProperty("eventId").GetString());
+        Assert.AreEqual(EventRef.Encode("acc-1", "all-day-id"), JsonDocument.Parse(result).RootElement.GetProperty("eventId").GetString());
         regExp.Verify();
         factExp.Verify();
         provExp.Verify();
