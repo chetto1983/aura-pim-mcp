@@ -81,7 +81,7 @@ All tools from `/docs/mcp-tools.md` implemented:
 3. **search_emails**: Search emails across accounts
 4. **list_calendars**: List calendars from accounts
 5. **get_calendar_events**: Get calendar events with date ranges
-6. **send_email**: Send email with smart domain-based routing
+6. **send_email**: Send email from the account the caller names (`accountId` required)
 7. **create_event**: Create calendar events
 8. **get_contacts**: Get contacts from specific or all accounts
 9. **search_contacts**: Search contacts across accounts
@@ -94,7 +94,7 @@ Each tool includes:
 - Proper MCP protocol implementation
 - JSON schema for parameters
 - Multi-account parallel execution
-- Smart routing (for write operations)
+- Write operations without an `accountId` fall back to the first account that permits the write
 - Error handling
 - Structured logging
 
@@ -116,19 +116,13 @@ Updated `CalendarMcp.StdioServer` to:
 
 ### Multi-Account Aggregation
 - **Read operations** (get_emails, list_calendars, get_calendar_events, get_contacts): Query all enabled accounts in parallel using `Task.WhenAll`, merge and sort results
-- **Write operations** (create_event, create_contact): Smart routing to select ONE account based on domain matching or priority
+- **Write operations** (create_event, create_contact): With an `accountId`, that account; without one, the first enabled account that permits the write. send_email requires the `accountId`
 
 ### Provider Isolation
 - Each provider service manages multiple accounts of its type
 - Account ID required for all operations
 - Provider factory routes to correct provider based on account type
 - Stub implementations ready for real provider integration
-
-### Smart Routing
-- Extract recipient domain from email address
-- Match against account domains configuration
-- Use priority when multiple accounts match
-- Fall back to first enabled account
 
 ## Current Status
 
@@ -198,7 +192,7 @@ Created a complete, well-structured prototype implementation with:
 - ✅ All 7 MCP tools specified in documentation
 - ✅ Multi-provider architecture (M365, Google, Outlook.com)
 - ✅ Multi-account support with parallel aggregation
-- ✅ Smart routing for write operations
+- ✅ First-permitted-account fallback for write operations (create_event, create_contact)
 - ✅ Configuration system
 - ✅ Dependency injection throughout
 - ✅ Comprehensive models and interfaces

@@ -189,7 +189,6 @@ public sealed class CalendarActionToolTests
         public Task<AccountInfo?> GetAccountAsync(string accountId) => Task.FromResult<AccountInfo?>(null);
         public IEnumerable<AccountInfo> GetEnabledAccounts() => [];
         public IEnumerable<AccountInfo> GetAccountsByProvider(string provider) => [];
-        public IEnumerable<AccountInfo> GetAccountsByDomain(string domain) => [];
     }
 
     private sealed class RejectingProviderFactory : IProviderServiceFactory

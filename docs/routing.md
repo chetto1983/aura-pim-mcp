@@ -1,5 +1,7 @@
 # Smart Router
 
+> Design document. No router is implemented in this codebase: a write tool without an `accountId` uses the first enabled account that permits the write, and `send_email` requires the `accountId`.
+
 ## Overview
 
 The Smart Router determines which account(s) should handle a request when the user doesn't explicitly specify an account. It uses configurable LLM backends for intelligent classification.
@@ -114,7 +116,7 @@ RULES:
 3. For personal keywords, prefer personal accounts
 4. If unclear, use the default account
 5. For read operations (get_emails, list_calendars, get_contacts), you can return multiple accounts
-6. For write operations (send_email, create_event, create_contact), return exactly ONE account
+6. For write operations (create_event, create_contact), return exactly ONE account
 
 OUTPUT FORMAT (JSON):
 {
@@ -177,12 +179,11 @@ Request: {
 ### Example 5: Write Operation Disambiguation
 ```json
 Request: {
-  "tool": "send_email",
-  "to": "colleague@company.com",
-  "body": "Meeting notes..."
+  "tool": "create_contact",
+  "displayName": "Colleague",
+  "email": "colleague@company.com"
 }
 → Write operation requires single account
-→ Extract domain: "company.com"
 → Router decision: "company-work"
 → Strategy: "domain"
 ```

@@ -96,7 +96,7 @@ graph TD
 
 ### Phase 2 - Write Operations
 - Send email from the account the caller names
-- Create calendar events in appropriate calendar (with smart routing)
+- Create calendar events in a named calendar (first permitted account when none is named)
 - Email threading and conversation tracking
 - Advanced search with filters and date ranges
 

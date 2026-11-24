@@ -385,7 +385,6 @@ public class DavUserJourneyTests
         public Task<IEnumerable<AccountInfo>> GetAllAccountsAsync() => Task.FromResult<IEnumerable<AccountInfo>>([Account]);
         public IEnumerable<AccountInfo> GetEnabledAccounts() => [Account];
         public IEnumerable<AccountInfo> GetAccountsByProvider(string provider) => [Account];
-        public IEnumerable<AccountInfo> GetAccountsByDomain(string domain) => [Account];
     }
     private sealed class CaptureLogger : ILogger<DavHttpClient>
     {

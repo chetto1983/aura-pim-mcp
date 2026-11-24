@@ -173,7 +173,7 @@ from `CALENDAR_MCP_TENANT_ID`. A top-level `TenantId` is not the same field as
 **Optional Fields**:
 - `enabled` (default: true): Enable/disable account
 - `priority` (default: 999): Priority for ambiguous routing decisions
-- `domains`: Email domains for smart routing (e.g., ["company.com"])
+- `domains`: Email domains this account owns (e.g., ["company.com"]); informational: `list_accounts` and the contextual email summary show them, no tool routes by them
 
 ### Google Workspace / Gmail Accounts
 

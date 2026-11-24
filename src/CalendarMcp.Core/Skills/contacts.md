@@ -28,8 +28,8 @@ numbers, addresses, and notes.
 
 - `displayName` is required.
 - `email` and `phone` accept a single value or a comma-separated list.
-- Omitting `accountId` falls back to "first configured account" or
-  smart routing — pass it explicitly if you care which account ends up
+- Omitting `accountId` falls back to the first account that permits
+  contact writes — pass it explicitly if you care which account ends up
   with the contact.
 
 ### `update_contact(accountId, contactId, ...)`

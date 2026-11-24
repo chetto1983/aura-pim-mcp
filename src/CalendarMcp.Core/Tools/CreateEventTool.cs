@@ -16,7 +16,7 @@ public sealed class CreateEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<CreateEventTool> logger)
 {
-    [McpServerTool, Description("Create a calendar event. Returns eventId, an opaque reference to pass byte for byte to update_event, delete_event, respond_to_event or get_calendar_event_details. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) so events are created at the correct local time. Requires explicit account selection or smart routing.")]
+    [McpServerTool, Description("Create a calendar event. Returns eventId, an opaque reference to pass byte for byte to update_event, delete_event, respond_to_event or get_calendar_event_details. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) so events are created at the correct local time. Without accountId, the first account that permits calendar writes is used.")]
     public async Task<string> CreateEvent(
         [Description("Event subject/title")] string subject,
         [Description("Event start date and time (ISO 8601 format). For an all-day event, a date (yyyy-MM-dd).")] DateTime start,

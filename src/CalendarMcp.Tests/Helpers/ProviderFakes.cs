@@ -18,7 +18,6 @@ internal sealed class SingleAccountRegistry(params AccountInfo[] accounts) : IAc
 
     public IEnumerable<AccountInfo> GetAccountsByProvider(string provider) => accounts.Where(a => a.Provider == provider);
 
-    public IEnumerable<AccountInfo> GetAccountsByDomain(string domain) => accounts.Where(a => a.Domains.Contains(domain));
 }
 
 /// <summary>A signed-in Microsoft account whose token never expires.</summary>

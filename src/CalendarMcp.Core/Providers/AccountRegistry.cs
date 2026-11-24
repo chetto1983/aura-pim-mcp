@@ -101,12 +101,6 @@ public class AccountRegistry : IAccountRegistry, IDisposable
             string.Equals(a.Provider, provider, StringComparison.OrdinalIgnoreCase));
     }
 
-    public IEnumerable<AccountInfo> GetAccountsByDomain(string domain)
-    {
-        return TenantAccounts().Where(a =>
-            a.Domains.Any(d => string.Equals(d, domain, StringComparison.OrdinalIgnoreCase)));
-    }
-
     public void Dispose()
     {
         _changeSubscription?.Dispose();

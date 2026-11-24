@@ -58,7 +58,7 @@ Configuration-based mapping of accounts to providers and credentials:
   - Unique account ID
   - Provider type (microsoft365, outlook.com, google)
   - Display name for user reference
-  - Email domains for smart routing
+  - Email domains this account owns (informational)
   - Priority for ambiguous routing decisions
   - Provider-specific configuration (tenant ID, client ID, etc.)
 - Persisted in JSON configuration files

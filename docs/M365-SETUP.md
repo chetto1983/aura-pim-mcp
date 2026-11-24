@@ -131,8 +131,8 @@ The CLI will ask for:
    - Format: `87654321-4321-4321-4321-cba987654321`
 
 5. **Email Domains** (optional, e.g., "example.com,company.com")
-   - Comma-separated list of email domains for smart routing
-   - Leave empty if not using smart routing
+   - Comma-separated list of email domains this account owns
+   - Informational only (shown by `list_accounts`); no tool routes by it
 
 6. **Priority** (default: 0)
    - Higher priority accounts preferred when multiple match

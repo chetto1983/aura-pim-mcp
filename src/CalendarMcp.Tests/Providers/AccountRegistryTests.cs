@@ -117,30 +117,6 @@ public class AccountRegistryTests
     }
 
     [TestMethod]
-    public void GetAccountsByDomain_FiltersCorrectly()
-    {
-        var acc1 = TestData.CreateAccount(id: "work", domains: ["work.com"]);
-        var acc2 = TestData.CreateAccount(id: "personal", domains: ["personal.com"]);
-        using var registry = CreateRegistry(acc1, acc2);
-
-        var accounts = registry.GetAccountsByDomain("work.com").ToList();
-
-        Assert.AreEqual(1, accounts.Count);
-        Assert.AreEqual("work", accounts[0].Id);
-    }
-
-    [TestMethod]
-    public void GetAccountsByDomain_CaseInsensitive()
-    {
-        var acc = TestData.CreateAccount(id: "acc", domains: ["Example.COM"]);
-        using var registry = CreateRegistry(acc);
-
-        var accounts = registry.GetAccountsByDomain("example.com").ToList();
-
-        Assert.AreEqual(1, accounts.Count);
-    }
-
-    [TestMethod]
     public async Task GetAllAccountsAsync_Empty_ReturnsEmpty()
     {
         using var registry = CreateRegistry();

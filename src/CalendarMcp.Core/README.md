@@ -42,7 +42,7 @@ This is the core class library for the Adjutant server implementation, containin
 ### Multi-Account Support
 - Query multiple accounts in parallel
 - Account-specific provider isolation
-- Smart routing based on email domains
+- Write tools without an `accountId` fall back to the first account that permits the write
 
 ### MCP Tool Implementation
 All tools implement the MCP protocol using:

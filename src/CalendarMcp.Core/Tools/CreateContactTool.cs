@@ -16,10 +16,10 @@ public sealed class CreateContactTool(
     IProviderServiceFactory providerFactory,
     ILogger<CreateContactTool> logger)
 {
-    [McpServerTool, Description("Create a new contact in a specific account (requires explicit account selection or smart routing)")]
+    [McpServerTool, Description("Create a new contact in a specific account. Without accountId, the first account that permits contact writes is used.")]
     public async Task<string> CreateContact(
         [Description("Contact display name")] string displayName,
-        [Description("Specific account ID, or omit for smart routing")] string? accountId = null,
+        [Description("Specific account ID, or omit to use the first account that permits contact writes")] string? accountId = null,
         [Description("First/given name")] string? givenName = null,
         [Description("Last/family name")] string? surname = null,
         [Description("Email address (or comma-separated list)")] string? email = null,

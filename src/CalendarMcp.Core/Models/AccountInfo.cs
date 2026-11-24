@@ -27,7 +27,7 @@ public class AccountInfo
     public required string Provider { get; init; }
 
     /// <summary>
-    /// Email domains associated with this account for smart routing (e.g., ["example.com"])
+    /// Email domains associated with this account (e.g., ["example.com"]); informational, shown by list_accounts and the contextual summary
     /// </summary>
     public List<string> Domains { get; init; } = new();
 

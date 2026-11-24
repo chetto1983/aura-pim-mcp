@@ -33,7 +33,7 @@ public class GetEmailAttachmentToolTests
             NullLogger<InMemoryAttachmentStore>.Instance,
             tenantContext);
 
-        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
+        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store, Options.Create(new AttachmentStoreOptions()),
             NullLogger<GetEmailAttachmentTool>.Instance);
 
         var json = Text(await tool.GetEmailAttachment("acc-1", "msg-1", "graph-att-1"));
@@ -69,7 +69,7 @@ public class GetEmailAttachmentToolTests
             Options.Create(new AttachmentStoreOptions()),
             NullLogger<InMemoryAttachmentStore>.Instance,
             tenantContext);
-        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
+        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store, Options.Create(new AttachmentStoreOptions()),
             NullLogger<GetEmailAttachmentTool>.Instance);
 
         object answer = await tool.GetEmailAttachment("acc-1", "msg-1", "att-1");
@@ -86,42 +86,40 @@ public class GetEmailAttachmentToolTests
     }
 
     [TestMethod]
-    public async Task InlineMode_UnderCap_ReturnsBase64()
+    public void GetEmailAttachment_DescriptionsOfferALinkAndNoInlineBytes()
     {
-        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
-        var bytes = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
-        var (regExp, factExp, _) = WireProviderForFetch(
-            account, "msg-1", "att-1",
-            new EmailAttachmentContent { Name = "x.bin", ContentType = "application/octet-stream", Bytes = bytes });
+        var method = typeof(GetEmailAttachmentTool).GetMethod(nameof(GetEmailAttachmentTool.GetEmailAttachment))!;
+        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
 
-        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(),
-            new TestAttachmentStore(), NullLogger<GetEmailAttachmentTool>.Instance);
-
-        var json = Text(await tool.GetEmailAttachment("acc-1", "msg-1", "att-1", "inline"));
-
-        var doc = JsonDocument.Parse(json).RootElement;
-        Assert.AreEqual("x.bin", doc.GetProperty("name").GetString());
-        CollectionAssert.AreEqual(bytes,
-            Convert.FromBase64String(doc.GetProperty("base64Content").GetString()!));
+        var parameters = method.GetParameters().Select(p => p.Name).ToList();
+        CollectionAssert.DoesNotContain(parameters, "mode");
+        StringAssert.Contains(tool.ProtocolTool.Description!, "attachment://");
+        Assert.DoesNotContain("inline", tool.ProtocolTool.Description!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no MCP tool for downloading", tool.ProtocolTool.Description!, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
-    public async Task InlineMode_OverCap_ThrowsMcpException()
+    public async Task StoreFull_SaysTheCapAndTheTtlAndOffersNoInlineMode()
     {
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
-        // 2 MB > 1 MB inline cap.
-        var bytes = new byte[2 * 1024 * 1024];
         var (regExp, factExp, _) = WireProviderForFetch(
             account, "msg-1", "att-1",
-            new EmailAttachmentContent { Name = "big.bin", ContentType = null, Bytes = bytes });
-
-        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(),
-            new TestAttachmentStore(), NullLogger<GetEmailAttachmentTool>.Instance);
+            new EmailAttachmentContent { Name = "big.bin", ContentType = null, Bytes = new byte[8] });
+        var options = new AttachmentStoreOptions { MaxBytesPerAttachment = 4 };
+        var tenantContext = new TenantContext();
+        using var tenantBinding = tenantContext.Bind(TestData.TenantA);
+        var store = new InMemoryAttachmentStore(
+            Options.Create(options), NullLogger<InMemoryAttachmentStore>.Instance, tenantContext);
+        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
+            Options.Create(options), NullLogger<GetEmailAttachmentTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetEmailAttachment("acc-1", "msg-1", "att-1", "inline"));
-        Assert.IsTrue(ex.Message.Contains("inline mode is capped", StringComparison.Ordinal));
-        Assert.IsTrue(ex.Message.Contains("stash", StringComparison.Ordinal));
+            () => tool.GetEmailAttachment("acc-1", "msg-1", "att-1"));
+
+        StringAssert.Contains(ex.Message, "Could not stash the attachment");
+        StringAssert.Contains(ex.Message, $"{options.MaxBytesPerAttachment / (1024 * 1024)} MiB per-attachment limit");
+        StringAssert.Contains(ex.Message, $"within {(int)options.Ttl.TotalMinutes} minutes");
+        Assert.DoesNotContain("inline", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
@@ -131,24 +129,11 @@ public class GetEmailAttachmentToolTests
         var (regExp, factExp, _) = WireProviderForFetch(account, "msg-1", "missing", null);
 
         var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(),
-            new TestAttachmentStore(), NullLogger<GetEmailAttachmentTool>.Instance);
+            new TestAttachmentStore(), Options.Create(new AttachmentStoreOptions()), NullLogger<GetEmailAttachmentTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.GetEmailAttachment("acc-1", "msg-1", "missing"));
         Assert.IsTrue(ex.Message.Contains("not found", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
-    public async Task InvalidMode_ThrowsMcpException()
-    {
-        var regExp = new IAccountRegistryCreateExpectations();
-        var factExp = new IProviderServiceFactoryCreateExpectations();
-        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(),
-            new TestAttachmentStore(), NullLogger<GetEmailAttachmentTool>.Instance);
-
-        var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.GetEmailAttachment("acc-1", "msg-1", "att-1", "weird"));
-        Assert.IsTrue(ex.Message.Contains("invalid", StringComparison.OrdinalIgnoreCase));
     }
 
     private static (
