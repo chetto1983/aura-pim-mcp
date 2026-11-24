@@ -41,8 +41,8 @@ Use these fields to decide what's possible before calling other tools:
   verbatim; don't reformat or guess.
 - **`provider`** — informs behavior (Gmail uses labels, M365 uses folders,
   ICS is read-only, etc.). See `providers` for details.
-- **`domains`** — the email domains this account "owns." Used by
-  smart-routing in `send_email`.
+- **`domains`** — the email domains this account "owns." `send_email`
+  does not pick an account from them: it always needs the `accountId`.
 - **`capabilities`** — which categories the account supports and whether
   they are read-only. Always check this before calling a write tool.
 
@@ -64,10 +64,11 @@ strings:
 ## Always pass `accountId` explicitly
 
 Most tools accept `accountId` as optional. When you omit it, the server
-either targets the first configured account or uses smart routing — both
-can silently target the wrong account. Treat the `accountId` parameter as
-effectively required for any tool that writes data
-(`send_email`, `create_event`, `create_contact`, `delete_email`, etc.).
+may target the first configured account, which can silently be the wrong
+one. `send_email` goes further: its `accountId` is required and a send
+without it is refused. Treat `accountId` as effectively required for any
+other tool that writes data too
+(`create_event`, `create_contact`, `delete_email`, etc.).
 
 The exceptions where omitting `accountId` is fine:
 
@@ -96,20 +97,12 @@ if !capability || capability.readOnly == true:
 This avoids calling `create_event` against an `ics` or `json` account,
 which will fail at the provider layer with a less helpful message.
 
-## Smart routing in `send_email`
+## Choosing the account for `send_email`
 
-`send_email` accepts a missing `accountId`. When omitted:
-
-1. Extract domain from the first recipient (`to[0]` after `@`).
-2. Look up accounts whose `domains` array contains that domain.
-3. If exactly one matches, send from it.
-4. If multiple match, the first one is used (deterministic but arbitrary).
-5. If none match, the first configured account is used as fallback.
-
-This is convenient for casual replies but **unsafe for production
-workflows** — always pass `accountId` when correctness matters (e.g.
-sending from a specific persona, replying within the same account that
-received the original).
+`send_email` requires `accountId`; a call without it is refused and nothing
+is sent. The server never picks a sender from the recipient's domain. Call
+`list_accounts` and pass the account's `accountId`. When the user has more
+than one account and has not said which to send from, ask which.
 
 ## Multi-account fan-out
 

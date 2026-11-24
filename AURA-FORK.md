@@ -85,9 +85,12 @@ file says the fork does not have, this file wins.
    the upstream implementation class, constructed per call through `ActivatorUtilities` (no
    tool class is registered in DI), so upstream fixes reach it without a copy.
 
-   - **`send_email` requires `accountId`** (`CalendarActionTool.Delegated.cs`, 2026-11-23). Upstream routes a
+   - **`send_email` requires `accountId`** (`SendEmailTool.cs`, 2026-11-23). Upstream routes a
      send with no account by the recipient's domain, out of sight of whoever reviews it; told the account
-     was optional, Aura's model left it out on every send. Upstream's `SendEmailTool` keeps its routing.
+     was optional, Aura's model left it out on every send. The class takes a non-nullable `accountId`
+     (first parameter, so the SDK puts it in the schema's `required` list), refuses an empty one with
+     the McpException the tests pin, and has no domain routing or first-account fallback. The curated
+     forwarder no longer repeats the check.
 
    - **Events are addressed by an opaque reference** (`EventRef.cs`, minted and resolved inside `GetCalendarEventsTool`,
      `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool` and `RespondToEventTool`).
@@ -100,11 +103,12 @@ file says the fork does not have, this file wins.
      (`isRead` on `mark_email_read`/`bulk_mark_emails_read`, `start`/`end` on `create_event`)
      the forwarder rejects its absence instead of inventing a value. Required strings, lists
      and arrays pass through: upstream already rejects them when missing.
-   - **Attachments come back as a resource link.** `get_email_attachment` always stashes and
-     returns the stash JSON plus a `resource_link` to `attachment://stash/<attachmentId>`,
+   - **Attachments come back as a resource link.** `GetEmailAttachmentTool.GetEmailAttachment` returns a
+     `CallToolResult`: in stash mode the stash JSON plus a `resource_link` to `attachment://stash/<attachmentId>`
+     (inline mode: the JSON text only). The curated `get_email_attachment` always stashes and forwards that result,
      served by `EmailAttachmentResource` (tenant from the request principal, non-consuming
      `TryRead`, MIME from the file name when the provider gives none or says
-     `application/octet-stream`). The curated schema has no `mode`; upstream's tool class
+     `application/octet-stream`). The curated schema has no `mode`; the tool class
      keeps its inline mode, unreachable here. The per-attachment store cap is 25 MiB, fixed;
      the curated forwarder rewrites upstream's store-full error with the cap and the store's
      15-minute TTL instead of upstream's "Try inline mode if the file is small." hint.
@@ -394,7 +398,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 
 - `Components/`, `BlazorAdmin/`, admin-console security, API-key auth: keep deleted.
 - `*.csproj`: keep the fork's package versions; add only packages the kept code needs.
-- A tool class upstream changed: take upstream's version. The curated tool forwards to it. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; the class tests pin them.
+- A tool class upstream changed: take upstream's version. The curated tool forwards to it. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (returns the `attachment://` link) -- merge upstream's change but keep those two hunks; the class tests pin them.
   If it added a non-nullable value-type parameter, add the forwarder check (change 4).
 - Tests upstream adds for a tool class: keep them. They exercise the code the fork forwards to.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.

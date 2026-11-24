@@ -45,8 +45,8 @@ public class SendEmailToolMultipartTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var result = await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject",
-            "<html><body><h1>Hello</h1></body></html>", "acc-1", "html");
+            "acc-1", new List<string> { "to@example.com" }, "Subject",
+            "<html><body><h1>Hello</h1></body></html>", "html");
 
         var doc = JsonDocument.Parse(result);
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
@@ -91,8 +91,8 @@ public class SendEmailToolMultipartTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var result = await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject",
-            "Plain text email body", "acc-1", "text");
+            "acc-1", new List<string> { "to@example.com" }, "Subject",
+            "Plain text email body", "text");
 
         var doc = JsonDocument.Parse(result);
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
@@ -139,8 +139,8 @@ public class SendEmailToolMultipartTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var result = await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject",
-            "", "acc-1", "multipart",
+            "acc-1", new List<string> { "to@example.com" }, "Subject",
+            "", "multipart",
             textBody: "Plain text fallback",
             htmlBody: "<html><body><h1>Hello</h1></body></html>");
 
@@ -165,8 +165,8 @@ public class SendEmailToolMultipartTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject",
-                "", "acc-1", "multipart",
+                "acc-1", new List<string> { "to@example.com" }, "Subject",
+                "", "multipart",
                 htmlBody: "<html><body>Hello</body></html>"));
 
         Assert.IsTrue(ex.Message.Contains("textBody", StringComparison.OrdinalIgnoreCase));
@@ -183,8 +183,8 @@ public class SendEmailToolMultipartTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject",
-                "", "acc-1", "multipart",
+                "acc-1", new List<string> { "to@example.com" }, "Subject",
+                "", "multipart",
                 textBody: "Plain text only"));
 
         Assert.IsTrue(ex.Message.Contains("textBody", StringComparison.OrdinalIgnoreCase));

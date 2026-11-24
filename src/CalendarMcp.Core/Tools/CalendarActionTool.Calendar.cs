@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using ModelContextProtocol;
 
 namespace CalendarMcp.Core.Tools;
@@ -56,13 +55,4 @@ public sealed partial class CalendarActionTool
     private Task<string> RespondToEventAction(
         string? eventId, string? response, string? calendarId, string? comment) =>
         Impl<RespondToEventTool>().RespondToEvent(eventId!, response!, calendarId, comment);
-
-    private static string RequireString(JsonObject result, string field, string action) =>
-        result[field] is JsonValue value && value.TryGetValue<string>(out var text) && text.Length > 0
-            ? text
-            : throw new InvalidOperationException($"{action} returned no '{field}' string.");
-
-    private static JsonObject ParseObject(string json) =>
-        JsonNode.Parse(json)?.AsObject()
-            ?? throw new InvalidOperationException("Calendar tool returned a non-object JSON result.");
 }

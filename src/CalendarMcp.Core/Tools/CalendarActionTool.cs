@@ -215,7 +215,7 @@ public sealed partial class CalendarActionTool
         [Description("bulk_delete_emails/bulk_mark_emails_read/bulk_move_emails. Required. The emails to act on, each item carrying its accountId and emailId.")]
         BulkEmailItem[]? items = null)
     {
-        var text = await DispatchAction(action, new CalendarActionArguments
+        var args = new CalendarActionArguments
         {
             AccountId = accountId,
             CalendarId = calendarId,
@@ -264,8 +264,10 @@ public sealed partial class CalendarActionTool
             Name = name,
             Method = method,
             Items = items,
-        }).ConfigureAwait(false);
-        return action == "get_email_attachment" ? WithAttachmentLink(text) : TextResult(text);
+        };
+        if (action == "get_email_attachment")
+            return await GetEmailAttachmentAction(args.AccountId, args.EmailId, args.AttachmentId).ConfigureAwait(false);
+        return TextResult(await DispatchAction(action, args).ConfigureAwait(false));
     }
 
     internal Task<string> DispatchAction(string action, CalendarActionArguments args)
@@ -298,7 +300,7 @@ public sealed partial class CalendarActionTool
             "create_contact" => CreateContactAction(args.DisplayName, args.AccountId, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
             "update_contact" => UpdateContactAction(args.AccountId, args.ContactId, args.DisplayName, args.GivenName, args.Surname, args.Email, args.Phone, args.JobTitle, args.CompanyName, args.Notes),
             "delete_contact" => DeleteContactAction(args.AccountId, args.ContactId),
-            "get_email_attachment" => GetEmailAttachmentAction(args.AccountId, args.EmailId, args.AttachmentId),
+            "get_email_attachment" => GetEmailAttachmentText(args.AccountId, args.EmailId, args.AttachmentId),
             "get_contextual_email_summary" => GetContextualEmailSummaryAction(args.Topics, args.CountPerAccount, args.UnreadOnly, args.IncludeBodyPreview, args.MaxSamplesPerCluster),
             "get_guide" => GetGuideAction(args.Name),
             "get_unsubscribe_info" => GetUnsubscribeInfoAction(args.AccountId, args.EmailId),

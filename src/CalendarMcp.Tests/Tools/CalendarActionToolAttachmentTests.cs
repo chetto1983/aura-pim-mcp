@@ -135,27 +135,4 @@ public sealed class CalendarActionToolAttachmentTests
         var read = await session.Client.ReadResourceAsync(link.Uri);
         CollectionAssert.AreEqual(bytes, ((BlobResourceContents)read.Contents.Single()).DecodedData.ToArray());
     }
-
-    [TestMethod]
-    public void WithAttachmentLink_KeepsTheStashJsonAsText()
-    {
-        const string stash = """{"attachmentId":"abc","name":"a.png","contentType":"image/png","size":3,"expiresAt":"2026-09-24T10:00:00Z"}""";
-
-        var result = CalendarActionTool.WithAttachmentLink(stash);
-
-        Assert.AreEqual(stash, ((TextContentBlock)result.Content[0]).Text);
-        var link = (ResourceLinkBlock)result.Content[1];
-        Assert.AreEqual("attachment://stash/abc", link.Uri);
-        Assert.AreEqual("image/png", link.MimeType);
-    }
-
-    [TestMethod]
-    [DataRow("""{"name":"a.png","size":3}""")]
-    [DataRow("""{"attachmentId":"abc","size":3}""")]
-    [DataRow("""{"attachmentId":"abc","name":"a.png"}""")]
-    [DataRow("""{"attachmentId":42,"name":"a.png","size":3}""")]
-    public void WithAttachmentLink_FailsLoudlyWhenUpstreamShapeChanges(string stash)
-    {
-        Assert.ThrowsExactly<InvalidOperationException>(() => CalendarActionTool.WithAttachmentLink(stash));
-    }
 }

@@ -4,6 +4,7 @@ using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace CalendarMcp.Core.Tools;
@@ -13,7 +14,10 @@ namespace CalendarMcp.Core.Tools;
 /// mode: the server downloads from the upstream provider, drops the bytes
 /// into the same store used by the upload endpoint, and returns an
 /// attachmentId the agent can pass to <c>send_email</c>. The bytes never
-/// transit the LLM in that mode.
+/// transit the LLM in that mode, and the result links the stash as an
+/// <c>attachment://</c> resource (<see cref="EmailAttachmentResource"/>): a client
+/// that wants the bytes reads them back on its own session, and one that does
+/// not pays nothing for them.
 /// </summary>
 [McpServerToolType]
 public sealed class GetEmailAttachmentTool(
@@ -28,7 +32,7 @@ public sealed class GetEmailAttachmentTool(
 
     [McpServerTool, Description(
         "Fetch the bytes of one attachment on a received email. Required: accountId, emailId, attachmentId — get them from get_email_details. Modes: 'stash' (default) puts the bytes into the server's attachment store and returns an attachmentId you immediately pass to send_email; bytes never round-trip through the agent. 'inline' returns base64Content directly, capped at 1 MB; use when the agent itself needs to read the content (e.g., to extract text from a PDF). The stash attachmentId is consumed by send_email and is also readable via HTTP GET /attachments/{id} on the HTTP server (returns raw bytes; useful when the file exceeds the 1 MB inline cap and the agent has HTTP access). There is no MCP tool for downloading the stashed bytes — use the HTTP endpoint or just pass the ID to send_email.")]
-    public async Task<string> GetEmailAttachment(
+    public async Task<CallToolResult> GetEmailAttachment(
         [Description("Required. Account that owns the email.")] string accountId,
         [Description("Required. Email ID — pass as parameter name 'emailId' (NOT 'messageId'). Use the value from the 'id' field on get_email_details / get_emails / search_emails.")] string emailId,
         [Description("Required. Provider-side attachment ID, from the attachments[] array on get_email_details (e.g. 'part-0' for Gmail/IMAP, an opaque string for Microsoft Graph).")] string attachmentId,
@@ -59,13 +63,13 @@ public sealed class GetEmailAttachmentTool(
                 if (content.Bytes.LongLength > InlineSizeLimitBytes)
                     throw new McpException(
                         $"Attachment is {content.Bytes.LongLength:N0} bytes; inline mode is capped at {InlineSizeLimitBytes:N0} bytes. Re-call with mode='stash' and pass the returned attachmentId to send_email, or extract the bytes by other means.");
-                return JsonSerializer.Serialize(new
+                return TextResult(JsonSerializer.Serialize(new
                 {
                     name = content.Name,
                     contentType = content.ContentType,
                     size = content.Bytes.LongLength,
                     base64Content = Convert.ToBase64String(content.Bytes),
-                });
+                }));
             }
 
             // stash mode
@@ -78,7 +82,7 @@ public sealed class GetEmailAttachmentTool(
                 "Stashed inbound attachment {AttachmentId} from {EmailId} as {StoreId} ({Size} bytes)",
                 attachmentId, emailId, stored.Id, stored.Bytes.Length);
 
-            return JsonSerializer.Serialize(new
+            var stash = JsonSerializer.Serialize(new
             {
                 attachmentId = stored.Id,
                 name = stored.Name,
@@ -86,6 +90,20 @@ public sealed class GetEmailAttachmentTool(
                 size = stored.Bytes.LongLength,
                 expiresAt = stored.ExpiresAt,
             });
+            return new CallToolResult
+            {
+                Content =
+                [
+                    new TextContentBlock { Text = stash },
+                    new ResourceLinkBlock
+                    {
+                        Uri = EmailAttachmentResource.UriFor(stored.Id),
+                        Name = stored.Name,
+                        MimeType = EmailAttachmentResource.MimeTypeFor(stored.Name, stored.ContentType),
+                        Size = stored.Bytes.LongLength,
+                    },
+                ],
+            };
         }
         catch (Exception ex) when (ex is not McpException)
         {
@@ -93,4 +111,6 @@ public sealed class GetEmailAttachmentTool(
             throw ToolGuard.Failure("fetch attachment", ex);
         }
     }
+
+    private static CallToolResult TextResult(string text) => new() { Content = [new TextContentBlock { Text = text }] };
 }

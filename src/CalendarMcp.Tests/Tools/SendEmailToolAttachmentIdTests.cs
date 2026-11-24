@@ -27,7 +27,7 @@ public class SendEmailToolAttachmentIdTests
             NullLogger<SendEmailTool>.Instance);
 
         var result = await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+            "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
             attachments: new List<OutboundEmailAttachment>
             {
                 new() { AttachmentId = "upload-id-1" },
@@ -62,7 +62,7 @@ public class SendEmailToolAttachmentIdTests
             NullLogger<SendEmailTool>.Instance);
 
         await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+            "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
             attachments: new List<OutboundEmailAttachment>
             {
                 new()
@@ -95,7 +95,7 @@ public class SendEmailToolAttachmentIdTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { AttachmentId = "does-not-exist" },
@@ -119,7 +119,7 @@ public class SendEmailToolAttachmentIdTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { AttachmentId = "u1", Name = "x.bin", Base64Content = "AQ==" },
@@ -140,7 +140,7 @@ public class SendEmailToolAttachmentIdTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { Name = "x.bin" },

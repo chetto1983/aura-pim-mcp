@@ -116,7 +116,7 @@ Updated `CalendarMcp.StdioServer` to:
 
 ### Multi-Account Aggregation
 - **Read operations** (get_emails, list_calendars, get_calendar_events, get_contacts): Query all enabled accounts in parallel using `Task.WhenAll`, merge and sort results
-- **Write operations** (send_email, create_event, create_contact): Smart routing to select ONE account based on domain matching or priority
+- **Write operations** (create_event, create_contact): Smart routing to select ONE account based on domain matching or priority
 
 ### Provider Isolation
 - Each provider service manages multiple accounts of its type

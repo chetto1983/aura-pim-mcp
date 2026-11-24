@@ -69,7 +69,7 @@ Two behaviours differ by how the account was chosen:
   caller asked for "all accounts", and a scoped-out account isn't part of that set. If nothing
   qualifies, the tool errors with `No accounts permit ...`.
 
-Smart routing (`send_email`, `create_event`, `create_contact`) only ever selects accounts that permit the operation.
+Smart routing (`create_event`, `create_contact`) only ever selects accounts that permit the operation. `send_email` has none: its `accountId` is required.
 
 `bulk_*` tools check per item, so one scoped-out account fails only its own entries rather than
 the whole batch.
@@ -293,10 +293,10 @@ Fetch the bytes of one inbound attachment. Two modes.
 ```
 
 #### `send_email`
-Send email from specific account (requires explicit account selection or smart routing).
+Send email from a specific account (`accountId` is required; a call without it is refused and nothing is sent).
 
 **Parameters**:
-- `accountId` (optional): Specific account, or let router decide
+- `accountId` (required): Account to send from, from `list_accounts`
 - `to`: Recipient email address (can be array)
 - `subject`: Email subject
 - `body`: Email body content

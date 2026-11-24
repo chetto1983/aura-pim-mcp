@@ -22,18 +22,23 @@ public sealed class SendEmailTool(
     // call within agent limits and matches typical provider caps (~25 MB).
     private const long MaxTotalAttachmentBytes = 25L * 1024 * 1024;
 
-    [McpServerTool, Description("Send an email, optionally with file attachments. If accountId is omitted, smart routing selects the account whose domains match the first recipient's email domain; if no match, the first configured account is used. Provide accountId explicitly to guarantee which account sends the message.")]
+    [McpServerTool, Description("Send an email, optionally with file attachments. Required: accountId, the account to send from (call list_accounts). When the user has more than one account and has not named one, ask which.")]
     public async Task<string> SendEmail(
+        [Description("Required. Account ID to send from, from list_accounts. The mail goes out from exactly this account.")] string accountId,
         [Description("Recipient email address(es). Supply as a JSON array of strings, e.g. [\"alice@example.com\"] or [\"alice@example.com\",\"bob@example.com\"].")] List<string> to,
         [Description("Email subject line")] string subject,
         [Description("Email body content. Use HTML when bodyFormat is 'html' (the default). Ignored when bodyFormat is 'multipart'.")] string body = "",
-        [Description("Account ID to send from. Omit to use smart routing (matches recipient domain to account domains, then falls back to first account). Obtain from list_accounts.")] string? accountId = null,
         [Description("Body content format: 'html' (default), 'text', or 'multipart'. When 'multipart' is specified, provide textBody and htmlBody instead of body. Note: bodyFormat 'html' requires actual HTML markup; Markdown/plain text is not automatically converted to HTML.")] string bodyFormat = "html",
         [Description("CC recipient email addresses")] List<string>? cc = null,
         [Description("Optional file attachments as a JSON array. Each item must set EITHER \"attachmentId\" (preferred for anything non-trivial: upload the file via POST /attachments first to get the ID) OR \"base64Content\" (the raw bytes encoded as base64; use only for very small files). \"name\" is required when using base64Content and optional when using attachmentId. \"contentType\" is optional. Total decoded payload per message must stay under 25 MB; Microsoft 365 and Outlook.com cap each individual attachment at 3 MB. Examples: [{\"attachmentId\":\"AbCd...\"}] or [{\"name\":\"x.pdf\",\"base64Content\":\"...\"}].")] List<OutboundEmailAttachment>? attachments = null,
         [Description("Plain-text body for multipart/alternative messages. Required when bodyFormat is 'multipart'.")] string? textBody = null,
         [Description("HTML body for multipart/alternative messages. Required when bodyFormat is 'multipart'. Must contain actual HTML markup.")] string? htmlBody = null)
     {
+        if (string.IsNullOrWhiteSpace(accountId))
+            throw new McpException(
+                "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
+                "When the user has more than one account and has not named one, ask which.");
+
         // Strip CDATA wrappers if present (LLMs sometimes wrap content in XML CDATA)
         body = StripCdataWrapper(body);
         if (textBody != null) textBody = StripCdataWrapper(textBody);
@@ -70,58 +75,8 @@ public sealed class SendEmailTool(
         logger.LogInformation("Sending email: to={To}, subject={Subject}, accountId={AccountId}",
             toJoined, subject, accountId);
 
-        // Determine which account to use
-        Models.AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            // Explicit account specified
-            account = await ToolGuard.RequireAccountAsync(
-                accountRegistry, accountId, Models.AccountPermission.EmailSend);
-        }
-        else
-        {
-            Models.AccountInfo? selected = null;
-
-            // Smart routing only ever considers accounts permitted to send, so a domain match
-            // on a read-only account falls through to the next candidate instead of failing.
-            var matchingAccounts = new List<Models.AccountInfo>();
-            var recipientDomain = to[0].Split('@').LastOrDefault();
-            if (!string.IsNullOrEmpty(recipientDomain))
-            {
-                matchingAccounts = ToolGuard.FilterByPermission(
-                    accountRegistry.GetAccountsByDomain(recipientDomain),
-                    Models.AccountPermission.EmailSend, logger, "send_email");
-
-                if (matchingAccounts.Count == 1)
-                {
-                    selected = matchingAccounts[0];
-                    logger.LogInformation("Smart routing selected account {AccountId} based on domain {Domain}",
-                        selected.Id, recipientDomain);
-                }
-                else if (matchingAccounts.Count > 1)
-                {
-                    // Multiple matches, use first one (could enhance with priority logic)
-                    selected = matchingAccounts.First();
-                    logger.LogInformation("Smart routing selected account {AccountId} from {Count} matches",
-                        selected.Id, matchingAccounts.Count);
-                }
-            }
-
-            // If still no account, use default (first that permits sending)
-            if (selected == null)
-            {
-                var allAccounts = await accountRegistry.GetAllAccountsAsync();
-                selected = ToolGuard.FilterByPermission(
-                    allAccounts, Models.AccountPermission.EmailSend, logger, "send_email")
-                    .FirstOrDefault();
-            }
-
-            if (selected == null)
-                throw new McpException(
-                    "No enabled account permits sending email. Use list_accounts to see each account's permissions.");
-
-            account = selected;
-        }
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, Models.AccountPermission.EmailSend);
 
         try
         {

@@ -30,7 +30,7 @@ This is the core class library for the Adjutant server implementation, containin
 - `SearchEmailsTool.cs` - Search emails across accounts
 - `ListCalendarsTool.cs` - List calendars from accounts
 - `GetCalendarEventsTool.cs` - Get calendar events
-- `SendEmailTool.cs` - Send email with smart routing
+- `SendEmailTool.cs` - Send email from the account the caller names
 - `CreateEventTool.cs` - Create calendar event
 
 ### Configuration (`/Configuration`)

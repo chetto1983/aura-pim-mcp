@@ -64,8 +64,9 @@ attachment has `attachmentId` — feed that to `get_email_attachment`.
     transmit the `htmlBody` (Graph SDK limitation; a warning is logged).
 - `textBody`: plain-text body for multipart messages. Required when `bodyFormat="multipart"`.
 - `htmlBody`: HTML body for multipart messages. Required when `bodyFormat="multipart"`.
-- `accountId` is *optional but you should usually pass it.* When omitted,
-  smart routing picks based on first recipient's domain (see `accounts`).
+- `accountId` is *required*: the account to send from (from `list_accounts`).
+  A call without it is refused and nothing is sent. When the user has more
+  than one account and has not named one, ask which.
 - `attachments`: see `attachments` guide. Pass either `{attachmentId: "..."}`
   (from the upload endpoint or `get_email_attachment`) or
   `{name: "...", base64Content: "..."}` for very small files.
@@ -175,9 +176,8 @@ search_emails(query="invoice december")
 > draft in a chosen tone, confirm, send from the correct account).
 
 When replying, always pass the original message's `accountId` to
-`send_email` so the reply goes from the right persona. Smart routing
-will sometimes pick correctly via the recipient domain, but not
-always — be explicit.
+`send_email` so the reply goes from the right persona; `send_email`
+refuses a call without an `accountId`.
 
 ### Bulk unsubscribe newsletters
 

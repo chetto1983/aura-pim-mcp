@@ -52,13 +52,8 @@ public sealed partial class CalendarActionTool
     {
         if (string.IsNullOrEmpty(subject))
             throw new McpException("subject is required.");
-        // Without it upstream picks the sender by the recipient's domain, which no reviewer of the send can see.
-        if (string.IsNullOrWhiteSpace(accountId))
-            throw new McpException(
-                "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
-                "When the user has more than one account and has not named one, ask which.");
         return Impl<SendEmailTool>().SendEmail(
-            to!, subject, body ?? "", accountId, bodyFormat ?? "html", cc, attachments, textBody, htmlBody);
+            accountId!, to!, subject, body ?? "", bodyFormat ?? "html", cc, attachments, textBody, htmlBody);
     }
 
     private Task<string> DeleteEmailAction(string? accountId, string? emailId) =>

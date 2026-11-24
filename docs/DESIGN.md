@@ -95,7 +95,7 @@ graph TD
 - OpenTelemetry instrumentation for observability
 
 ### Phase 2 - Write Operations
-- Send email from appropriate account (with smart routing)
+- Send email from the account the caller names
 - Create calendar events in appropriate calendar (with smart routing)
 - Email threading and conversation tracking
 - Advanced search with filters and date ranges

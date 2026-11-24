@@ -34,7 +34,7 @@ public class SendEmailToolTests
         var tool = new SendEmailTool(regExp.Instance(), factExp.Instance(),
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
-        var result = await tool.SendEmail(new List<string> { "to@example.com" }, "Subject", "Body", "acc-1");
+        var result = await tool.SendEmail("acc-1", new List<string> { "to@example.com" }, "Subject", "Body");
         var doc = JsonDocument.Parse(result);
 
         Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
@@ -57,28 +57,56 @@ public class SendEmailToolTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.SendEmail(new List<string> { "to@example.com" }, "Subject", "Body", "nonexistent"));
+            () => tool.SendEmail("nonexistent", new List<string> { "to@example.com" }, "Subject", "Body"));
         Assert.AreEqual("Account 'nonexistent' not found", ex.Message);
         regExp.Verify();
     }
 
-    [TestMethod]
-    public async Task SendEmail_NoAccountNoMatch_ThrowsMcpException()
-    {
-        var regExp = new IAccountRegistryCreateExpectations();
-        regExp.Setups.GetAccountsByDomain("unknown.com")
-            .ReturnValue([]);
-        regExp.Setups.GetAllAccountsAsync()
-            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([]));
+    private const string AccountRequired =
+        "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
+        "When the user has more than one account and has not named one, ask which.";
 
-        var factExp = new IProviderServiceFactoryCreateExpectations();
-        var tool = new SendEmailTool(regExp.Instance(), factExp.Instance(),
+    [TestMethod]
+    public void SendEmail_SchemaRequiresAccountId()
+    {
+        var method = typeof(SendEmailTool).GetMethod(nameof(SendEmailTool.SendEmail))!;
+        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
+
+        var required = tool.ProtocolTool.InputSchema.GetProperty("required").EnumerateArray()
+            .Select(e => e.GetString()).ToList();
+
+        CollectionAssert.Contains(required, "accountId");
+    }
+
+    [TestMethod]
+    public void SendEmail_DescriptionsDoNotOfferRouting()
+    {
+        var method = typeof(SendEmailTool).GetMethod(nameof(SendEmailTool.SendEmail))!;
+        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
+        var account = method.GetParameters().Single(p => p.Name == "accountId")
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        foreach (var text in new[] { tool.ProtocolTool.Description!, account })
+        {
+            Assert.DoesNotContain("smart routing", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("omit", text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("   ")]
+    public async Task SendEmail_WithoutAnAccount_IsRefusedAndNothingIsSent(string accountId)
+    {
+        var tool = new SendEmailTool(new IAccountRegistryCreateExpectations().Instance(),
+            new IProviderServiceFactoryCreateExpectations().Instance(),
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.SendEmail(new List<string> { "to@unknown.com" }, "Subject", "Body"));
-        StringAssert.Contains(ex.Message, "No enabled account permits sending email");
-        regExp.Verify();
+            () => tool.SendEmail(accountId: accountId, to: ["to@example.com"], subject: "Subject", body: "Body"));
+
+        Assert.AreEqual(AccountRequired, ex.Message);
     }
 
     [TestMethod]
@@ -90,7 +118,7 @@ public class SendEmailToolTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.SendEmail([], "Subject", "Body", "acc-1"));
+            () => tool.SendEmail("acc-1", [], "Subject", "Body"));
         Assert.IsTrue(ex.Message.Contains("recipient", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -124,7 +152,7 @@ public class SendEmailToolTests
         };
 
         var result = await tool.SendEmail(
-            new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+            "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
             attachments: new List<OutboundEmailAttachment> { attachment });
 
         var doc = JsonDocument.Parse(result);
@@ -145,7 +173,7 @@ public class SendEmailToolTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { Name = "", Base64Content = "aGVsbG8=" },
@@ -163,7 +191,7 @@ public class SendEmailToolTests
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { Name = "x.txt", Base64Content = "" },
@@ -183,7 +211,7 @@ public class SendEmailToolTests
         var bigBase64 = new string('A', 35 * 1024 * 1024);
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
             () => tool.SendEmail(
-                new List<string> { "to@example.com" }, "Subject", "Body", "acc-1",
+                "acc-1", new List<string> { "to@example.com" }, "Subject", "Body",
                 attachments: new List<OutboundEmailAttachment>
                 {
                     new() { Name = "a.bin", Base64Content = bigBase64 },

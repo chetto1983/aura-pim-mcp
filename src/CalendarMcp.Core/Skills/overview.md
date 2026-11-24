@@ -11,9 +11,8 @@ every configured account; capabilities vary per provider.
    `displayName`, `domains`, and a `capabilities` array per account.
 2. Pass the chosen `accountId` to every tool that operates on data (email,
    calendar, contacts). Tools that accept a missing `accountId` will fall
-   back to "first configured account" or "smart routing by recipient
-   domain" — both can silently target the wrong account, so prefer being
-   explicit.
+   back to the "first configured account", which can silently be the wrong
+   one, so prefer being explicit. `send_email` refuses a call without it.
 
 ## Provider capability matrix
 

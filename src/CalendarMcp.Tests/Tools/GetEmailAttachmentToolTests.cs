@@ -14,6 +14,9 @@ namespace CalendarMcp.Tests.Tools;
 [TestClass]
 public class GetEmailAttachmentToolTests
 {
+    private static string Text(ModelContextProtocol.Protocol.CallToolResult result) =>
+        result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Single().Text;
+
     [TestMethod]
     public async Task StashMode_DefaultsAndStoresInAttachmentStore()
     {
@@ -33,7 +36,7 @@ public class GetEmailAttachmentToolTests
         var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
             NullLogger<GetEmailAttachmentTool>.Instance);
 
-        var json = await tool.GetEmailAttachment("acc-1", "msg-1", "graph-att-1");
+        var json = Text(await tool.GetEmailAttachment("acc-1", "msg-1", "graph-att-1"));
 
         var doc = JsonDocument.Parse(json).RootElement;
         var newId = doc.GetProperty("attachmentId").GetString()!;
@@ -54,6 +57,35 @@ public class GetEmailAttachmentToolTests
     }
 
     [TestMethod]
+    public async Task GetEmailAttachment_AnswersWithAResourceLink()
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var (regExp, factExp, _) = WireProviderForFetch(
+            account, "msg-1", "att-1",
+            new EmailAttachmentContent { Name = "scan.pdf", ContentType = "application/octet-stream", Bytes = [1, 2, 3] });
+        var tenantContext = new TenantContext();
+        using var tenantBinding = tenantContext.Bind(TestData.TenantA);
+        var store = new InMemoryAttachmentStore(
+            Options.Create(new AttachmentStoreOptions()),
+            NullLogger<InMemoryAttachmentStore>.Instance,
+            tenantContext);
+        var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(), store,
+            NullLogger<GetEmailAttachmentTool>.Instance);
+
+        object answer = await tool.GetEmailAttachment("acc-1", "msg-1", "att-1");
+
+        var result = Assert.IsInstanceOfType<ModelContextProtocol.Protocol.CallToolResult>(answer);
+        var text = (ModelContextProtocol.Protocol.TextContentBlock)result.Content[0];
+        var id = JsonDocument.Parse(text.Text).RootElement.GetProperty("attachmentId").GetString()!;
+        var link = (ModelContextProtocol.Protocol.ResourceLinkBlock)result.Content[1];
+        Assert.AreEqual("attachment://stash/" + id, link.Uri);
+        Assert.AreEqual("scan.pdf", link.Name);
+        Assert.AreEqual("application/pdf", link.MimeType);
+        Assert.AreEqual(3L, link.Size);
+        Assert.IsNotNull(store.TryRead(id));
+    }
+
+    [TestMethod]
     public async Task InlineMode_UnderCap_ReturnsBase64()
     {
         var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
@@ -65,7 +97,7 @@ public class GetEmailAttachmentToolTests
         var tool = new GetEmailAttachmentTool(regExp.Instance(), factExp.Instance(),
             new TestAttachmentStore(), NullLogger<GetEmailAttachmentTool>.Instance);
 
-        var json = await tool.GetEmailAttachment("acc-1", "msg-1", "att-1", "inline");
+        var json = Text(await tool.GetEmailAttachment("acc-1", "msg-1", "att-1", "inline"));
 
         var doc = JsonDocument.Parse(json).RootElement;
         Assert.AreEqual("x.bin", doc.GetProperty("name").GetString());

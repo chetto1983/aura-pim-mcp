@@ -126,47 +126,10 @@ public class PermissionEnforcementTests
             new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.SendEmail(["to@example.com"], "Subject", "Body", accountId: "read-only"));
+            () => tool.SendEmail("read-only", ["to@example.com"], "Subject", "Body"));
 
         StringAssert.Contains(ex.Message, "does not permit sending email");
         regExp.Verify();
-    }
-
-    [TestMethod]
-    public async Task SendEmail_SmartRouting_SkipsDomainMatchThatCannotSend()
-    {
-        // The domain match is read-only, so routing must fall through to an account that can send
-        // rather than failing outright.
-        var readOnlyMatch = TestData.CreateAccount(
-            id: "acc-readonly",
-            provider: "microsoft365",
-            domains: ["example.com"],
-            permissions: AccountPermissions.None.With(AccountPermission.EmailRead, true));
-        var sender = TestData.CreateAccount(id: "acc-sender", provider: "google", domains: ["other.com"]);
-
-        var regExp = new IAccountRegistryCreateExpectations();
-        regExp.Setups.GetAccountsByDomain("example.com").ReturnValue([readOnlyMatch]);
-        regExp.Setups.GetAllAccountsAsync()
-            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([readOnlyMatch, sender]));
-
-        var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.SendEmailAsync("acc-sender", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<string>(), Arg.Any<List<string>?>(), Arg.Any<IReadOnlyList<OutboundEmailAttachment>?>(),
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .ReturnValue(Task.FromResult("msg-1"));
-
-        var factExp = new IProviderServiceFactoryCreateExpectations();
-        factExp.Setups.GetProvider("google").ReturnValue(provExp.Instance());
-
-        var tool = new SendEmailTool(regExp.Instance(), factExp.Instance(),
-            new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
-
-        var doc = JsonDocument.Parse(await tool.SendEmail(["someone@example.com"], "Subject", "Body"));
-
-        Assert.AreEqual("acc-sender", doc.RootElement.GetProperty("accountUsed").GetString());
-        regExp.Verify();
-        factExp.Verify();
-        provExp.Verify();
     }
 
     [TestMethod]
