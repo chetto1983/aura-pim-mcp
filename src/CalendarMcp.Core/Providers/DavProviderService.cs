@@ -598,7 +598,7 @@ public sealed class DavProviderService : IDavProviderService
 
         throw new ProviderOperationException(
             $"{action} a single occurrence of a recurring CalDAV event isn't supported. " +
-            $"To apply it to every occurrence, use the series eventId \"{DavResourceId.Encode(target.Href)}\".");
+            "To apply it to every occurrence, use the eventId get_calendar_events returns for the series itself.");
     }
 
     private async Task<Uri> ValidateContactResourceAsync(DavAccountConfig cfg, string contactId, CancellationToken cancellationToken)

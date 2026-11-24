@@ -52,14 +52,10 @@ public sealed class DeleteEventTool(
                 WriteIndented = true
             });
         }
-        catch (McpException ex) when (EventRef.Quotes(ex, rawEventId))
-        {
-            throw EventRef.Requote(ex, eventId, rawEventId);
-        }
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in delete_event tool");
-            throw ToolGuard.Failure("delete event", ex);
+            throw EventRef.Requote(ToolGuard.Failure("delete event", ex), eventId, rawEventId);
         }
     }
 }

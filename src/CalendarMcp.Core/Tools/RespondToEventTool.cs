@@ -66,14 +66,10 @@ public sealed class RespondToEventTool(
                 WriteIndented = true
             });
         }
-        catch (McpException ex) when (EventRef.Quotes(ex, rawEventId))
-        {
-            throw EventRef.Requote(ex, eventId, rawEventId);
-        }
         catch (Exception ex) when (ex is not McpException)
         {
             logger.LogError(ex, "Error in respond_to_event tool");
-            throw ToolGuard.Failure("respond to event", ex);
+            throw EventRef.Requote(ToolGuard.Failure("respond to event", ex), eventId, rawEventId);
         }
     }
 }

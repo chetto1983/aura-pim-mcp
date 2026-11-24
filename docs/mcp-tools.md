@@ -69,8 +69,7 @@ Two behaviours differ by how the account was chosen:
   caller asked for "all accounts", and a scoped-out account isn't part of that set. If nothing
   qualifies, the tool errors with `No accounts permit ...`.
 
-Smart routing (`send_email`, `create_event`, `create_contact`, `delete_event`,
-`respond_to_event`) only ever selects accounts that permit the operation.
+Smart routing (`send_email`, `create_event`, `create_contact`) only ever selects accounts that permit the operation.
 
 `bulk_*` tools check per item, so one scoped-out account fails only its own entries rather than
 the whole batch.
@@ -527,9 +526,8 @@ Create calendar event in specific calendar (requires explicit account selection 
 Update existing calendar event.
 
 **Parameters**:
-- `accountId`: Specific account ID (required)
 - `calendarId`: Specific calendar ID (required)
-- `eventId`: Event ID to update (required)
+- `eventId`: Event reference from `get_calendar_events` or `create_event`; it identifies the account (required)
 - `subject` (optional): New subject
 - `start` (optional): New start time
 - `end` (optional): New end time
@@ -548,8 +546,7 @@ Update existing calendar event.
 Delete calendar event (requires organizer permissions or edit access).
 
 **Parameters**:
-- `eventId`: Event ID to delete (required)
-- `accountId` (optional): Specific account, or let router decide
+- `eventId`: Event reference from `get_calendar_events` or `create_event`; it identifies the account (required)
 - `calendarId` (optional): Specific calendar within account
 
 **Returns**:
@@ -567,9 +564,8 @@ Delete calendar event (requires organizer permissions or edit access).
 Respond to a calendar event invitation with accept, tentative, or decline.
 
 **Parameters**:
-- `eventId`: Event ID to respond to (required)
+- `eventId`: Event reference from `get_calendar_events` or `create_event`; it identifies the account (required)
 - `response`: Response type - 'accept', 'tentative', or 'decline' (required)
-- `accountId` (optional): Specific account, or let router decide
 - `calendarId` (optional): Specific calendar within account
 - `comment` (optional): Optional comment to include with response
 

@@ -92,9 +92,8 @@ internal static class EventRef
     }
 
     /// <summary>An error that quotes the provider id quotes the reference instead: the caller only holds that.</summary>
-    public static bool Quotes(McpException error, string eventId) =>
-        error.Message.Contains(eventId, StringComparison.Ordinal);
-
     public static McpException Requote(McpException error, string reference, string eventId) =>
-        new(error.Message.Replace(eventId, reference, StringComparison.Ordinal), error);
+        error.Message.Contains(eventId, StringComparison.Ordinal)
+            ? new(error.Message.Replace(eventId, reference, StringComparison.Ordinal), error)
+            : error;
 }

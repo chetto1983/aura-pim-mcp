@@ -46,7 +46,7 @@ used.
   off unless you need other people's responses; big meetings make the
   result large.
 
-Returns events sorted by start time, each with `id, accountId,
+Returns events sorted by start time, each with `eventId` (an opaque reference), `accountId,
 calendarId, subject, start_utc/start_local, end_utc/end_local,
 start_date/end_date, location, attendees, isAllDay, organizer,
 responseStatus`. `start_date`/`end_date` are set only for all-day events
@@ -55,9 +55,9 @@ responseStatus`. `start_date`/`end_date` are set only for all-day events
 organized count as `accepted`. ICS accounts can't tell which attendee is
 the owner, so they always report `notResponded`.
 
-### `get_calendar_event_details(accountId, calendarId, eventId, timeZone)`
+### `get_calendar_event_details(calendarId, eventId, timeZone)`
 
-Full event including description/body. All four parameters are required.
+Full event including description/body. All three parameters are required. `eventId` is the reference `get_calendar_events` or `create_event` returned, passed back byte for byte; it identifies the account, so there is no `accountId`.
 
 ### `create_event(subject, start, end, accountId?, calendarId?, location?, attendees?[], body?, timeZone, isAllDay?)`
 
@@ -76,7 +76,7 @@ Full event including description/body. All four parameters are required.
   must be an id from `list_calendars`.
 - `attendees` is an array of email addresses.
 
-### `update_event(accountId, calendarId, eventId, subject?, start?, end?, location?, attendees?[], timeZone?, isAllDay?)`
+### `update_event(calendarId, eventId, subject?, start?, end?, location?, attendees?[], timeZone?, isAllDay?)`
 
 All except identifiers are optional; pass only what you want to change.
 When updating `start` or `end`, also pass `timeZone`.
@@ -85,17 +85,16 @@ both `start` and `end` (dates, end exclusive, when `true`). **When moving
 an existing all-day event, pass `isAllDay=true`** — otherwise the new
 times are sent as timed values.
 
-### `delete_event(accountId, calendarId, eventId)`
+### `delete_event(eventId, calendarId?)`
 
 Removes the event. Some providers send cancellation notices to
 attendees automatically.
 
-### `respond_to_event(eventId, response, accountId?, calendarId?, comment?)`
+### `respond_to_event(eventId, response, calendarId?, comment?)`
 
 - `response`: `accept`, `tentative`, or `decline` (also accepts the
   longer forms `accepted`, `tentativelyaccepted`, `declined`).
-- **Always pass `accountId`** — omitting it falls back to the first
-  configured account, which typically does not have the invitation.
+- `eventId` is the reference from `get_calendar_events`; it identifies the account, so there is no `accountId`.
 - `comment` is optional message text sent with the response.
 
 ## Prompt shortcuts
@@ -112,7 +111,7 @@ workflows. When the host supports prompts, prefer them:
   `timeZone`, and optional `preferredDate`.
 - **`respond_to_invite`** — review an invite with conflict check, then
   accept / tentative / decline from the correct account. Pass
-  `eventId`, `accountId`, `calendarId`, `response`, `timeZone`, and an
+  `eventId`, `accountId` (for the conflict check), `calendarId`, `response`, `timeZone`, and an
   optional `comment`.
 
 If the user's request matches one of these, invoke the prompt rather
@@ -171,21 +170,21 @@ create_event(
 
 ```
 get_calendar_events(...)                              // find the event
-get_calendar_event_details(accountId, calendarId, eventId, timeZone)  // confirm details
-update_event(accountId, calendarId, eventId,
+get_calendar_event_details(calendarId, eventId, timeZone)  // confirm details
+update_event(calendarId, eventId,
             start="...", end="...", timeZone="...")
 ```
 
 ### Respond to an invite
 
 > Use the `respond_to_invite` prompt — it adds a conflict check before
-> responding and enforces the always-pass-`accountId`/`calendarId`/`timeZone`
+> responding and enforces the always-pass-`calendarId`/`timeZone`
 > contract that's easy to violate by hand.
 
 ```
 get_calendar_events(...)                       // pending invites: responseStatus == "notResponded"
 respond_to_event(eventId, "accept",
-               accountId="...", calendarId="...",
+               calendarId="...",
                comment="Looking forward to it!")
 ```
 
@@ -197,7 +196,7 @@ multi-account availability, fan out and merge.
 
 ## Pitfalls
 
-- **Default account** for `create_event`/`respond_to_event` is whichever
+- **Default account** for `create_event` is whichever
   account was registered first — pass `accountId` explicitly.
 - **All-day events** are floating dates. They are returned with
   `start_date`/`end_date` (`yyyy-MM-dd`, **end date exclusive** — a

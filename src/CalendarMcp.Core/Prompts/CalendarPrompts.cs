@@ -65,8 +65,8 @@ public sealed class CalendarPrompts
         "Reviews a meeting invite — including conflicts — and submits an accept / tentative / decline response " +
         "from the correct account.")]
     public string RespondToInvite(
-        [Description("Event ID of the invite. Obtain from get_calendar_events or the originating email thread.")] string eventId,
-        [Description("Account ID that received the invite. Required — defaulting to the first account often picks the wrong calendar.")] string accountId,
+        [Description("The eventId reference of the invite, exactly as get_calendar_events returned it (it identifies the account).")] string eventId,
+        [Description("Account ID that received the invite. Used to scope the conflict check.")] string accountId,
         [Description("Calendar ID the event lives on. Obtain from get_calendar_events.")] string calendarId,
         [Description("Response: 'accept', 'tentative', or 'decline'.")] string response,
         [Description("IANA timezone name (e.g. 'America/Chicago'). Required.")] string timeZone,
@@ -79,7 +79,7 @@ public sealed class CalendarPrompts
         return $"""
             Please help me respond to a meeting invite. Follow these steps:
 
-            1. Call get_calendar_event_details with accountId="{accountId}", calendarId="{calendarId}", eventId="{eventId}", timeZone="{timeZone}".
+            1. Call get_calendar_event_details with calendarId="{calendarId}", eventId="{eventId}", timeZone="{timeZone}".
                Review subject, time (in {timeZone}), location, attendees, and body.
 
             2. Check for conflicts:
@@ -92,7 +92,6 @@ public sealed class CalendarPrompts
 
             5. Call respond_to_event:
                - eventId="{eventId}"
-               - accountId="{accountId}"  (must match the account that received the invite)
                - calendarId="{calendarId}"
                - response="{response}"
                - comment=<the comment if provided>

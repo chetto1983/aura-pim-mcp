@@ -394,7 +394,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 
 - `Components/`, `BlazorAdmin/`, admin-console security, API-key auth: keep deleted.
 - `*.csproj`: keep the fork's package versions; add only packages the kept code needs.
-- A tool class upstream changed: take upstream's version. The curated tool forwards to it.
+- A tool class upstream changed: take upstream's version. The curated tool forwards to it. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; the class tests pin them.
   If it added a non-nullable value-type parameter, add the forwarder check (change 4).
 - Tests upstream adds for a tool class: keep them. They exercise the code the fork forwards to.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.

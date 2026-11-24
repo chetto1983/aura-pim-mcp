@@ -125,7 +125,7 @@ See `attachments` for the full pattern. Short form:
 1. get_emails(unreadOnly=true) or get_calendar_events(...)
    → find the pending invite
 
-2. get_calendar_event_details(accountId, calendarId, eventId, timeZone)
+2. get_calendar_event_details(calendarId, eventId, timeZone)
    → review attendees, conflicts, agenda
 
 3. (Optional) get_calendar_events over the event's window
@@ -134,7 +134,6 @@ See `attachments` for the full pattern. Short form:
 4. respond_to_event(
      eventId,
      response="accept",  // or "tentative" / "decline"
-     accountId=<the account that received the invite>,
      calendarId=<from event details>,
      comment="<optional note to organizer>"
    )
