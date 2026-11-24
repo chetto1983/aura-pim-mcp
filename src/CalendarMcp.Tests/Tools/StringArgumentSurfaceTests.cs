@@ -11,12 +11,12 @@ using Rocks;
 namespace CalendarMcp.Tests.Tools;
 
 /// <summary>
-/// Upstream's quoted-scalar filter reads each tool's input schema. The curated tool publishes its
-/// own multiplexed schema, where every boolean and number is nullable, so these calls go through
-/// <c>WithCalendarMcpSurface()</c> to prove the filter is registered there and reads that schema.
+/// Upstream's quoted-scalar filter reads each tool's input schema. These calls go through
+/// <c>WithCalendarMcpSurface()</c> to prove the filter is registered there and reads the schema of
+/// the tool each call names.
 /// </summary>
 [TestClass]
-public sealed class CalendarActionToolStringArgumentTests
+public sealed class StringArgumentSurfaceTests
 {
     [TestMethod]
     public async Task GetEmails_QuotedCountAndFlag_ReachTheProviderAsTheirValues()
@@ -25,9 +25,8 @@ public sealed class CalendarActionToolStringArgumentTests
         provider.Setups.GetEmailsAsync("acc-1", 5, true, Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>([]));
 
-        var result = await CallAsync(provider, new()
+        var result = await CallAsync(provider, "get_emails", new()
         {
-            ["action"] = "get_emails",
             ["accountId"] = "acc-1",
             ["count"] = "5",
             ["unreadOnly"] = " TRUE ",
@@ -44,9 +43,8 @@ public sealed class CalendarActionToolStringArgumentTests
         provider.Setups.MarkEmailAsReadAsync("acc-1", "email-1", false, Arg.Any<CancellationToken>())
             .ReturnValue(Task.CompletedTask);
 
-        var result = await CallAsync(provider, new()
+        var result = await CallAsync(provider, "mark_email_read", new()
         {
-            ["action"] = "mark_email_read",
             ["accountId"] = "acc-1",
             ["emailId"] = "email-1",
             ["isRead"] = "false",
@@ -59,9 +57,8 @@ public sealed class CalendarActionToolStringArgumentTests
     [TestMethod]
     public async Task UnparseableQuotedNumber_StillFailsBinding()
     {
-        var result = await CallAsync(new IProviderServiceCreateExpectations(), new()
+        var result = await CallAsync(new IProviderServiceCreateExpectations(), "get_emails", new()
         {
-            ["action"] = "get_emails",
             ["accountId"] = "acc-1",
             ["count"] = "fifty",
         });
@@ -70,7 +67,7 @@ public sealed class CalendarActionToolStringArgumentTests
     }
 
     private static async Task<CallToolResult> CallAsync(
-        IProviderServiceCreateExpectations provider, Dictionary<string, object?> arguments)
+        IProviderServiceCreateExpectations provider, string tool, Dictionary<string, object?> arguments)
     {
         var tenantContext = new TenantContext();
         var store = new InMemoryAttachmentStore(
@@ -86,7 +83,7 @@ public sealed class CalendarActionToolStringArgumentTests
             services.AddSingleton(registry.Instance());
             services.AddSingleton(factory.Instance());
         });
-        return await session.Client.CallToolAsync("calendar", arguments);
+        return await session.Client.CallToolAsync(tool, arguments);
     }
 
     private static string Text(CallToolResult result) =>

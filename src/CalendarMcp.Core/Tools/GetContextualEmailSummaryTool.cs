@@ -39,8 +39,8 @@ public sealed partial class GetContextualEmailSummaryTool(
         ["Social/Personal"] = ["birthday", "congratulations", "welcome", "farewell", "party", "lunch", "coffee"]
     };
 
-    [McpServerTool(Name = "get_contextual_email_summary"), 
-     Description("Get a contextual, topic-grouped summary of emails across all accounts with persona detection and account mismatch analysis. Returns clustered results showing which topics span which accounts, identifies emails that may have been sent to the wrong account, and provides context about which 'persona' senders are addressing.")]
+    [McpServerTool(Name = "get_contextual_email_summary"),
+     Description("Summarise recent mail across all accounts into topic clusters. It shows which topics span which accounts, the persona each sender addresses, and mail that may have reached the wrong account.")]
     public async Task<string> GetContextualEmailSummary(
         [Description("Topic keywords to focus on, comma-separated (e.g. 'invoice, budget'). If omitted, analyzes all recent emails across built-in topic categories.")] string? topics = null,
         [Description("Number of emails to fetch per account for analysis (default 50)")] int countPerAccount = 50,

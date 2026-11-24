@@ -17,7 +17,7 @@ public sealed class GetEmailsTool(
     IProviderServiceFactory providerFactory,
     ILogger<GetEmailsTool> logger)
 {
-    [McpServerTool, Description("Get recent emails from one or all accounts, sorted newest first. Returns id, accountId, subject, from, receivedDateTime, isRead, hasAttachments. Use get_email_details for full body content. Use accountId from list_accounts to scope to a specific account.")]
+    [McpServerTool(Name = "get_emails"), Description("Get recent emails from one or all accounts, newest first, without their bodies. Use get_email_details for an email's full content.")]
     public async Task<string> GetEmails(
         [Description("Account ID to query, or omit for all accounts. Obtain from list_accounts.")] string? accountId = null,
         [Description("Maximum number of emails to return per account (default 20)")] int count = 20,

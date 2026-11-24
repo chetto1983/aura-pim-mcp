@@ -16,7 +16,7 @@ public sealed class RespondToEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<RespondToEventTool> logger)
 {
-    [McpServerTool, Description("Accept, tentatively accept, or decline a calendar event invitation. Pass the eventId reference from get_calendar_events; it identifies the account.")]
+    [McpServerTool(Name = "respond_to_event"), Description("Accept, tentatively accept, or decline a calendar event invitation. Pass the eventId reference from get_calendar_events; it identifies the account.")]
     public async Task<string> RespondToEvent(
         [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,
         [Description("Response: 'accept', 'tentative', or 'decline'")] string response,

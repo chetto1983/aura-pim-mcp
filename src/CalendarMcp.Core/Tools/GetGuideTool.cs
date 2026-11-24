@@ -34,11 +34,9 @@ public sealed class GetGuideTool(ILogger<GetGuideTool> logger)
         ["providers"] = "Per-provider behavior: Microsoft 365, Google, Outlook.com, IMAP/SMTP, CalDAV/CardDAV (dav), ICS, JSON.",
     };
 
-    [McpServerTool, Description(
-        "Returns a markdown guide explaining how to use the Adjutant server for a specific topic. " +
-        "Call with no arguments (or name='index') to get the list of available guides. " +
-        "Read 'overview' first if you have not used this server before. " +
-        "Read the topic-specific guide before attempting a non-trivial workflow (e.g., 'attachments' before forwarding files, 'scenarios' for multi-tool flows).")]
+    [McpServerTool(Name = "get_guide"), Description(
+        "Read a markdown guide on how to use this server; omit name (or pass 'index') for the list. " +
+        "Read 'overview' first, and a topic's guide before a non-trivial workflow ('attachments' before forwarding files, 'scenarios' for multi-tool flows).")]
     public string GetGuide(
         [Description("The guide name without extension, e.g. 'overview', 'accounts', 'email', 'calendar', 'contacts', 'attachments', 'scenarios', 'providers'. Omit (or pass 'index') to list available guides.")]
         string? name = null)

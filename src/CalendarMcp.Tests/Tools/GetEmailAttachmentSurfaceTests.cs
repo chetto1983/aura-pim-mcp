@@ -12,7 +12,7 @@ using Rocks;
 namespace CalendarMcp.Tests.Tools;
 
 [TestClass]
-public sealed class CalendarActionToolAttachmentTests
+public sealed class GetEmailAttachmentSurfaceTests
 {
     [TestMethod]
     public async Task GetEmailAttachment_ReturnsALinkTheResourceServes()
@@ -35,9 +35,8 @@ public sealed class CalendarActionToolAttachmentTests
             services.AddSingleton(registry.Instance());
             services.AddSingleton(factory.Instance());
         });
-        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
+        var result = await session.Client.CallToolAsync("get_email_attachment", new Dictionary<string, object?>
         {
-            ["action"] = "get_email_attachment",
             ["accountId"] = "acc-1",
             ["emailId"] = "email-1",
             ["attachmentId"] = "part-0",
@@ -76,12 +75,11 @@ public sealed class CalendarActionToolAttachmentTests
             services.AddSingleton(factory.Instance());
             // The store below is built from `options` directly (bypassing DI, as the other
             // tests in this file do); this registers the same instance as IOptions so the
-            // curated tool's error text reads the cap and TTL it actually enforced.
+            // tool's error text reads the cap and TTL it actually enforced.
             services.AddSingleton<IOptions<AttachmentStoreOptions>>(Options.Create(options));
         });
-        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
+        var result = await session.Client.CallToolAsync("get_email_attachment", new Dictionary<string, object?>
         {
-            ["action"] = "get_email_attachment",
             ["accountId"] = "acc-1",
             ["emailId"] = "email-1",
             ["attachmentId"] = "part-0",
@@ -121,9 +119,8 @@ public sealed class CalendarActionToolAttachmentTests
             services.AddSingleton(registry.Instance());
             services.AddSingleton(factory.Instance());
         });
-        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?>
+        var result = await session.Client.CallToolAsync("get_email_attachment", new Dictionary<string, object?>
         {
-            ["action"] = "get_email_attachment",
             ["accountId"] = "acc-1",
             ["emailId"] = "email-1",
             ["attachmentId"] = "part-0",

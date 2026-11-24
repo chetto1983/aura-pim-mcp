@@ -17,7 +17,7 @@ public sealed class DeleteEmailTool(
     IProviderServiceFactory providerFactory,
     ILogger<DeleteEmailTool> logger)
 {
-    [McpServerTool, Description("Delete an email from a specific account")]
+    [McpServerTool(Name = "delete_email"), Description("Delete an email from a specific account")]
     public async Task<string> DeleteEmail(
         [Description("Account ID that owns the email. Obtain from list_accounts or from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Email message ID to delete. Obtain from get_emails or search_emails.")] string emailId)

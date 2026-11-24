@@ -20,7 +20,7 @@ public sealed class BulkDeleteEmailsTool(
     private static readonly SemaphoreSlim Throttle = new(10);
     private const int MaxBatchSize = 50;
 
-    [McpServerTool, Description("Delete multiple emails in a single batch operation. More efficient than calling delete_email repeatedly.")]
+    [McpServerTool(Name = "bulk_delete_emails"), Description("Delete multiple emails in a single batch operation. More efficient than calling delete_email repeatedly.")]
     public async Task<string> BulkDeleteEmails(
         [Description("Array of emails to delete, each with 'accountId' and 'emailId'. Maximum 50 items. Obtain values from get_emails or search_emails.")] BulkEmailItem[] items)
     {

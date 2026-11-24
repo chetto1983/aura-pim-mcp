@@ -17,7 +17,7 @@ public sealed class MoveEmailTool(
     IProviderServiceFactory providerFactory,
     ILogger<MoveEmailTool> logger)
 {
-    [McpServerTool, Description("Move or archive an email to a different folder (Microsoft) or apply/remove labels (Google)")]
+    [McpServerTool(Name = "move_email"), Description("Move or archive an email to a different folder (Microsoft) or apply/remove labels (Google)")]
     public async Task<string> MoveEmail(
         [Description("Account ID that owns the email. Obtain from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Email message ID to move. Obtain from the id field returned by get_emails or search_emails.")] string emailId,

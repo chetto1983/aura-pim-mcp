@@ -91,6 +91,6 @@ public class RespondToEventToolTests
     }
 
     [TestMethod]
-    public void RespondToEvent_HasNoAccountIdParameter() =>
-        EventToolSchema.AssertNoAccountId(typeof(RespondToEventTool), nameof(RespondToEventTool.RespondToEvent));
+    public Task RespondToEvent_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId("respond_to_event");
 }

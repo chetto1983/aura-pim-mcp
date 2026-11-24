@@ -8,14 +8,14 @@ using ModelContextProtocol.Server;
 namespace CalendarMcp.Core.Apps;
 
 /// <summary>
-/// The MCP Apps view for the curated <c>calendar</c> tool: a three-pane client the host
-/// renders in a sandboxed iframe instead of showing the tool's JSON.
+/// The MCP Apps view for the read tools: a three-pane client the host renders in a sandboxed
+/// iframe instead of showing a tool's JSON.
 /// </summary>
 /// <remarks>
 /// <para>
-/// MCP Apps binds one <c>ui://</c> resource to one tool through the tool's <c>_meta.ui</c>,
-/// and this server publishes a single action-multiplexed tool, so there is exactly one view
-/// and it dispatches on the payload family it receives.
+/// MCP Apps binds a <c>ui://</c> resource to a tool through the tool's <c>_meta.ui</c>. Every read
+/// whose result the view can draw names this one resource (<c>CalendarMcpSurface</c>), so there is
+/// exactly one view and it dispatches on the payload family it receives.
 /// </para>
 /// <para>
 /// The document is assembled here rather than shipped pre-built. A <c>ui://</c> resource is
@@ -34,7 +34,7 @@ namespace CalendarMcp.Core.Apps;
 /// </remarks>
 public static class CalendarView
 {
-    /// <summary>The <c>ui://</c> URI naming this view, referenced by the tool's <c>_meta.ui</c>.</summary>
+    /// <summary>The <c>ui://</c> URI naming this view, referenced by each read tool's <c>_meta.ui</c>.</summary>
     public const string ResourceUri = "ui://calendar/view.html";
 
     private const string HtmlResource = "calendar-app/view.html";
@@ -111,14 +111,9 @@ public static class CalendarView
     };
 
     /// <summary>
-    /// Registers the view resource and points the curated <c>calendar</c> tool at it.
+    /// Registers the view resource. The tools that point at it set their <c>_meta.ui</c> where
+    /// <c>CalendarMcpSurface</c> builds them.
     /// </summary>
-    /// <remarks>
-    /// Registration is imperative, matching <c>WithCalendarActionTool()</c>: the tool is built
-    /// by hand in a factory so its action enum can be patched into the schema, and the same
-    /// place is where its <c>_meta.ui</c> is set. Attribute-driven registration would split one
-    /// decision across two mechanisms.
-    /// </remarks>
     public static IMcpServerBuilder WithCalendarView(this IMcpServerBuilder builder)
     {
         builder.Services.AddSingleton<McpServerResource>(_ =>
@@ -135,7 +130,7 @@ public static class CalendarView
                     UriTemplate = ResourceUri,
                     Name = "calendar-view",
                     Title = "Calendar",
-                    Description = "Three-pane view of the accounts, calendars, events, messages and contacts returned by the calendar tool.",
+                    Description = "Three-pane view of the accounts, calendars, events, messages and contacts the read tools return.",
                     MimeType = McpApps.HtmlMimeType,
                 });
 

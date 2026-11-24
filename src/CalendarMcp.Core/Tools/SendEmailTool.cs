@@ -22,7 +22,7 @@ public sealed class SendEmailTool(
     // call within agent limits and matches typical provider caps (~25 MB).
     private const long MaxTotalAttachmentBytes = 25L * 1024 * 1024;
 
-    [McpServerTool, Description("Send an email, optionally with file attachments. Required: accountId, the account to send from (call list_accounts). When the user has more than one account and has not named one, ask which.")]
+    [McpServerTool(Name = "send_email"), Description("Send an email, optionally with file attachments. Required: accountId, the account to send from (call list_accounts). When the user has more than one account and has not named one, ask which.")]
     public async Task<string> SendEmail(
         [Description("Required. Account ID to send from, from list_accounts. The mail goes out from exactly this account.")] string accountId,
         [Description("Recipient email address(es). Supply as a JSON array of strings, e.g. [\"alice@example.com\"] or [\"alice@example.com\",\"bob@example.com\"].")] List<string> to,
@@ -38,6 +38,7 @@ public sealed class SendEmailTool(
             throw new McpException(
                 "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
                 "When the user has more than one account and has not named one, ask which.");
+        ToolGuard.RequireNonEmpty(subject, nameof(subject));
 
         // Strip CDATA wrappers if present (LLMs sometimes wrap content in XML CDATA)
         body = StripCdataWrapper(body);

@@ -36,8 +36,8 @@ file says the fork does not have, this file wins.
    `McpTools` authorization policy on `/` and inline by `AdminAuthMiddleware` on `/admin` +
    `/attachments`. The bearer's subject is the **tenant**: accounts, the attachment store and
    the admin API are all scoped to it (`ITenantContext`), bound by `AdminAuthMiddleware` for
-   `/admin` + `/attachments`, and by the curated tool and the attachment resource for MCP
-   calls (`resources/read` on `attachment://stash/{id}` binds it too).
+   `/admin` + `/attachments`, and by the tenant-binding call-tool filter and the attachment
+   resource for MCP calls (`resources/read` on `attachment://stash/{id}` binds it too).
    Upstream's API-key scheme, admin OIDC sign-in, admin users/claim codes, rate limiting and
    `CalendarMcp:Mcp:RequireApiKey` are **not** taken (1.8.3 sync dropped
    `Security/McpApiKeyAuthentication`, `FileMcpKeyStore`, `AdminUserStore`,
@@ -54,8 +54,8 @@ file says the fork does not have, this file wins.
      has (a tenant names its own IMAP/SMTP hosts); nothing here restricts the target network.
    - **The stdio server serves one local tenant**, named by `CALENDAR_MCP_TENANT_ID` (the
      variable the CLI adds accounts under). An incoming message filter sets it as every
-     request's principal, so the tool binds it exactly as it binds a bearer's `sub`; the
-     server refuses to start without it. Both transports register the same curated surface.
+     request's principal, so the tenant binding binds it exactly as it binds a bearer's `sub`; the
+     server refuses to start without it. Both transports register the same surface.
 
 3. **No Blazor admin UI.** Aura's cockpit drives connect/account management through the
    `/admin` REST API. `Components/` and `BlazorAdmin/` are deleted; upstream changes to them are
@@ -75,15 +75,18 @@ file says the fork does not have, this file wins.
      issue. Measured 2026-09-23: with a Desktop OAuth client the loopback redirect only reaches a
      listener on the browser's own machine, so a server-side install cannot receive it.
 
-4. **One curated tool instead of 29.** Both servers register `WithCalendarMcpSurface()`: the
-   curated `calendar` tool (`action` discriminator over all 29 upstream operations), the MCP
-   Apps view (`WithCalendarView()`), the `attachment://stash/{id}` resource
-   (`WithEmailAttachmentResource()`), upstream's quoted-scalar filter
-   (`WithStringScalarArguments()`, which reads the curated schema) and the three prompt
-   classes -- one extension so a
-   `Program.cs` merge conflict cannot silently drop one of them. Every action **forwards** to
-   the upstream implementation class, constructed per call through `ActivatorUtilities` (no
-   tool class is registered in DI), so upstream fixes reach it without a copy.
+4. **Upstream's 29 tools, one per operation, under Aura's names** (`Tools/CalendarMcpSurface.cs`,
+   2026-11-24; until then a curated `calendar` tool multiplexed them behind an `action` argument).
+   Both servers register `WithCalendarMcpSurface()`: the tenant binding (`WithTenantBinding()`), the
+   29 upstream classes, the MCP Apps view (`WithCalendarView()`), the `attachment://stash/{id}`
+   resource (`WithEmailAttachmentResource()`), upstream's quoted-scalar filter
+   (`WithStringScalarArguments()`) and the three prompt classes -- one extension so a `Program.cs`
+   merge conflict cannot silently drop one of them. Each class carries its name explicitly; two
+   differ from what the SDK derives: `mark_email_read` and `bulk_mark_emails_read`. The ten reads
+   the view renders carry `_meta.ui` (`ui://calendar/view.html`), set where the surface builds each
+   tool, and the four tools whose classes the dispatcher used to guard refuse an empty `subject`
+   (`send_email`, `create_event`), `displayName` (`create_contact`) or `calendarId`
+   (`get_calendar_event_details`) themselves.
 
    - **`send_email` requires `accountId`** (`SendEmailTool.cs`, 2026-11-23). Upstream routes a
      send with no account by the recipient's domain, out of sight of whoever reviews it; told the account
@@ -91,7 +94,7 @@ file says the fork does not have, this file wins.
      `accountId` with no default, which is why the SDK puts it in the schema's `required` list; it is
      the first parameter because C# forbids a required parameter after optional ones. An empty one is
      refused with the McpException the tests pin, and there is no domain routing or first-account
-     fallback. The curated forwarder no longer repeats the check. `IAccountRegistry.GetAccountsByDomain`,
+     fallback. `IAccountRegistry.GetAccountsByDomain`,
      whose only caller was that routing, is deleted with its tests and fakes.
 
    - **Events are addressed by an opaque reference** (`EventRef.cs`, minted and resolved inside `GetCalendarEventsTool`,
@@ -100,11 +103,11 @@ file says the fork does not have, this file wins.
      `get_calendar_event_details`, `update_event`, `delete_event` and `respond_to_event` take
      that reference and no `accountId`. Each result echoes the reference, never the provider
      id, and an error quoting the provider id quotes the reference instead.
-   - **Required value-type parameters are checked by the forwarder.** Every parameter of the
-     multiplexed schema is optional, so where upstream declares a non-nullable value type
-     (`isRead` on `mark_email_read`/`bulk_mark_emails_read`, `start`/`end` on `create_event`)
-     the forwarder rejects its absence instead of inventing a value. Required strings, lists
-     and arrays pass through: upstream already rejects them when missing.
+   - **Required value-type parameters are required by their own schemas.** `isRead` on
+     `mark_email_read`/`bulk_mark_emails_read` and `start`/`end` on `create_event` are
+     non-nullable with no default, so they are in `required` and a call that leaves one out fails
+     binding before the tool runs (measured 2026-11-24: the SDK answers "An error occurred invoking
+     '<tool>'." without naming the argument). Nothing invents a value.
    - **Attachments come back as a resource link.** `GetEmailAttachmentTool.GetEmailAttachment` always
      stashes and returns a `CallToolResult`: the stash JSON plus a `resource_link` to
      `attachment://stash/<attachmentId>`. The link is served by `EmailAttachmentResource` (tenant from
@@ -114,7 +117,7 @@ file says the fork does not have, this file wins.
      removed, and so is its description's advice to fetch the bytes over HTTP. The per-attachment
      store cap is 25 MiB, fixed; the class takes `IOptions<AttachmentStoreOptions>` so its store-full
      error states the cap and the store's 15-minute TTL instead of upstream's "Try inline mode if the
-     file is small." hint. The curated action forwards the class unchanged.
+     file is small." hint.
 
 5. **Health and docs endpoints.** `/health/ready` resolves the account registry rather than
    querying it: accounts are tenant-scoped and an anonymous probe has no tenant.
@@ -146,8 +149,8 @@ file says the fork does not have, this file wins.
      no type and says it can hold HTML, so one with a tag in it is `html` (`MailBody.FormatOfUntyped`).
    - `get_contextual_email_summary` converts a body it has. A provider's preview is all it has on a
      list, and nothing here can tell what in it was hidden, so a preview loses its invisible
-     characters, is capped, and the descriptions of the tool and of the curated tool say it cannot
-     be filtered.
+     characters, is capped, and the tool's `includeBodyPreview` description says it cannot be
+     filtered.
 
 8. **The changes contract: `POST /admin/changes` and `POST /admin/items`.** What Aura's mail and
    calendar watch reads, under the same bearer and tenant as `/admin`. It is not an MCP action, so
@@ -401,16 +404,16 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 
 - `Components/`, `BlazorAdmin/`, admin-console security, API-key auth: keep deleted.
 - `*.csproj`: keep the fork's package versions; add only packages the kept code needs.
-- A tool class upstream changed: take upstream's version. The curated tool forwards to it. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
-  If it added a non-nullable value-type parameter, add the forwarder check (change 4).
-- Tests upstream adds for a tool class: keep them. They exercise the code the fork forwards to.
+- A tool class upstream changed: take upstream's version, keeping the fork's `[McpServerTool(Name = ...)]` and its short description. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
+  A tool class upstream adds goes into `CalendarMcpSurface`'s list, under Aura's name (change 4).
+- Tests upstream adds for a tool class: keep them. They exercise the tool the fork registers.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.
 - `Program.cs` (both servers): the fork's auth pipeline and the `.WithCalendarMcpSurface()`
-  call must survive -- it is the tool, the view, the attachment resource and the prompts in
-  one line, so a conflict resolved by re-adding only `WithCalendarActionTool()` would
+  call must survive -- it is the tools, the view, the attachment resource and the prompts in
+  one line, so a conflict resolved by re-adding upstream's `WithTools<...>()` chain would
   silently drop the rest. Take upstream's endpoint hardening. Check that non-conflicting
   hunks did not pull in registrations for dropped types or tool classes (the tests call the
-  extension, not `Program.cs`, so only the stdio smoke would see a second tool), and that
+  extension, not `Program.cs`, so only the stdio smoke would see a tool registered twice), and that
   `MapAttachmentEndpoints()` survived too.
 - Model-facing messages upstream adds that mention its admin UI: reword (change 6). CLI output
   too: "the client that manages this server's accounts".
@@ -434,8 +437,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   `ImapProviderService.Support.cs`: `ExtractBody` with text first, `MailParts.NoBody`.
   `GetEmailDetailsTool.cs` and `GetCalendarEventDetailsTool.cs`: `MailBody.ForModel`.
   `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
-  its summary, and the sentence in `includeBodyPreview`'s description, which `CalendarActionTool.cs`
-  repeats for the curated tool. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`, and the mail discovery registrations (change 12): the
+  its summary, and the sentence in `includeBodyPreview`'s description. `ServiceCollectionExtensions.cs`: `ConversionThreadLogging`, and the mail discovery registrations (change 12): the
   memory cache, `ILookupClient`, `IMxLookup`, the `Autoconfig` client with its guarded handler, and `MailDiscovery`;
   and the `Unsubscribe` client's guarded handler (change 13), which `UnsubscribeExecutor.cs` relies on: an upstream
   edit there that reads the response body or returns `ex.Message` reopens it.

@@ -16,7 +16,7 @@ public sealed class DeleteEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<DeleteEventTool> logger)
 {
-    [McpServerTool, Description("Delete a calendar event. Pass the eventId reference from get_calendar_events or create_event; it identifies the account.")]
+    [McpServerTool(Name = "delete_event"), Description("Delete a calendar event. Pass the eventId reference from get_calendar_events or create_event; it identifies the account.")]
     public async Task<string> DeleteEvent(
         [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,
         [Description("Calendar ID containing the event, or omit for default calendar")] string? calendarId = null)

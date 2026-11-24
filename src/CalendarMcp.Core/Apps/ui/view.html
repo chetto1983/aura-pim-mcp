@@ -1,10 +1,9 @@
 <!--
   The one MCP Apps view for this server.
 
-  MCP Apps binds ONE ui:// resource per tool and this server publishes a single
-  action-multiplexed tool, so the view is multiplexed the same way its tool is: it
-  adapts whichever payload family came back into one uniform row shape and renders
-  that. The families are the shapes measured against the live sidecar, not guessed
+  Every read tool whose result it can draw names this one ui:// resource, so the
+  view is shared by those tools: it adapts whichever payload family came back into
+  one uniform row shape and renders that. The families are the shapes measured against the live sidecar, not guessed
   from the C# models -- events, emails, contacts, accounts, calendars -- and
   anything unrecognised falls through to raw JSON rather than a confident blank.
 
@@ -539,7 +538,7 @@
   }
 
   /**
-   * The list actions return a preview; the detail actions return the whole thing.
+   * The list tools return a preview; the detail tools return the whole thing.
    * Fetching goes back out through the host as a tools/call rather than a fetch(),
    * which is both what the CSP allows and what lets the host apply its own policy to
    * a call this view makes on the user's behalf.
@@ -547,11 +546,11 @@
   function detailRequest(it) {
     var r = it.raw;
     if (it.kind === "email" && r.accountId && r.id) {
-      return { action: "get_email_details", accountId: r.accountId, emailId: r.id };
+      return { tool: "get_email_details", args: { accountId: r.accountId, emailId: r.id } };
     }
     if (it.kind === "event" && r.eventId && r.calendarId) {
-      return { action: "get_calendar_event_details", calendarId: r.calendarId,
-               eventId: r.eventId, timeZone: state.timezone || "Europe/Rome" };
+      return { tool: "get_calendar_event_details", args: { calendarId: r.calendarId,
+               eventId: r.eventId, timeZone: state.timezone || "Europe/Rome" } };
     }
     return null;
   }
@@ -563,11 +562,11 @@
 
     var k = keyOf(it);
     if (k in state.detail) return; // already fetched, or in flight
-    var args = detailRequest(it);
-    if (!args) return;
+    var request = detailRequest(it);
+    if (!request) return;
 
     state.detail[k] = null;
-    window.McpApp.callTool("calendar", args).then(function (result) {
+    window.McpApp.callTool(request.tool, request.args).then(function (result) {
       var payload = window.McpApp.payloadOf(result);
       if (payload && payload.emails) payload = payload.emails[0];
       if (payload && payload.events) payload = payload.events[0];

@@ -17,7 +17,7 @@ public sealed class GetContactsTool(
     IProviderServiceFactory providerFactory,
     ILogger<GetContactsTool> logger)
 {
-    [McpServerTool, Description("Get contacts for specific account or all accounts")]
+    [McpServerTool(Name = "get_contacts"), Description("Get contacts for specific account or all accounts")]
     public async Task<string> GetContacts(
         [Description("Specific account ID, or omit for all accounts")] string? accountId = null,
         [Description("Number of contacts to retrieve")] int count = 50)

@@ -176,13 +176,11 @@ public class GetContextualEmailSummaryToolTests
         Assert.IsTrue(watch.Elapsed < TimeSpan.FromSeconds(1), $"{watch.Elapsed}");
     }
 
-    /// <summary>The curated tool is what a model reads, so its text has to say it as well as the class it forwards to.</summary>
     [TestMethod]
-    [DataRow(typeof(GetContextualEmailSummaryTool), nameof(GetContextualEmailSummaryTool.GetContextualEmailSummary))]
-    [DataRow(typeof(CalendarActionTool), "Calendar")]
-    public void TheTool_SaysAPreviewIsNotFiltered(Type tool, string method)
+    public void TheTool_SaysAPreviewIsNotFiltered()
     {
-        var description = tool.GetMethods().Single(candidate => candidate.Name == method)
+        var description = typeof(GetContextualEmailSummaryTool)
+            .GetMethod(nameof(GetContextualEmailSummaryTool.GetContextualEmailSummary))!
             .GetParameters().Single(parameter => parameter.Name == "includeBodyPreview")
             .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
             .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;

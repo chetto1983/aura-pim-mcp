@@ -17,7 +17,7 @@ public sealed class GetContactDetailsTool(
     IProviderServiceFactory providerFactory,
     ILogger<GetContactDetailsTool> logger)
 {
-    [McpServerTool, Description("Get full contact details including all fields for a specific contact")]
+    [McpServerTool(Name = "get_contact_details"), Description("Get full contact details including all fields for a specific contact")]
     public async Task<string> GetContactDetails(
         [Description("Account ID (required)")] string accountId,
         [Description("Contact ID (required)")] string contactId)

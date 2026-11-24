@@ -18,7 +18,7 @@ public sealed class ListAccountsTool(
     ISendingAddresses sendingAddresses,
     ILogger<ListAccountsTool> logger)
 {
-    [McpServerTool, Description("List all configured accounts with their capabilities and permissions. Returns accountId, provider, displayName, email (the address the account sends from, when known), domains, capabilities (calendar, email, contacts), and permissions (emailRead, emailSend, calendarRead, calendarWrite, contactsRead, contactsWrite) for each. Permissions are what the account actually allows — a false value means every tool needing it will be refused for that account, so pick an account whose permissions cover the operation. Use the accountId values when calling other tools to scope operations to a specific account.")]
+    [McpServerTool(Name = "list_accounts"), Description("List the configured accounts with their sending address, capabilities and permissions; pass their accountId values to the other tools. A false permission means every tool needing it is refused for that account, so pick one whose permissions cover the operation.")]
     public async Task<string> ListAccounts()
     {
         logger.LogInformation("Listing all accounts");

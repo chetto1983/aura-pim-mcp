@@ -17,7 +17,7 @@ public sealed class UpdateContactTool(
     IProviderServiceFactory providerFactory,
     ILogger<UpdateContactTool> logger)
 {
-    [McpServerTool, Description("Update an existing contact's information")]
+    [McpServerTool(Name = "update_contact"), Description("Update an existing contact's information")]
     public async Task<string> UpdateContact(
         [Description("Account ID (required)")] string accountId,
         [Description("Contact ID (required)")] string contactId,

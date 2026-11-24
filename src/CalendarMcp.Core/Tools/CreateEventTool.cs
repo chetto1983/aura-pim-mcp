@@ -16,19 +16,20 @@ public sealed class CreateEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<CreateEventTool> logger)
 {
-    [McpServerTool, Description("Create a calendar event. Returns eventId, an opaque reference to pass byte for byte to update_event, delete_event, respond_to_event or get_calendar_event_details. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) so events are created at the correct local time. Without accountId, the first account that permits calendar writes is used.")]
+    [McpServerTool(Name = "create_event"), Description("Create a calendar event and return its eventId, the reference the other event tools take. Without accountId, the first account that permits calendar writes is used.")]
     public async Task<string> CreateEvent(
         [Description("Event subject/title")] string subject,
         [Description("Event start date and time (ISO 8601 format). For an all-day event, a date (yyyy-MM-dd).")] DateTime start,
         [Description("Event end date and time (ISO 8601 format). For an all-day event, the exclusive end date (yyyy-MM-dd): a one-day event on 2026-10-01 ends 2026-10-02.")] DateTime end,
-        [Description("Account ID to create the event in. Omitting uses the first configured account — provide explicitly to target the correct account. Obtain from list_accounts.")] string? accountId = null,
+        [Description("Account ID to create the event in, from list_accounts. Omit to use the first account that permits calendar writes; pass it to target the right account.")] string? accountId = null,
         [Description("Calendar ID to create the event in. Omit (or pass 'primary') for the default calendar; otherwise obtain from list_calendars.")] string? calendarId = null,
         [Description("Event location")] string? location = null,
         [Description("List of attendee email addresses")] List<string>? attendees = null,
         [Description("Event description/body")] string? body = null,
-        [Description("IANA timezone name for the event (e.g. `America/Chicago`, `America/New_York`, `Europe/London`). Required to create events at the correct local time.")] string? timeZone = null,
+        [Description("The user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`). Always pass it, so the event is created at the correct local time.")] string? timeZone = null,
         [Description("True for an all-day event. start/end are then dates (yyyy-MM-dd, end exclusive) and any time of day is ignored.")] bool isAllDay = false)
     {
+        ToolGuard.RequireNonEmpty(subject, nameof(subject));
         // Strip CDATA wrappers if present (LLMs sometimes wrap content in XML CDATA)
         body = StripCdataWrapper(body);
         

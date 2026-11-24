@@ -20,7 +20,7 @@ public sealed class BulkMarkEmailsAsReadTool(
     private static readonly SemaphoreSlim Throttle = new(10);
     private const int MaxBatchSize = 50;
 
-    [McpServerTool, Description("Mark multiple emails as read or unread in a single batch operation. More efficient than calling mark_email_as_read repeatedly.")]
+    [McpServerTool(Name = "bulk_mark_emails_read"), Description("Mark multiple emails as read or unread in a single batch operation. More efficient than calling mark_email_read repeatedly.")]
     public async Task<string> BulkMarkEmailsAsRead(
         [Description("Array of emails to mark, each with 'accountId' and 'emailId'. Maximum 50 items. Obtain values from get_emails or search_emails.")] BulkEmailItem[] items,
         [Description("True to mark as read, false to mark as unread")] bool isRead)
@@ -96,7 +96,7 @@ public sealed class BulkMarkEmailsAsReadTool(
         }
         catch (Exception ex) when (ex is not McpException)
         {
-            logger.LogError(ex, "Error in bulk_mark_emails_as_read tool");
+            logger.LogError(ex, "Error in bulk_mark_emails_read tool");
             throw ToolGuard.Failure("bulk mark emails", ex);
         }
     }

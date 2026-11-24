@@ -17,7 +17,7 @@ public sealed class SearchContactsTool(
     IProviderServiceFactory providerFactory,
     ILogger<SearchContactsTool> logger)
 {
-    [McpServerTool, Description("Search contacts by name, email, or company for specific account or all accounts")]
+    [McpServerTool(Name = "search_contacts"), Description("Search contacts by name, email, or company for specific account or all accounts")]
     public async Task<string> SearchContacts(
         [Description("Search query string")] string query,
         [Description("Specific account ID, or omit for all accounts")] string? accountId = null,

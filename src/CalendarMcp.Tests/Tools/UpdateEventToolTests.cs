@@ -125,6 +125,6 @@ public class UpdateEventToolTests
     }
 
     [TestMethod]
-    public void UpdateEvent_HasNoAccountIdParameter() =>
-        EventToolSchema.AssertNoAccountId(typeof(UpdateEventTool), nameof(UpdateEventTool.UpdateEvent));
+    public Task UpdateEvent_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId("update_event");
 }

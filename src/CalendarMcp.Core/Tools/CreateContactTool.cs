@@ -16,7 +16,7 @@ public sealed class CreateContactTool(
     IProviderServiceFactory providerFactory,
     ILogger<CreateContactTool> logger)
 {
-    [McpServerTool, Description("Create a new contact in a specific account. Without accountId, the first account that permits contact writes is used.")]
+    [McpServerTool(Name = "create_contact"), Description("Create a new contact in a specific account. Without accountId, the first account that permits contact writes is used.")]
     public async Task<string> CreateContact(
         [Description("Contact display name")] string displayName,
         [Description("Specific account ID, or omit to use the first account that permits contact writes")] string? accountId = null,
@@ -28,6 +28,7 @@ public sealed class CreateContactTool(
         [Description("Company name")] string? companyName = null,
         [Description("Notes about the contact")] string? notes = null)
     {
+        ToolGuard.RequireNonEmpty(displayName, nameof(displayName));
         logger.LogInformation("Creating contact: displayName={DisplayName}, accountId={AccountId}",
             displayName, accountId);
 

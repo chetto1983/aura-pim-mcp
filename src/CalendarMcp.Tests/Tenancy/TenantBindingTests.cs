@@ -37,7 +37,7 @@ public sealed class TenantBindingTests
     {
         await using var session = await StartAsync(TestData.TenantB, null, []);
 
-        var result = await session.Client.CallToolAsync("calendar", new Dictionary<string, object?> { ["action"] = "list_accounts" });
+        var result = await session.Client.CallToolAsync("list_accounts");
 
         var ids = JsonDocument.Parse(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Single().Text)
             .RootElement.GetProperty("accounts").EnumerateArray()

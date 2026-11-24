@@ -244,6 +244,6 @@ public class GetCalendarEventDetailsToolTests
     }
 
     [TestMethod]
-    public void GetCalendarEventDetails_HasNoAccountIdParameter() =>
-        EventToolSchema.AssertNoAccountId(typeof(GetCalendarEventDetailsTool), nameof(GetCalendarEventDetailsTool.GetCalendarEventDetails));
+    public Task GetCalendarEventDetails_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId("get_calendar_event_details");
 }

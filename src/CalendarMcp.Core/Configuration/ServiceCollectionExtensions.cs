@@ -115,9 +115,6 @@ public static class ServiceCollectionExtensions
         services.AddOptions<AttachmentStoreOptions>();
         services.AddSingleton<IAttachmentStore, InMemoryAttachmentStore>();
 
-        // No tool class is registered: WithCalendarActionTool builds the one curated tool, and
-        // it constructs each upstream tool class it forwards to through ActivatorUtilities.
-
         // Register MCP prompts
         services.AddSingleton<CalendarPrompts>();
         services.AddSingleton<EmailPrompts>();

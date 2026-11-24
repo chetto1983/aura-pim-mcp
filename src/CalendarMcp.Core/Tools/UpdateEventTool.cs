@@ -17,7 +17,7 @@ public sealed class UpdateEventTool(
     IProviderServiceFactory providerFactory,
     ILogger<UpdateEventTool> logger)
 {
-    [McpServerTool, Description("Update an existing calendar event. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) when updating start/end times so events are updated at the correct local time.")]
+    [McpServerTool(Name = "update_event"), Description("Update an existing calendar event. Always pass the timeZone parameter using the user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`) when updating start/end times so events are updated at the correct local time.")]
     public async Task<string> UpdateEvent(
         [Description("Calendar ID that contains the event. Obtain from list_calendars.")] string calendarId,
         [Description("The eventId reference returned by get_calendar_events or create_event, passed back byte for byte. It identifies the account.")] string eventId,

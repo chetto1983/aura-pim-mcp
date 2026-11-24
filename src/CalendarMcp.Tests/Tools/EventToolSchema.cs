@@ -1,26 +1,17 @@
-using CalendarMcp.Core.Tools;
-using System.Reflection;
+using CalendarMcp.Tests.Helpers;
 
 namespace CalendarMcp.Tests.Tools;
 
 internal static class EventToolSchema
 {
-    /// <summary>The schema the SDK publishes is the method's parameters, so a parameter is the account a caller may name.</summary>
-    public static void AssertNoAccountId(Type tool, string method)
+    /// <summary>The account an event tool acts on comes from its reference, so the published schema offers none.</summary>
+    public static async Task AssertNoAccountId(string toolName)
     {
-        var parameters = tool.GetMethod(method)!.GetParameters().Select(p => p.Name).ToList();
+        var tool = (await SurfaceSession.ListToolsAsync()).Single(t => t.Name == toolName);
+        var properties = tool.ProtocolTool.InputSchema.GetProperty("properties")
+            .EnumerateObject().Select(p => p.Name).ToList();
 
-        CollectionAssert.Contains(parameters, "eventId");
-        CollectionAssert.DoesNotContain(parameters, "accountId");
-    }
-}
-
-internal static class EventJson
-{
-    /// <summary>The provider's own id, recovered from the reference an event carries.</summary>
-    public static string RawId(this System.Text.Json.JsonElement evt)
-    {
-        Assert.IsTrue(EventRef.TryDecode(evt.GetProperty("eventId").GetString(), out _, out var rawId));
-        return rawId;
+        CollectionAssert.Contains(properties, "eventId");
+        CollectionAssert.DoesNotContain(properties, "accountId");
     }
 }

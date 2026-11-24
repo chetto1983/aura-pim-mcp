@@ -17,7 +17,7 @@ public sealed class DeleteContactTool(
     IProviderServiceFactory providerFactory,
     ILogger<DeleteContactTool> logger)
 {
-    [McpServerTool, Description("Delete a contact from a specific account")]
+    [McpServerTool(Name = "delete_contact"), Description("Delete a contact from a specific account")]
     public async Task<string> DeleteContact(
         [Description("Account ID (required)")] string accountId,
         [Description("Contact ID (required)")] string contactId)

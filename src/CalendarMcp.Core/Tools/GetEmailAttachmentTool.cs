@@ -26,7 +26,7 @@ public sealed class GetEmailAttachmentTool(
     IOptions<AttachmentStoreOptions> storeOptions,
     ILogger<GetEmailAttachmentTool> logger)
 {
-    [McpServerTool, Description(
+    [McpServerTool(Name = "get_email_attachment"), Description(
         "Fetch one attachment of a received email into the server's attachment store. Required: accountId, emailId, attachmentId — get them from get_email_details. The result is an attachment:// resource link (the client reads the bytes through that link; they never enter your context) plus an attachmentId you pass to send_email to forward the file. Stash IDs are single-use for send_email and expire after a while.")]
     public async Task<CallToolResult> GetEmailAttachment(
         [Description("Required. Account that owns the email.")] string accountId,

@@ -129,8 +129,7 @@ public class Program
                 // Add Adjutant core services (providers, tools, account registry)
                 services.AddCalendarMcpCore();
                 
-                // The same surface as the HttpServer: upstream's 29 tools as ONE curated,
-                // action-multiplexed tool (D-17..D-26), which binds its tenant from the request's
+                // The same surface as the HttpServer. Its tenant binding reads the request's
                 // principal -- set here, for every message, to the local tenant.
                 services.AddMcpServer(CalendarMcpServerOptions.Configure)
                     .WithMessageFilters(filters => filters.AddIncomingFilter(next => (context, cancellationToken) =>

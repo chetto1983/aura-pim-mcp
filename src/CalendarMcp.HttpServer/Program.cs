@@ -142,7 +142,7 @@ public class Program
                 },
                 // Which tenant a caller reaches is a property of (issuer, subject)
                 // together. Resolving it once here leaves TenantIdentity.FromPrincipal and
-                // its three callers -- the curated tool, the attachment resource and
+                // its three callers -- the tenant-binding filter, the attachment resource and
                 // AdminAuthMiddleware -- reading a single `sub` claim, as before.
                 OnTokenValidated = context =>
                 {
@@ -192,8 +192,7 @@ public class Program
         builder.Services
             .AddMcpServer(CalendarMcpServerOptions.Configure)
             .WithHttpTransport()
-            // Upstream's 29 tools are served as ONE curated, action-multiplexed tool (D-17..D-26).
-            // The upstream tool classes stay, unregistered: every action forwards to one of them.
+            // One tool per operation, bound to the caller's tenant: the chain the stdio host registers too.
             .WithCalendarMcpSurface()
             .WithRequestFilters(filters => filters.AddCallToolFilter(
                 (next) => async (request, cancellationToken) =>

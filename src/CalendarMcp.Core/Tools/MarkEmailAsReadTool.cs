@@ -17,7 +17,7 @@ public sealed class MarkEmailAsReadTool(
     IProviderServiceFactory providerFactory,
     ILogger<MarkEmailAsReadTool> logger)
 {
-    [McpServerTool, Description("Mark an email as read or unread")]
+    [McpServerTool(Name = "mark_email_read"), Description("Mark an email as read or unread")]
     public async Task<string> MarkEmailAsRead(
         [Description("Account ID that owns the email. Obtain from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Email message ID to mark. Obtain from the id field returned by get_emails or search_emails.")] string emailId,
@@ -55,7 +55,7 @@ public sealed class MarkEmailAsReadTool(
         }
         catch (Exception ex) when (ex is not McpException)
         {
-            logger.LogError(ex, "Error in mark_email_as_read tool");
+            logger.LogError(ex, "Error in mark_email_read tool");
             throw ToolGuard.Failure("mark email as read", ex);
         }
     }

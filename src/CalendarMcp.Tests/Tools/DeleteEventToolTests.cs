@@ -74,6 +74,6 @@ public class DeleteEventToolTests
     }
 
     [TestMethod]
-    public void DeleteEvent_HasNoAccountIdParameter() =>
-        EventToolSchema.AssertNoAccountId(typeof(DeleteEventTool), nameof(DeleteEventTool.DeleteEvent));
+    public Task DeleteEvent_HasNoAccountIdParameter() =>
+        EventToolSchema.AssertNoAccountId("delete_event");
 }

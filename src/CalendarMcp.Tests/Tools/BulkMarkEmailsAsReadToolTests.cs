@@ -54,4 +54,17 @@ public class BulkMarkEmailsAsReadToolTests
         factExp.Verify();
         provExp.Verify();
     }
+
+    // A missing non-nullable argument fails binding: the SDK refuses the call before the tool runs.
+    [TestMethod]
+    public async Task BulkMarkEmailsRead_WithoutIsRead_IsRefusedBeforeTheProvider()
+    {
+        var factory = new RecordingProviderFactory();
+
+        var result = await SurfaceSession.CallAsync(factory, "bulk_mark_emails_read",
+            $$"""{"items":[{"accountId":"{{SurfaceSession.AccountA}}","emailId":"email-1"}]}""");
+
+        Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
+        Assert.IsEmpty(factory.Requested);
+    }
 }

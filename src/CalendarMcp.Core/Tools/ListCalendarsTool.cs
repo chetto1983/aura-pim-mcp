@@ -17,7 +17,7 @@ public sealed class ListCalendarsTool(
     IProviderServiceFactory providerFactory,
     ILogger<ListCalendarsTool> logger)
 {
-    [McpServerTool, Description("List all calendars from one or all accounts. Returns id, accountId, name, owner, canEdit, and isDefault for each calendar. Use the id and accountId when calling get_calendar_events or create_event to target a specific calendar.")]
+    [McpServerTool(Name = "list_calendars"), Description("List all calendars from one or all accounts. Returns id, accountId, name, owner, canEdit, and isDefault for each calendar. Use the id and accountId when calling get_calendar_events or create_event to target a specific calendar.")]
     public async Task<string> ListCalendars(
         [Description("Account ID to list calendars for, or omit for all accounts. Obtain from list_accounts.")] string? accountId = null)
     {

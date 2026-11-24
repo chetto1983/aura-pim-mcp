@@ -84,4 +84,18 @@ public class MarkEmailAsReadToolTests
         factExp.Verify();
         provExp.Verify();
     }
+
+    // A missing non-nullable argument fails binding: the SDK refuses the call before the tool runs,
+    // so no read state is invented for the mail.
+    [TestMethod]
+    public async Task MarkEmailRead_WithoutIsRead_IsRefusedBeforeTheProvider()
+    {
+        var factory = new RecordingProviderFactory();
+
+        var result = await SurfaceSession.CallAsync(factory, "mark_email_read",
+            $$"""{"accountId":"{{SurfaceSession.AccountA}}","emailId":"email-1"}""");
+
+        Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
+        Assert.IsEmpty(factory.Requested);
+    }
 }

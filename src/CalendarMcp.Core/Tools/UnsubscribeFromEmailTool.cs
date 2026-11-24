@@ -19,7 +19,7 @@ public sealed class UnsubscribeFromEmailTool(
     UnsubscribeExecutor unsubscribeExecutor,
     ILogger<UnsubscribeFromEmailTool> logger)
 {
-    [McpServerTool, Description("Unsubscribe from an email mailing list using List-Unsubscribe headers (RFC 2369/8058). Supports one-click POST, returning HTTPS link, or sending mailto unsubscribe.")]
+    [McpServerTool(Name = "unsubscribe_from_email"), Description("Unsubscribe from an email mailing list using List-Unsubscribe headers (RFC 2369/8058). Supports one-click POST, returning HTTPS link, or sending mailto unsubscribe.")]
     public async Task<string> UnsubscribeFromEmail(
         [Description("Account ID that owns the email. Obtain from the accountId field returned by get_emails or search_emails.")] string accountId,
         [Description("Email message ID. Obtain from the id field returned by get_emails or search_emails.")] string emailId,
