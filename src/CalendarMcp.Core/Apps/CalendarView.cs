@@ -20,9 +20,10 @@ namespace CalendarMcp.Core.Apps;
 /// <para>
 /// The document is assembled here rather than shipped pre-built. A <c>ui://</c> resource is
 /// ONE self-contained HTML string -- the host has no second request to fetch a stylesheet or
-/// a script with, and the CSP this resource declares would refuse it anyway -- so the theme
-/// and the transport bridge are kept as separate authorable files and inlined at read time.
-/// The three files are embedded with explicit <c>LogicalName</c>s (see the csproj) because
+/// a script with, and the CSP this resource declares would refuse it anyway -- so the theme,
+/// the transport bridge and the view's script are kept as separate authorable files and inlined
+/// at read time. The script is two fragments of one closure (<c>_view_list.js</c>,
+/// <c>_view_reader.js</c>) only to keep each file under 600 lines. The files are embedded with explicit <c>LogicalName</c>s (see the csproj) because
 /// the default manifest name is derived from the root namespace and folder path, which makes
 /// renaming a directory silently break resource lookup at runtime instead of at build.
 /// </para>
@@ -40,9 +41,13 @@ public static class CalendarView
     private const string HtmlResource = "calendar-app/view.html";
     private const string ThemeResource = "calendar-app/theme.css";
     private const string BridgeResource = "calendar-app/bridge.js";
+    private const string ListScriptResource = "calendar-app/view-list.js";
+    private const string ReaderScriptResource = "calendar-app/view-reader.js";
 
     private const string ThemePlaceholder = "/*{{THEME}}*/";
     private const string BridgePlaceholder = "/*{{BRIDGE}}*/";
+    private const string ListScriptPlaceholder = "/*{{VIEW_LIST}}*/";
+    private const string ReaderScriptPlaceholder = "/*{{VIEW_READER}}*/";
 
     private static readonly Lazy<string> Document = new(Compose, LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -53,7 +58,11 @@ public static class CalendarView
     {
         var html = ReadEmbedded(HtmlResource);
         foreach (var (placeholder, resource) in
-                 new[] { (ThemePlaceholder, ThemeResource), (BridgePlaceholder, BridgeResource) })
+                 new[]
+                 {
+                     (ThemePlaceholder, ThemeResource), (BridgePlaceholder, BridgeResource),
+                     (ListScriptPlaceholder, ListScriptResource), (ReaderScriptPlaceholder, ReaderScriptResource),
+                 })
         {
             // A missing placeholder means the view was edited apart from this composer, which
             // would ship a document with no styling or -- worse -- no transport, and fail as a

@@ -48,6 +48,8 @@
     <EmbeddedResource Include="Apps/ui/view.html" LogicalName="calendar-app/view.html" />
     <EmbeddedResource Include="Apps/ui/_theme.css" LogicalName="calendar-app/theme.css" />
     <EmbeddedResource Include="Apps/ui/_bridge.js" LogicalName="calendar-app/bridge.js" />
+    <EmbeddedResource Include="Apps/ui/_view_list.js" LogicalName="calendar-app/view-list.js" />
+    <EmbeddedResource Include="Apps/ui/_view_reader.js" LogicalName="calendar-app/view-reader.js" />
   </ItemGroup>
 
 </Project>

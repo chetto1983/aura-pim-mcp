@@ -55,7 +55,6 @@ The server exposes these tools to AI assistants:
 - **send_email** — Send email from the account the caller names (`accountId` is required); supports file attachments (base64-encoded, up to 25 MB total)
 - **list_calendars** / **get_calendar_events** — View calendars and events
 - **get_calendar_event_details** — Get full event details
-- **find_available_times** — Find free time across all calendars
 - **create_event** — Create calendar events
 - **delete_event** — Delete calendar events (requires organizer/edit permissions)
 - **respond_to_event** — Accept, tentatively accept, or decline event invitations
@@ -73,7 +72,7 @@ times, and everyone invited votes on each one from their own assistant or from a
 without anyone sharing a calendar. It never reads calendars itself, which is where Calendar-MCP comes in. With
 both connected, an assistant can:
 
-- **Organize:** find free times with `find_available_times`, propose them through Scheduler, and once a time
+- **Organize:** find free times by reading `get_calendar_events`, propose them through Scheduler, and once a time
   is picked, create the real meeting with `create_event`.
 - **Answer an invitation:** find Scheduler's emails (subjects start with `[sched:CODE]`) with
   `search_emails`, check each proposed time with `get_calendar_events`, vote through Scheduler, and accept the

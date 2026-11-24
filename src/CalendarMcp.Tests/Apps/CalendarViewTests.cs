@@ -18,4 +18,12 @@ public sealed class CalendarViewTests
         Assert.DoesNotContain("action:", CalendarView.Html);
         Assert.DoesNotContain("callTool(\"calendar\"", CalendarView.Html);
     }
+
+    [TestMethod]
+    public void TheView_InlinesEveryPart()
+    {
+        Assert.DoesNotContain("/*{{", CalendarView.Html);
+        StringAssert.Contains(CalendarView.Html, "function detailRequest(it)");
+        StringAssert.Contains(CalendarView.Html, "function rowNode(it)");
+    }
 }
