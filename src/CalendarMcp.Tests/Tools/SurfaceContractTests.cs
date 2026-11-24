@@ -45,20 +45,55 @@ public sealed class SurfaceContractTests
             Assert.IsFalse(Properties(tool).Contains("action"), $"{tool.Name} still takes an action.");
     }
 
+    private static readonly Dictionary<string, string[]> Required = new()
+    {
+        ["list_accounts"] = [],
+        ["get_emails"] = [],
+        ["get_email_details"] = ["accountId", "emailId"],
+        ["search_emails"] = ["query"],
+        ["list_calendars"] = [],
+        ["get_calendar_events"] = ["timeZone"],
+        ["get_calendar_event_details"] = ["timeZone", "calendarId", "eventId"],
+        ["get_contacts"] = [],
+        ["search_contacts"] = ["query"],
+        ["get_contact_details"] = ["accountId", "contactId"],
+        ["create_event"] = ["subject", "start", "end"],
+        ["update_event"] = ["calendarId", "eventId"],
+        ["respond_to_event"] = ["eventId", "response"],
+        ["send_email"] = ["accountId", "to", "subject"],
+        ["delete_email"] = ["accountId", "emailId"],
+        ["mark_email_read"] = ["accountId", "emailId", "isRead"],
+        ["move_email"] = ["accountId", "emailId", "destination"],
+        ["delete_event"] = ["eventId"],
+        ["create_contact"] = ["displayName"],
+        ["update_contact"] = ["accountId", "contactId"],
+        ["delete_contact"] = ["accountId", "contactId"],
+        ["get_email_attachment"] = ["accountId", "emailId", "attachmentId"],
+        ["get_contextual_email_summary"] = [],
+        ["get_guide"] = [],
+        ["get_unsubscribe_info"] = ["accountId", "emailId"],
+        ["unsubscribe_from_email"] = ["accountId", "emailId"],
+        ["bulk_delete_emails"] = ["items"],
+        ["bulk_mark_emails_read"] = ["items", "isRead"],
+        ["bulk_move_emails"] = ["items", "destination"],
+    };
+
+    public static IEnumerable<object[]> RequiredRows => Required.Select(pair => new object[] { pair.Key, pair.Value });
+
     [TestMethod]
-    [DataRow("send_email", new[] { "accountId", "to", "subject" })]
-    [DataRow("get_email_details", new[] { "accountId", "emailId" })]
-    [DataRow("get_calendar_events", new[] { "timeZone" })]
-    [DataRow("get_calendar_event_details", new[] { "timeZone", "calendarId", "eventId" })]
-    [DataRow("create_event", new[] { "subject", "start", "end" })]
-    [DataRow("mark_email_read", new[] { "accountId", "emailId", "isRead" })]
+    public void Required_NamesEveryTool() =>
+        CollectionAssert.AreEquivalent(ToolNames, Required.Keys.ToArray());
+
+    [TestMethod]
+    [DynamicData(nameof(RequiredRows))]
     public async Task Required_IsPinnedPerTool(string name, string[] required)
     {
         var tool = (await SurfaceSession.ListToolsAsync()).Single(t => t.Name == name);
 
-        var published = tool.ProtocolTool.InputSchema.GetProperty("required").EnumerateArray()
-            .Select(e => e.GetString()).ToArray();
-        CollectionAssert.AreEquivalent(required, published);
+        var published = tool.ProtocolTool.InputSchema.TryGetProperty("required", out var list)
+            ? list.EnumerateArray().Select(e => e.GetString()).ToArray()
+            : [];
+        CollectionAssert.AreEquivalent(required, published, name);
     }
 
     [TestMethod]

@@ -55,7 +55,8 @@ public class BulkMarkEmailsAsReadToolTests
         provExp.Verify();
     }
 
-    // A missing non-nullable argument fails binding: the SDK refuses the call before the tool runs.
+    // A missing non-nullable argument fails binding before the tool runs, so no read state is invented;
+    // WithNamedMissingArguments names the argument.
     [TestMethod]
     public async Task BulkMarkEmailsRead_WithoutIsRead_IsRefusedBeforeTheProvider()
     {
@@ -65,6 +66,7 @@ public class BulkMarkEmailsAsReadToolTests
             $$"""{"items":[{"accountId":"{{SurfaceSession.AccountA}}","emailId":"email-1"}]}""");
 
         Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
+        StringAssert.Contains(SurfaceSession.Text(result), "Required parameter 'isRead' was not provided to 'bulk_mark_emails_read'.");
         Assert.IsEmpty(factory.Requested);
     }
 }

@@ -109,6 +109,18 @@ public class SendEmailToolTests
         Assert.AreEqual(AccountRequired, ex.Message);
     }
 
+    [TestMethod]
+    public async Task SendEmail_WithoutAccountId_NamesItAndReachesNoProvider()
+    {
+        var factory = new RecordingProviderFactory();
+
+        var result = await SurfaceSession.CallAsync(factory, "send_email", """{"to":["x@example.org"],"subject":"s"}""");
+
+        Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
+        StringAssert.Contains(SurfaceSession.Text(result), "Required parameter 'accountId' was not provided to 'send_email'.");
+        Assert.IsEmpty(factory.Requested);
+    }
+
     // Measured 2026-11-24: a JSON null for body or bodyFormat reached the tool as null, past the defaults.
     [TestMethod]
     public async Task SendEmail_NullBodyAndFormat_SendAnEmptyHtmlBody()

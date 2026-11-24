@@ -14,7 +14,8 @@ namespace CalendarMcp.Tests.Helpers;
 
 /// <summary>
 /// The registered tool surface over two tenants, each with one account on a different provider,
-/// so the provider a call resolves says whose account it reached.
+/// so the provider a call resolves says whose account it reached. B's account comes first, so a tool
+/// that falls back to "the first account" would pick B's unless the registry scopes it.
 /// </summary>
 internal static class SurfaceSession
 {
@@ -33,8 +34,8 @@ internal static class SurfaceSession
         {
             services.Configure<CalendarMcpConfiguration>(c => c.Accounts =
             [
-                TestData.CreateAccount(id: AccountA, tenantId: TestData.TenantA, displayName: "A Account", provider: ProviderA),
                 TestData.CreateAccount(id: AccountB, tenantId: TestData.TenantB, displayName: DisplayNameB, provider: ProviderB),
+                TestData.CreateAccount(id: AccountA, tenantId: TestData.TenantA, displayName: "A Account", provider: ProviderA),
             ]);
             services.AddSingleton<IAccountRegistry>(sp => new AccountRegistry(
                 sp.GetRequiredService<IOptionsMonitor<CalendarMcpConfiguration>>(),

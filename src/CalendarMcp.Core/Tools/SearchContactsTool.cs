@@ -21,10 +21,11 @@ public sealed class SearchContactsTool(
     public async Task<string> SearchContacts(
         [Description("Search query string")] string query,
         [Description("Specific account ID, or omit for all accounts")] string? accountId = null,
-        [Description("Number of contacts to retrieve")] int count = 50)
+        [Description("Number of contacts to retrieve")] int? count = 50)
     {
+        var limit = count ?? 50;
         logger.LogInformation("Searching contacts: query={Query}, accountId={AccountId}, count={Count}",
-            query, accountId, count);
+            query, accountId, limit);
 
         if (string.IsNullOrWhiteSpace(query))
             throw new McpException("query is required");
@@ -62,7 +63,7 @@ public sealed class SearchContactsTool(
                 try
                 {
                     var provider = providerFactory.GetProvider(account!.Provider);
-                    var contacts = await provider.SearchContactsAsync(account.Id, query, count, CancellationToken.None);
+                    var contacts = await provider.SearchContactsAsync(account.Id, query, limit, CancellationToken.None);
                     return contacts;
                 }
                 catch (Exception ex)

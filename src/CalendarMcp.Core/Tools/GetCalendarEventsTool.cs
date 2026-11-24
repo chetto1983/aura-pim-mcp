@@ -26,9 +26,11 @@ public sealed class GetCalendarEventsTool(
         [Description("Last local date of the range in timeZone, inclusive (ISO 8601 date, e.g. `2026-02-27`). Any time of day is ignored. Defaults to 6 days after startDate (a 7-day range).")] DateTime? endDate = null,
         [Description("Account ID to query, or omit to query all enabled accounts. Obtain from list_accounts.")] string? accountId = null,
         [Description("Calendar ID to query, or omit for all calendars. Obtain from list_calendars, or pass 'primary' for the account's default calendar (also the value returned for default-calendar events). Requires accountId when using 'primary'. If accountId is omitted, calendarId is used to identify the account automatically when it exists in exactly one account.")] string? calendarId = null,
-        [Description("Maximum number of events to return per account (default 50)")] int count = 50,
-        [Description("Every event carries responseStatus, the account owner's own answer (accepted, tentative, declined or notResponded; accepted when the owner organized it). Set this to also include attendeeDetails (each attendee's email, name, responseStatus, type, isOrganizer). Default false; large meetings make the result much bigger.")] bool includeAttendeeDetails = false)
+        [Description("Maximum number of events to return per account (default 50)")] int? count = 50,
+        [Description("Every event carries responseStatus, the account owner's own answer (accepted, tentative, declined or notResponded; accepted when the owner organized it). Set this to also include attendeeDetails (each attendee's email, name, responseStatus, type, isOrganizer). Default false; large meetings make the result much bigger.")] bool? includeAttendeeDetails = false)
     {
+        var limit = count ?? 50;
+        var withAttendees = includeAttendeeDetails ?? false;
         var tz = TimeZoneHelper.TryGetTimeZone(timeZone);
         if (tz == null)
             throw new McpException($"Invalid IANA timezone: '{timeZone}'. Use a valid IANA timezone name such as 'America/Chicago', 'Europe/London', or 'Asia/Tokyo'.");
@@ -171,11 +173,11 @@ public sealed class GetCalendarEventsTool(
         // Margin-day events take provider slots in start order, so scale the per-call cap to
         // keep in-window events from being pushed past it.
         var days = Math.Max(endDay.DayNumber - firstDay.DayNumber, 1);
-        var scaledCount = (int)Math.Min(((long)count * (days + 2) + days - 1) / days, MaxProviderFetchCount);
-        var fetchCount = Math.Max(count, scaledCount);
+        var scaledCount = (int)Math.Min(((long)limit * (days + 2) + days - 1) / days, MaxProviderFetchCount);
+        var fetchCount = Math.Max(limit, scaledCount);
 
         logger.LogInformation("Getting calendar events: firstDay={FirstDay}, endDay={EndDay} (exclusive), timeZone={TimeZone}, window={WindowStart:o}..{WindowEnd:o}, query={QueryStart:o}..{QueryEnd:o}, accountCount={AccountCount}, count={Count}, fetchCount={FetchCount}",
-            firstDay, endDay, timeZone, windowStart.UtcDateTime, windowEnd.UtcDateTime, queryStart, queryEnd, validAccounts.Count, count, fetchCount);
+            firstDay, endDay, timeZone, windowStart.UtcDateTime, windowEnd.UtcDateTime, queryStart, queryEnd, validAccounts.Count, limit, fetchCount);
 
         try
         {
@@ -230,11 +232,11 @@ public sealed class GetCalendarEventsTool(
                         }
                     }
 
-                    // Keep only events on the requested local days, then apply count per account.
+                    // Keep only events on the requested local days, then apply limit per account.
                     return events
                         .Where(e => OverlapsWindow(TimeZoneHelper.GetEffectiveRange(e, tz), windowStart, windowEnd))
                         .OrderBy(e => TimeZoneHelper.GetEffectiveRange(e, tz).Start)
-                        .Take(count)
+                        .Take(limit)
                         .ToList();
                 }
                 catch (Exception ex)
@@ -279,7 +281,7 @@ public sealed class GetCalendarEventsTool(
                         isAllDay = e.IsAllDay,
                         organizer = e.Organizer,
                         responseStatus = e.ResponseStatus,
-                        attendeeDetails = includeAttendeeDetails
+                        attendeeDetails = withAttendees
                             ? e.AttendeeDetails.Select(a => new
                             {
                                 email = a.Email,

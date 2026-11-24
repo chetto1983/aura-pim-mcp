@@ -106,8 +106,16 @@ file says the fork does not have, this file wins.
    - **Required value-type parameters are required by their own schemas.** `isRead` on
      `mark_email_read`/`bulk_mark_emails_read` and `start`/`end` on `create_event` are
      non-nullable with no default, so they are in `required` and a call that leaves one out fails
-     binding before the tool runs (measured 2026-11-24: the SDK answers "An error occurred invoking
-     '<tool>'." without naming the argument). Nothing invents a value.
+     binding before the tool runs; nothing invents a value. The SDK alone reports that as "An error
+     occurred invoking '<tool>'.", so `WithNamedMissingArguments()` (`Configuration/MissingArgumentReport.cs`,
+     upstream's filter from the HTTP `Program.cs`, moved into the surface so stdio answers the same)
+     says "Required parameter '<name>' was not provided to '<tool>'.".
+   - **Optional value-type parameters are nullable** (2026-11-24): every optional number or bool
+     (`count`, `unreadOnly`, `includeAttendeeDetails`, `isAllDay` on `create_event`, `countPerAccount`,
+     `includeBodyPreview`, `maxSamplesPerCluster`) is `T?` with upstream's default, applied again in
+     the body (`count ?? 20`). A model sends `null` for an argument it means to leave out (measured:
+     `unreadOnly: null`), and a non-nullable one failed binding. `body`, `bodyFormat` (`send_email`)
+     and `method` (`unsubscribe_from_email`) coalesce a `null` the same way.
    - **Attachments come back as a resource link.** `GetEmailAttachmentTool.GetEmailAttachment` always
      stashes and returns a `CallToolResult`: the stash JSON plus a `resource_link` to
      `attachment://stash/<attachmentId>`. The link is served by `EmailAttachmentResource` (tenant from
@@ -418,7 +426,10 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 - Model-facing messages upstream adds that mention its admin UI: reword (change 6). CLI output
   too: "the client that manages this server's accounts".
 - A registration upstream adds to its `Program.cs` tool chain goes into
-  `WithCalendarMcpSurface()`, not into `Program.cs` (1.9.0: `WithStringScalarArguments()`).
+  `WithCalendarMcpSurface()`, not into `Program.cs` (1.9.0: `WithStringScalarArguments()`; the
+  missing-parameter filter: `WithNamedMissingArguments()`).
+- An optional value-type parameter upstream adds to a tool: make it `T?` with its default and apply the
+  default in the body (change 4). `NullOptionalArgumentTests` fails on one that is not.
 - A CLI command upstream adds: `ExecuteAsync(..., CancellationToken)` (the fork's Spectre.Console.Cli),
   and account ids and `TenantId` through `CliTenant`, like the other `add-*` commands.
 - Tests upstream adds for `Components/` or `BlazorAdmin/`: drop them with the code they test.

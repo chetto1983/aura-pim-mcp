@@ -20,12 +20,14 @@ public sealed class GetEmailsTool(
     [McpServerTool(Name = "get_emails"), Description("Get recent emails from one or all accounts, newest first, without their bodies. Use get_email_details for an email's full content.")]
     public async Task<string> GetEmails(
         [Description("Account ID to query, or omit for all accounts. Obtain from list_accounts.")] string? accountId = null,
-        [Description("Maximum number of emails to return per account (default 20)")] int count = 20,
-        [Description("If true, only return unread emails")] bool unreadOnly = false,
+        [Description("Maximum number of emails to return per account (default 20)")] int? count = 20,
+        [Description("If true, only return unread emails")] bool? unreadOnly = false,
         [Description("Folder to read instead of the default view: 'inbox', 'archive', 'trash', 'spam', 'drafts', 'sentitems' (aliases 'deleteditems'='trash', 'junkemail'='spam'), or a folder ID (Microsoft), label ID (Google) or folder name (IMAP). Use this to find a message after move_email.")] string? folder = null)
     {
+        var limit = count ?? 20;
+        var unread = unreadOnly ?? false;
         logger.LogInformation("Getting emails: accountId={AccountId}, count={Count}, unreadOnly={UnreadOnly}, folder={Folder}",
-            accountId, count, unreadOnly, folder);
+            accountId, limit, unread, folder);
 
         // Determine which accounts to query
         List<AccountInfo> validAccounts;
@@ -62,7 +64,7 @@ public sealed class GetEmailsTool(
                 try
                 {
                     var provider = providerFactory.GetProvider(account!.Provider);
-                    var emails = await provider.GetEmailsAsync(account.Id, count, unreadOnly, folder, CancellationToken.None);
+                    var emails = await provider.GetEmailsAsync(account.Id, limit, unread, folder, CancellationToken.None);
                     return emails;
                 }
                 catch (Exception ex)

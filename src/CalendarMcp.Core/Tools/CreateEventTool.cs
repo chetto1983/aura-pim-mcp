@@ -27,16 +27,17 @@ public sealed class CreateEventTool(
         [Description("List of attendee email addresses")] List<string>? attendees = null,
         [Description("Event description/body")] string? body = null,
         [Description("The user's local IANA timezone (e.g. `America/Chicago`, `America/New_York`, `Europe/London`). Always pass it, so the event is created at the correct local time.")] string? timeZone = null,
-        [Description("True for an all-day event. start/end are then dates (yyyy-MM-dd, end exclusive) and any time of day is ignored.")] bool isAllDay = false)
+        [Description("True for an all-day event. start/end are then dates (yyyy-MM-dd, end exclusive) and any time of day is ignored.")] bool? isAllDay = false)
     {
+        var allDay = isAllDay ?? false;
         ToolGuard.RequireNonEmpty(subject, nameof(subject));
         // Strip CDATA wrappers if present (LLMs sometimes wrap content in XML CDATA)
         body = StripCdataWrapper(body);
         
         logger.LogInformation("Creating event: subject={Subject}, start={Start}, end={End}, isAllDay={IsAllDay}, accountId={AccountId}",
-            subject, start, end, isAllDay, accountId);
+            subject, start, end, allDay, accountId);
 
-        if (isAllDay)
+        if (allDay)
             (start, end) = AllDayRange.Normalize(start, end);
 
         // Determine which account to use
@@ -64,7 +65,7 @@ public sealed class CreateEventTool(
             // Create event
             var provider = providerFactory.GetProvider(account.Provider);
             var eventId = await provider.CreateEventAsync(
-                account.Id, calendarId, subject, start, end, location, attendees, body, timeZone, isAllDay, CancellationToken.None);
+                account.Id, calendarId, subject, start, end, location, attendees, body, timeZone, allDay, CancellationToken.None);
 
             var result = new
             {

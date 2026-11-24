@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using CalendarMcp.Core.Configuration;
 using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
@@ -8,7 +7,6 @@ using CalendarMcp.HttpServer.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
-using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore.Authentication;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
@@ -193,23 +191,7 @@ public class Program
             .AddMcpServer(CalendarMcpServerOptions.Configure)
             .WithHttpTransport()
             // One tool per operation, bound to the caller's tenant: the chain the stdio host registers too.
-            .WithCalendarMcpSurface()
-            .WithRequestFilters(filters => filters.AddCallToolFilter(
-                (next) => async (request, cancellationToken) =>
-                {
-                    try
-                    {
-                        return await next(request, cancellationToken);
-                    }
-                    catch (ArgumentException ex) when (ex.Message.Contains("missing a value for the required parameter"))
-                    {
-                        var match = Regex.Match(ex.Message, @"required parameter '([^']+)'");
-                        var paramName = match.Success ? match.Groups[1].Value : "a required parameter";
-                        throw new McpException(
-                            $"Required parameter '{paramName}' was not provided to '{request.Params?.Name}'. " +
-                            $"Check the tool's input schema and retry the call including all required parameters.");
-                    }
-                }));
+            .WithCalendarMcpSurface();
 
         var app = builder.Build();
 

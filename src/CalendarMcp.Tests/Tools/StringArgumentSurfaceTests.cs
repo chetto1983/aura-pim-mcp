@@ -37,6 +37,24 @@ public sealed class StringArgumentSurfaceTests
     }
 
     [TestMethod]
+    public async Task GetEmails_NullCountAndFlag_ReachTheProviderAsTheirDefaults()
+    {
+        var provider = new IProviderServiceCreateExpectations();
+        provider.Setups.GetEmailsAsync("acc-1", 20, false, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<IEnumerable<EmailMessage>>([]));
+
+        var result = await CallAsync(provider, "get_emails", new()
+        {
+            ["accountId"] = "acc-1",
+            ["count"] = null,
+            ["unreadOnly"] = null,
+        });
+
+        Assert.AreNotEqual(true, result.IsError, Text(result));
+        provider.Verify();
+    }
+
+    [TestMethod]
     public async Task MarkEmailRead_QuotedFalse_IsNotTakenAsMissing()
     {
         var provider = new IProviderServiceCreateExpectations();

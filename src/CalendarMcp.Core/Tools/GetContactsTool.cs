@@ -20,9 +20,10 @@ public sealed class GetContactsTool(
     [McpServerTool(Name = "get_contacts"), Description("Get contacts for specific account or all accounts")]
     public async Task<string> GetContacts(
         [Description("Specific account ID, or omit for all accounts")] string? accountId = null,
-        [Description("Number of contacts to retrieve")] int count = 50)
+        [Description("Number of contacts to retrieve")] int? count = 50)
     {
-        logger.LogInformation("Getting contacts: accountId={AccountId}, count={Count}", accountId, count);
+        var limit = count ?? 50;
+        logger.LogInformation("Getting contacts: accountId={AccountId}, count={Count}", accountId, limit);
 
         List<AccountInfo> validAccounts;
         if (string.IsNullOrEmpty(accountId))
@@ -57,7 +58,7 @@ public sealed class GetContactsTool(
                 try
                 {
                     var provider = providerFactory.GetProvider(account!.Provider);
-                    var contacts = await provider.GetContactsAsync(account.Id, count, CancellationToken.None);
+                    var contacts = await provider.GetContactsAsync(account.Id, limit, CancellationToken.None);
                     return contacts;
                 }
                 catch (Exception ex)
