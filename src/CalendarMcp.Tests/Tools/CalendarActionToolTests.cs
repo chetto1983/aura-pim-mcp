@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
-using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
 using CalendarMcp.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -134,7 +133,7 @@ public sealed class CalendarActionToolTests
     }
 
     private static CalendarActionTool CreateTool(IServiceProvider services) =>
-        new(services, services.GetRequiredService<ITenantContext>());
+        new(services);
 
     private static ServiceProvider CreateServices()
     {
@@ -144,7 +143,6 @@ public sealed class CalendarActionToolTests
         services.AddSingleton<IProviderServiceFactory, RejectingProviderFactory>();
         services.AddSingleton<ISendingAddresses, CalendarMcp.Core.Providers.SendingAddresses>();
         services.AddSingleton<IAttachmentStore, EmptyAttachmentStore>();
-        services.AddSingleton<ITenantContext, TenantContext>();
         services.AddSingleton(new UnsubscribeExecutor(
             new TestHttpClientFactory(),
             NullLogger<UnsubscribeExecutor>.Instance));

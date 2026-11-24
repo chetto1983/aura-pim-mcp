@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
-using CalendarMcp.Core.Tenancy;
 using CalendarMcp.Core.Tools;
 using CalendarMcp.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
@@ -163,9 +162,8 @@ public sealed class CalendarActionToolEventRefTests
         services.AddLogging();
         services.AddSingleton(registry.Instance());
         services.AddSingleton(factory.Instance());
-        services.AddSingleton<ITenantContext, TenantContext>();
         await using var serviceProvider = services.BuildServiceProvider();
-        var tool = new CalendarActionTool(serviceProvider, serviceProvider.GetRequiredService<ITenantContext>());
+        var tool = new CalendarActionTool(serviceProvider);
         return await tool.DispatchAction(action, args);
     }
 }

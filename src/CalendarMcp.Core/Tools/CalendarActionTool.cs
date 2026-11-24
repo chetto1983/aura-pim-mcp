@@ -31,8 +31,6 @@ namespace CalendarMcp.Core.Tools;
 /// </remarks>
 public sealed partial class CalendarActionTool
 {
-    private readonly ITenantContext _tenantContext;
-
     // The implementation classes the actions forward to have non-uniform constructors:
     // UnsubscribeFromEmailTool wants an UnsubscribeExecutor, GetGuideTool only a logger,
     // and hand-wiring each one made this file wrong twice before the compiler caught it.
@@ -40,10 +38,9 @@ public sealed partial class CalendarActionTool
     // so a dependency added upstream needs no edit here.
     private readonly IServiceProvider _services;
 
-    public CalendarActionTool(IServiceProvider services, ITenantContext tenantContext)
+    public CalendarActionTool(IServiceProvider services)
     {
         _services = services;
-        _tenantContext = tenantContext;
     }
 
     /// <summary>
@@ -121,7 +118,6 @@ public sealed partial class CalendarActionTool
 
     [McpServerTool, Description(ToolDescription)]
     public async Task<CallToolResult> Calendar(
-        RequestContext<CallToolRequestParams> requestContext,
         [Description("Required. The operation to perform -- see the tool description for each action's required and optional fields.")]
         string action,
         [Description("Account id. Optional filter on get_emails/search_emails/list_calendars/get_calendar_events/get_contacts/search_contacts (omit for all accounts); optional target for create_event/create_contact (omit for the first account that permits it). Required on send_email, get_email_details, get_contact_details, update_contact, delete_contact, delete_email, mark_email_read, move_email, get_email_attachment, get_unsubscribe_info, unsubscribe_from_email. NOT used by the event actions that take an eventId -- the reference names the account. Obtain from list_accounts.")]
@@ -219,69 +215,57 @@ public sealed partial class CalendarActionTool
         [Description("bulk_delete_emails/bulk_mark_emails_read/bulk_move_emails. Required. The emails to act on, each item carrying its accountId and emailId.")]
         BulkEmailItem[]? items = null)
     {
-        IDisposable tenantScope;
-        try
+        var text = await DispatchAction(action, new CalendarActionArguments
         {
-            tenantScope = _tenantContext.Bind(TenantIdentity.FromPrincipal(requestContext.User));
-        }
-        catch (ArgumentException ex)
-        {
-            throw new McpException(ex.Message);
-        }
-        using (tenantScope)
-        {
-            var text = await DispatchAction(action, new CalendarActionArguments
-            {
-                AccountId = accountId,
-                CalendarId = calendarId,
-                EventId = eventId,
-                EmailId = emailId,
-                ContactId = contactId,
-                Query = query,
-                Count = count,
-                UnreadOnly = unreadOnly,
-                Folder = folder,
-                FromDate = fromDate,
-                ToDate = toDate,
-                To = to,
-                Subject = subject,
-                Body = body,
-                BodyFormat = bodyFormat,
-                Cc = cc,
-                Attachments = attachments,
-                TextBody = textBody,
-                HtmlBody = htmlBody,
-                TimeZone = timeZone,
-                StartDate = startDate,
-                EndDate = endDate,
-                Start = start,
-                End = end,
-                IsAllDay = isAllDay,
-                Location = location,
-                Attendees = attendees,
-                Response = response,
-                Comment = comment,
-                IsRead = isRead,
-                Destination = destination,
-                DisplayName = displayName,
-                GivenName = givenName,
-                Surname = surname,
-                Email = email,
-                Phone = phone,
-                JobTitle = jobTitle,
-                CompanyName = companyName,
-                Notes = notes,
-                AttachmentId = attachmentId,
-                Topics = topics,
-                CountPerAccount = countPerAccount,
-                IncludeBodyPreview = includeBodyPreview,
-                MaxSamplesPerCluster = maxSamplesPerCluster,
-                Name = name,
-                Method = method,
-                Items = items,
-            }).ConfigureAwait(false);
-            return action == "get_email_attachment" ? WithAttachmentLink(text) : TextResult(text);
-        }
+            AccountId = accountId,
+            CalendarId = calendarId,
+            EventId = eventId,
+            EmailId = emailId,
+            ContactId = contactId,
+            Query = query,
+            Count = count,
+            UnreadOnly = unreadOnly,
+            Folder = folder,
+            FromDate = fromDate,
+            ToDate = toDate,
+            To = to,
+            Subject = subject,
+            Body = body,
+            BodyFormat = bodyFormat,
+            Cc = cc,
+            Attachments = attachments,
+            TextBody = textBody,
+            HtmlBody = htmlBody,
+            TimeZone = timeZone,
+            StartDate = startDate,
+            EndDate = endDate,
+            Start = start,
+            End = end,
+            IsAllDay = isAllDay,
+            Location = location,
+            Attendees = attendees,
+            Response = response,
+            Comment = comment,
+            IsRead = isRead,
+            Destination = destination,
+            DisplayName = displayName,
+            GivenName = givenName,
+            Surname = surname,
+            Email = email,
+            Phone = phone,
+            JobTitle = jobTitle,
+            CompanyName = companyName,
+            Notes = notes,
+            AttachmentId = attachmentId,
+            Topics = topics,
+            CountPerAccount = countPerAccount,
+            IncludeBodyPreview = includeBodyPreview,
+            MaxSamplesPerCluster = maxSamplesPerCluster,
+            Name = name,
+            Method = method,
+            Items = items,
+        }).ConfigureAwait(false);
+        return action == "get_email_attachment" ? WithAttachmentLink(text) : TextResult(text);
     }
 
     internal Task<string> DispatchAction(string action, CalendarActionArguments args)
@@ -431,6 +415,8 @@ public static class CalendarActionToolServiceExtensions
     /// </summary>
     public static IMcpServerBuilder WithCalendarMcpSurface(this IMcpServerBuilder builder) =>
         builder
+            // Every tool call, this one and upstream's alike, runs inside the caller's tenant.
+            .WithTenantBinding()
             .WithCalendarActionTool()
             // The MCP Apps view (ui://calendar/view.html). The tool's own _meta.ui is
             // set in WithCalendarActionTool's factory, beside the schema patch.
