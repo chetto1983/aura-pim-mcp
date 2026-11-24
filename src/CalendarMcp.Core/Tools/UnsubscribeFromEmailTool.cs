@@ -25,6 +25,8 @@ public sealed class UnsubscribeFromEmailTool(
         [Description("Email message ID. Obtain from the id field returned by get_emails or search_emails.")] string emailId,
         [Description("Unsubscribe method: 'auto' (default — tries one-click POST, then returns HTTPS link, then sends mailto), 'one-click' (RFC 8058 POST), 'https' (returns URL for user to open), or 'mailto' (sends unsubscribe email)")] string method = "auto")
     {
+        // A JSON null binds as null over the declared default.
+        method ??= "auto";
         logger.LogInformation("Unsubscribe request: accountId={AccountId}, emailId={EmailId}, method={Method}",
             accountId, emailId, method);
 

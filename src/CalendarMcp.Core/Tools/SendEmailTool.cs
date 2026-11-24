@@ -39,6 +39,9 @@ public sealed class SendEmailTool(
                 "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
                 "When the user has more than one account and has not named one, ask which.");
         ToolGuard.RequireNonEmpty(subject, nameof(subject));
+        // A JSON null binds as null over the declared default.
+        body ??= "";
+        bodyFormat ??= "html";
 
         // Strip CDATA wrappers if present (LLMs sometimes wrap content in XML CDATA)
         body = StripCdataWrapper(body);

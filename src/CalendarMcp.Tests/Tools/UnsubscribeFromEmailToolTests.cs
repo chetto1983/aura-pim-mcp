@@ -151,6 +151,33 @@ public class UnsubscribeFromEmailToolTests
         provExp.Verify();
     }
 
+    // Measured 2026-11-24: a JSON null for method reached the tool as null and failed the call.
+    [TestMethod]
+    public async Task UnsubscribeFromEmail_NullMethod_IsAuto()
+    {
+        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
+        var email = new EmailMessage
+        {
+            Id = "e1",
+            AccountId = "acc-1",
+            UnsubscribeInfo = new UnsubscribeInfo { HttpsUrl = "https://example.com/unsubscribe" }
+        };
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1").ReturnValue(Task.FromResult<AccountInfo?>(account));
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.GetEmailDetailsAsync("acc-1", "e1", Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult<EmailMessage?>(email));
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+
+        var result = await CreateTool(regExp.Instance(), factExp.Instance()).UnsubscribeFromEmail("acc-1", "e1", null!);
+
+        var root = JsonDocument.Parse(result).RootElement;
+        Assert.IsTrue(root.GetProperty("Success").GetBoolean(), result);
+        Assert.AreEqual("https", root.GetProperty("Method").GetString());
+        provExp.Verify();
+    }
+
     /// <summary>Minimal IHttpClientFactory for tests</summary>
     private sealed class TestHttpClientFactory : IHttpClientFactory
     {

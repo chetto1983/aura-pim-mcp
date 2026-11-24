@@ -17,7 +17,7 @@ public sealed class SearchEmailsTool(
     IProviderServiceFactory providerFactory,
     ILogger<SearchEmailsTool> logger)
 {
-    [McpServerTool(Name = "search_emails"), Description("Search emails by keyword across one or all accounts. Returns id, accountId, subject, from, receivedDateTime, isRead, hasAttachments. Use get_email_details for full body content.")]
+    [McpServerTool(Name = "search_emails"), Description("Search emails by keyword across one or all accounts, without their bodies. Use get_email_details for an email's full content.")]
     public async Task<string> SearchEmails(
         [Description("Full-text search query (searches subject and body). Supports keywords, sender addresses, and phrases.")] string query,
         [Description("Account ID to search, or omit for all accounts. Obtain from list_accounts.")] string? accountId = null,

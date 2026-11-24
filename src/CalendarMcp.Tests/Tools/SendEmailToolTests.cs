@@ -109,6 +109,29 @@ public class SendEmailToolTests
         Assert.AreEqual(AccountRequired, ex.Message);
     }
 
+    // Measured 2026-11-24: a JSON null for body or bodyFormat reached the tool as null, past the defaults.
+    [TestMethod]
+    public async Task SendEmail_NullBodyAndFormat_SendAnEmptyHtmlBody()
+    {
+        var regExp = new IAccountRegistryCreateExpectations();
+        regExp.Setups.GetAccountAsync("acc-1")
+            .ReturnValue(Task.FromResult<AccountInfo?>(TestData.CreateAccount(id: "acc-1", provider: "microsoft365")));
+        var provExp = new IProviderServiceCreateExpectations();
+        provExp.Setups.SendEmailAsync(
+            "acc-1", "to@example.com", "Subject", "", "html",
+            Arg.Any<List<string>?>(), Arg.Any<IReadOnlyList<OutboundEmailAttachment>?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ReturnValue(Task.FromResult("msg-123"));
+        var factExp = new IProviderServiceFactoryCreateExpectations();
+        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
+        var tool = new SendEmailTool(regExp.Instance(), factExp.Instance(),
+            new TestAttachmentStore(), NullLogger<SendEmailTool>.Instance);
+
+        await tool.SendEmail("acc-1", ["to@example.com"], "Subject", body: null!, bodyFormat: null!);
+
+        provExp.Verify();
+    }
+
     [TestMethod]
     public async Task SendEmail_EmptyToList_ThrowsMcpException()
     {
