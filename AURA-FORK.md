@@ -75,18 +75,35 @@ file says the fork does not have, this file wins.
      issue. Measured 2026-09-23: with a Desktop OAuth client the loopback redirect only reaches a
      listener on the browser's own machine, so a server-side install cannot receive it.
 
-4. **Upstream's 29 tools, one per operation, under Aura's names** (`Tools/CalendarMcpSurface.cs`,
-   2026-11-24; until then a curated `calendar` tool multiplexed them behind an `action` argument).
-   Both servers register `WithCalendarMcpSurface()`: the tenant binding (`WithTenantBinding()`), the
-   29 upstream classes, the MCP Apps view (`WithCalendarView()`), the `attachment://stash/{id}`
-   resource (`WithEmailAttachmentResource()`), upstream's quoted-scalar filter
-   (`WithStringScalarArguments()`) and the three prompt classes -- one extension so a `Program.cs`
-   merge conflict cannot silently drop one of them. Each class carries its name explicitly; two
-   differ from what the SDK derives: `mark_email_read` and `bulk_mark_emails_read`. The ten reads
-   the view renders carry `_meta.ui` (`ui://calendar/view.html`), set where the surface builds each
-   tool, and the four tools whose classes the dispatcher used to guard refuse an empty `subject`
-   (`send_email`, `create_event`), `displayName` (`create_contact`) or `calendarId`
-   (`get_calendar_event_details`) themselves.
+4. **Upstream's 29 tools, one per operation, under Aura's names** (`Tools/CalendarMcpSurface.cs`, 2026-11-24).
+   Until then a curated `calendar` tool multiplexed them behind an `action` argument (commits of 2026-08-22,
+   `38c94fd`); it is gone, with its dispatcher, and nothing takes an `action` argument. The surface is these
+   29, each class carrying its name explicitly (`[McpServerTool(Name = ...)]`), never the SDK's derived one:
+   `list_accounts`, `get_emails`, `get_email_details`, `search_emails`, `get_email_attachment`,
+   `get_contextual_email_summary`, `send_email`, `delete_email`, `move_email`, `mark_email_read`,
+   `bulk_delete_emails`, `bulk_move_emails`, `bulk_mark_emails_read`, `get_unsubscribe_info`,
+   `unsubscribe_from_email`, `list_calendars`, `get_calendar_events`, `get_calendar_event_details`,
+   `create_event`, `update_event`, `delete_event`, `respond_to_event`, `get_contacts`, `search_contacts`,
+   `get_contact_details`, `create_contact`, `update_contact`, `delete_contact`, `get_guide`. Two differ from
+   what upstream's SDK derives (`..._as_read`): `mark_email_read` and `bulk_mark_emails_read`.
+
+   Both servers register one chain, `WithCalendarMcpSurface()`: the tenant binding (`WithTenantBinding()`),
+   the 29 tools, `_meta.ui` (`ui://calendar/view.html`) on the ten reads the view renders, the MCP Apps view
+   (`WithCalendarView()`), the `attachment://stash/{id}` resource (`WithEmailAttachmentResource()`),
+   upstream's quoted-scalar filter (`WithStringScalarArguments()`), the filter naming a missing required
+   argument (`WithNamedMissingArguments()`) and the three prompt classes -- one extension, so a `Program.cs`
+   merge conflict cannot silently drop one of them. `_meta.ui` is set where the surface builds each tool,
+   because `WithTools<T>()` leaves nowhere to set it. The classes behind `send_email`, `create_event`,
+   `create_contact` and `get_calendar_event_details` refuse an empty `subject`, `displayName` or `calendarId`
+   themselves (`ToolGuard.RequireNonEmpty`), which the dispatcher used to do.
+
+   **Why it was split** (measured 2026-11-23, Aura's `docs/superpowers/specs/2026-11-23-pim-tool-split-design.md`
+   in the Aura repository): the always-loaded slot the one tool was shaped for no longer applies, and its flat
+   schema, one `action` enum over every operation's arguments at once, confused the model.
+
+   **Every upstream class the fork modifies** (a sync keeps these hunks; see *Pulling upstream updates*):
+   the six event classes (`EventRef`), `SendEmailTool`, `GetEmailAttachmentTool`, the optional value types
+   made nullable (below), the explicit names on all 29, and the deleted `IAccountRegistry.GetAccountsByDomain`.
 
    - **`send_email` requires `accountId`** (`SendEmailTool.cs`, 2026-11-23). Upstream routes a
      send with no account by the recipient's domain, out of sight of whoever reviews it; told the account
@@ -110,7 +127,9 @@ file says the fork does not have, this file wins.
      occurred invoking '<tool>'.", so `WithNamedMissingArguments()` (`Configuration/MissingArgumentReport.cs`,
      upstream's filter from the HTTP `Program.cs`, moved into the surface so stdio answers the same)
      says "Required parameter '<name>' was not provided to '<tool>'.".
-   - **Optional value-type parameters are nullable** (2026-11-24): every optional number or bool
+   - **Optional value-type parameters are nullable** (2026-11-24; `GetEmailsTool`, `SearchEmailsTool`,
+     `GetContactsTool`, `SearchContactsTool`, `GetCalendarEventsTool`, `GetContextualEmailSummaryTool`,
+     `CreateEventTool`, and `UpdateEventTool`'s `isAllDay`): every optional number or bool
      (`count`, `unreadOnly`, `includeAttendeeDetails`, `isAllDay` on `create_event`, `countPerAccount`,
      `includeBodyPreview`, `maxSamplesPerCluster`) is `T?` with upstream's default, applied again in
      the body (`count ?? 20`). A model sends `null` for an argument it means to leave out (measured:
@@ -412,7 +431,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 
 - `Components/`, `BlazorAdmin/`, admin-console security, API-key auth: keep deleted.
 - `*.csproj`: keep the fork's package versions; add only packages the kept code needs.
-- A tool class upstream changed: take upstream's version, keeping the fork's `[McpServerTool(Name = ...)]` and its short description. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
+- A tool class upstream changed: take upstream's version, keeping the fork's `[McpServerTool(Name = ...)]` (all 29 name themselves; `mark_email_read` and `bulk_mark_emails_read` are the two that differ from upstream's `_as_read`), its short description and its nullable optional value types. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
   A tool class upstream adds goes into `CalendarMcpSurface`'s list, under Aura's name (change 4).
 - Tests upstream adds for a tool class: keep them. They exercise the tool the fork registers.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.

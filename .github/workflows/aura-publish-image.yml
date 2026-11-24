@@ -46,10 +46,9 @@ jobs:
           push: true
           build-args: |
             APT_WEEK=${{ steps.week.outputs.apt_week }}
-          # `latest` is the tag Aura's compose follows, so a merge to main reaches the
-          # deployment without anyone editing a digest. The stale-pin problem this
-          # workflow's own header describes is what a moving tag exists to solve;
-          # `sidecar` stays for anyone already following it.
+          # Aura pins `:<sha>` (the full commit sha, Aura commit 45bdb11ff, 2026-11-24), so a
+          # merge to main reaches no Aura appliance until an Aura release moves its pin.
+          # `latest` and `sidecar` remain for humans and other clients.
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:sidecar
