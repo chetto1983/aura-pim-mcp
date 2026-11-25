@@ -34,10 +34,7 @@ public sealed class SendEmailTool(
         [Description("Plain-text body for multipart/alternative messages. Required when bodyFormat is 'multipart'.")] string? textBody = null,
         [Description("HTML body for multipart/alternative messages. Required when bodyFormat is 'multipart'. Must contain actual HTML markup.")] string? htmlBody = null)
     {
-        if (string.IsNullOrWhiteSpace(accountId))
-            throw new McpException(
-                "send_email requires accountId, the account to send from: call list_accounts and pass its accountId. " +
-                "When the user has more than one account and has not named one, ask which.");
+        ToolGuard.RequireAccountId(accountId, "send_email", "send from");
         ToolGuard.RequireNonEmpty(subject, nameof(subject));
         // A JSON null binds as null over the declared default.
         body ??= "";

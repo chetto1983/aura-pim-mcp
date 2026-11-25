@@ -24,13 +24,12 @@ contact-capable accounts when `accountId` is omitted.
 Returns the full contact record including all email addresses, phone
 numbers, addresses, and notes.
 
-### `create_contact(displayName, accountId?, givenName?, surname?, email?, phone?, jobTitle?, companyName?, notes?)`
+### `create_contact(displayName, accountId, givenName?, surname?, email?, phone?, jobTitle?, companyName?, notes?)`
 
 - `displayName` is required.
 - `email` and `phone` accept a single value or a comma-separated list.
-- Omitting `accountId` falls back to the first account that permits
-  contact writes — pass it explicitly if you care which account ends up
-  with the contact.
+- `accountId` is required: a call without it is refused. Take it from
+  `list_accounts`, or ask the user which account when there is more than one.
 
 ### `update_contact(accountId, contactId, ...)`
 

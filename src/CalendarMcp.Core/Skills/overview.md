@@ -10,9 +10,8 @@ every configured account; capabilities vary per provider.
    each can do. The response includes an `accountId`, `provider`,
    `displayName`, `domains`, and a `capabilities` array per account.
 2. Pass the chosen `accountId` to every tool that operates on data (email,
-   calendar, contacts). Tools that accept a missing `accountId` will fall
-   back to the "first configured account", which can silently be the wrong
-   one, so prefer being explicit. `send_email` refuses a call without it.
+   calendar, contacts). `send_email`, `create_event` and `create_contact` refuse a call
+   without it; for the other tools, prefer being explicit.
 
 ## Provider capability matrix
 

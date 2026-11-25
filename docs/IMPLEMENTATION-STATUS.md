@@ -94,7 +94,7 @@ Each tool includes:
 - Proper MCP protocol implementation
 - JSON schema for parameters
 - Multi-account parallel execution
-- Write operations without an `accountId` fall back to the first account that permits the write
+- `send_email`, `create_event` and `create_contact` require an `accountId`; no write tool picks an account
 - Error handling
 - Structured logging
 
@@ -116,7 +116,7 @@ Updated `CalendarMcp.StdioServer` to:
 
 ### Multi-Account Aggregation
 - **Read operations** (get_emails, list_calendars, get_calendar_events, get_contacts): Query all enabled accounts in parallel using `Task.WhenAll`, merge and sort results
-- **Write operations** (create_event, create_contact): With an `accountId`, that account; without one, the first enabled account that permits the write. send_email requires the `accountId`
+- **Write operations** (create_event, create_contact, send_email): `accountId` is required; no tool picks an account
 
 ### Provider Isolation
 - Each provider service manages multiple accounts of its type
@@ -192,7 +192,7 @@ Created a complete, well-structured prototype implementation with:
 - ✅ All 7 MCP tools specified in documentation
 - ✅ Multi-provider architecture (M365, Google, Outlook.com)
 - ✅ Multi-account support with parallel aggregation
-- ✅ First-permitted-account fallback for write operations (create_event, create_contact)
+- ✅ Required `accountId` for write operations (send_email, create_event, create_contact), no fallback
 - ✅ Configuration system
 - ✅ Dependency injection throughout
 - ✅ Comprehensive models and interfaces

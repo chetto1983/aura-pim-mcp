@@ -69,7 +69,7 @@ Two behaviours differ by how the account was chosen:
   caller asked for "all accounts", and a scoped-out account isn't part of that set. If nothing
   qualifies, the tool errors with `No accounts permit ...`.
 
-Without an `accountId`, `create_event` and `create_contact` use the first enabled account that permits the operation. `send_email` has no fallback: its `accountId` is required.
+`send_email`, `create_event` and `create_contact` have no fallback: their `accountId` is required, and a call without it is refused.
 
 `bulk_*` tools check per item, so one scoped-out account fails only its own entries rather than
 the whole batch.
@@ -467,13 +467,13 @@ Get the events overlapping a range of local days, for one account or all account
 ```
 
 #### `create_event`
-Create calendar event in specific calendar (without `accountId`, the first enabled account that permits calendar writes is used).
+Create calendar event in a specific account (`accountId` is required).
 
 **Parameters**:
 - `subject` (required): Event subject
 - `start` (required): Start date/time (ISO 8601); a date for an all-day event
 - `end` (required): End date/time (ISO 8601); the exclusive end date for an all-day event
-- `accountId` (optional): Specific account, or omit for the first account that permits calendar writes
+- `accountId` (required): Account to create the event in, from `list_accounts`
 - `calendarId` (optional): Specific calendar within account
 - `timeZone` (optional): The user's IANA timezone; pass it so the event lands at the right local time
 - `isAllDay` (default: false): An all-day event
@@ -631,8 +631,8 @@ Get full contact details including addresses, birthday, and notes.
 Create a new contact in a specific account.
 
 **Parameters**:
-- `accountId` (optional): Specific account, or use first writable account
-- `displayName` (optional): Full display name
+- `accountId` (required): Account to create the contact in, from `list_accounts`
+- `displayName` (required): Full display name
 - `givenName` (optional): First name
 - `surname` (optional): Last name
 - `email` (optional): Email address (or comma-separated list)
@@ -718,7 +718,7 @@ User: "Show me my unread emails"
 For write operations (send_email, create_event, create_contact, etc.), exactly ONE account is used:
 
 1. **send_email**: `accountId` is required; there is no routing by recipient domain
-2. **create_event / create_contact**: `accountId`, or the first account that permits the write
+2. **create_event / create_contact**: `accountId` is required, as for send_email
 3. **Event updates**: the account comes from the `eventId` reference
 4. **Confirmation**: The result names the account used (`accountUsed`)
 

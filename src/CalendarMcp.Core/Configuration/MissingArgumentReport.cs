@@ -32,6 +32,7 @@ public static partial class MissingArgumentReport
                 var name = match.Success ? match.Groups[1].Value : "a required parameter";
                 throw new McpException(
                     $"Required parameter '{name}' was not provided to '{context.Params?.Name}'. " +
+                    (name == "accountId" ? "Call list_accounts and pass the id of the account to use. " : "") +
                     "Check the tool's input schema and retry the call including all required parameters.");
             }
         };

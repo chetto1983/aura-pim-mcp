@@ -59,7 +59,7 @@ the owner, so they always report `notResponded`.
 
 Full event including description/body. All three parameters are required. `eventId` is the reference `get_calendar_events` or `create_event` returned, passed back byte for byte; it identifies the account, so there is no `accountId`.
 
-### `create_event(subject, start, end, accountId?, calendarId?, location?, attendees?[], body?, timeZone, isAllDay?)`
+### `create_event(subject, start, end, accountId, calendarId?, location?, attendees?[], body?, timeZone, isAllDay?)`
 
 - `start` and `end` are ISO 8601 (e.g. `2026-05-14T10:00:00`).
 - `isAllDay=true` creates an all-day event. Pass dates (`yyyy-MM-dd`);
@@ -68,9 +68,8 @@ Full event including description/body. All three parameters are required. `event
   `end` on the same date as `start` is treated as one day.
 - Pair them with `timeZone` (IANA). Without `timeZone`, the times are
   interpreted in server local time — usually wrong.
-- Omitting `accountId` uses the first configured account, which is
-  almost never what you want. Always pass `accountId` explicitly when
-  creating events.
+- `accountId` is required: a call without it is refused. Take it from
+  `list_accounts`, or ask the user which account when there is more than one.
 - Omitting `calendarId` uses the account's default calendar. `primary`
   is also accepted for the default calendar; any other value
   must be an id from `list_calendars`.
@@ -196,8 +195,8 @@ multi-account availability, fan out and merge.
 
 ## Pitfalls
 
-- **Default account** for `create_event` is whichever
-  account was registered first — pass `accountId` explicitly.
+- **No default account** for `create_event`: `accountId` is required, and a
+  call without it is refused.
 - **All-day events** are floating dates. They are returned with
   `start_date`/`end_date` (`yyyy-MM-dd`, **end date exclusive** — a
   one-day event on 2026-09-23 has `end_date` 2026-09-24), and

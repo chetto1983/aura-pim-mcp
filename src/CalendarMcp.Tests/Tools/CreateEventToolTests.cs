@@ -66,53 +66,22 @@ public class CreateEventToolTests
     }
 
     [TestMethod]
-    public async Task CreateEvent_NoAccountId_UsesFirstEnabled()
-    {
-        var account = TestData.CreateAccount(id: "acc-1", provider: "microsoft365");
-
-        var regExp = new IAccountRegistryCreateExpectations();
-        regExp.Setups.GetAllAccountsAsync()
-            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([account]));
-
-        var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.CreateEventAsync(
-            "acc-1", Arg.Any<string?>(), "Meeting", Arg.Any<DateTime>(), Arg.Any<DateTime>(),
-            Arg.Any<string?>(), Arg.Any<List<string>?>(), Arg.Any<string?>(), Arg.Any<string?>(), false, Arg.Any<CancellationToken>())
-            .ReturnValue(Task.FromResult("ev-id"));
-
-        var factExp = new IProviderServiceFactoryCreateExpectations();
-        factExp.Setups.GetProvider("microsoft365").ReturnValue(provExp.Instance());
-
-        var tool = new CreateEventTool(regExp.Instance(), factExp.Instance(),
-            NullLogger<CreateEventTool>.Instance);
-
-        var result = await tool.CreateEvent("Meeting", Start, End);
-        var doc = JsonDocument.Parse(result);
-
-        Assert.IsTrue(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.AreEqual("acc-1", doc.RootElement.GetProperty("accountUsed").GetString());
-        Assert.AreEqual(EventRef.Encode("acc-1", "ev-id"), doc.RootElement.GetProperty("eventId").GetString());
-
-        regExp.Verify();
-        factExp.Verify();
-        provExp.Verify();
-    }
-
-    [TestMethod]
-    public async Task CreateEvent_NoAccounts_ThrowsMcpException()
+    [DataRow("")]
+    [DataRow("   ")]
+    public async Task CreateEvent_WithoutAnAccount_IsRefusedAndReachesNoProvider(string accountId)
     {
         var regExp = new IAccountRegistryCreateExpectations();
-        regExp.Setups.GetAllAccountsAsync()
-            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([]));
-
         var factExp = new IProviderServiceFactoryCreateExpectations();
         var tool = new CreateEventTool(regExp.Instance(), factExp.Instance(),
             NullLogger<CreateEventTool>.Instance);
 
         var ex = await Assert.ThrowsExactlyAsync<McpException>(
-            () => tool.CreateEvent("Meeting", Start, End));
-        Assert.IsTrue(ex.Message.Contains("No enabled account"));
+            () => tool.CreateEvent("Meeting", Start, End, accountId));
+
+        StringAssert.Contains(ex.Message, "accountId");
+        StringAssert.Contains(ex.Message, "list_accounts");
         regExp.Verify();
+        factExp.Verify();
     }
 
     [TestMethod]

@@ -201,37 +201,6 @@ public class PermissionEnforcementTests
     }
 
     [TestMethod]
-    public async Task CreateEvent_NoAccountId_PicksFirstAccountThatPermitsWrites()
-    {
-        var readOnly = Scoped("acc-readonly", AccountPermission.CalendarRead);
-        var writable = TestData.CreateAccount(id: "acc-writable", provider: "google");
-
-        var regExp = new IAccountRegistryCreateExpectations();
-        regExp.Setups.GetAllAccountsAsync()
-            .ReturnValue(Task.FromResult<IEnumerable<AccountInfo>>([readOnly, writable]));
-
-        var provExp = new IProviderServiceCreateExpectations();
-        provExp.Setups.CreateEventAsync("acc-writable", Arg.Any<string?>(), Arg.Any<string>(),
-                Arg.Any<DateTime>(), Arg.Any<DateTime>(), Arg.Any<string?>(), Arg.Any<List<string>?>(),
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .ReturnValue(Task.FromResult("evt-1"));
-
-        var factExp = new IProviderServiceFactoryCreateExpectations();
-        factExp.Setups.GetProvider("google").ReturnValue(provExp.Instance());
-
-        var tool = new CreateEventTool(regExp.Instance(), factExp.Instance(),
-            NullLogger<CreateEventTool>.Instance);
-
-        var doc = JsonDocument.Parse(
-            await tool.CreateEvent("Standup", DateTime.UtcNow, DateTime.UtcNow.AddHours(1)));
-
-        Assert.AreEqual("acc-writable", doc.RootElement.GetProperty("accountUsed").GetString());
-        regExp.Verify();
-        factExp.Verify();
-        provExp.Verify();
-    }
-
-    [TestMethod]
     public async Task GetContacts_ExplicitAccountWithoutContactsRead_Throws()
     {
         var account = Scoped("no-contacts", AccountPermission.EmailRead);

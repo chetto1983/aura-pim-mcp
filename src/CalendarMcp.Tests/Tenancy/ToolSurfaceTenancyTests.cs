@@ -54,8 +54,6 @@ public sealed class ToolSurfaceTenancyTests
         ["get_contextual_email_summary", "{}", true],
         ["get_emails", "{}", true],
         ["get_calendar_events", """{"timeZone":"UTC","calendarId":"b-calendar"}""", true],
-        ["create_event", """{"subject":"s","start":"2026-10-01T09:00:00Z","end":"2026-10-01T10:00:00Z"}""", true],
-        ["create_contact", """{"displayName":"x"}""", true],
     ];
 
     [TestMethod]

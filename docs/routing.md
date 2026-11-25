@@ -1,6 +1,6 @@
 # Smart Router
 
-> Design document. No router is implemented in this codebase: a write tool without an `accountId` uses the first enabled account that permits the write, and `send_email` requires the `accountId`.
+> Design document. No router is implemented in this codebase: `send_email`, `create_event` and `create_contact` require the `accountId`, and no write tool picks an account.
 
 ## Overview
 

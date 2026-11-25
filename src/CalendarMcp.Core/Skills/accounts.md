@@ -63,12 +63,11 @@ strings:
 
 ## Always pass `accountId` explicitly
 
-Most tools accept `accountId` as optional. When you omit it, the server
-may target the first configured account, which can silently be the wrong
-one. `send_email` goes further: its `accountId` is required and a send
-without it is refused. Treat `accountId` as effectively required for any
-other tool that writes data too
-(`create_event`, `create_contact`, `delete_email`, etc.).
+The reads accept `accountId` as optional. `send_email`, `create_event` and
+`create_contact` require it: a call without it (or with a blank one) is
+refused and nothing is written, so take the id from `list_accounts`, or ask
+the user which account when there is more than one. Pass `accountId`
+explicitly for the other tools that write data too (`delete_email`, etc.).
 
 The exceptions where omitting `accountId` is fine:
 

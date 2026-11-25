@@ -18,6 +18,18 @@ internal static class ToolGuard
             throw new McpException($"{paramName} is required");
     }
 
+    /// <summary>
+    /// Refuses a write that names no account. These tools never pick one: the model reads it from
+    /// <c>list_accounts</c> or asks the user, so a wrong guess cannot land in the wrong mailbox.
+    /// </summary>
+    public static void RequireAccountId(string? accountId, string tool, string purpose)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            throw new McpException(
+                $"{tool} requires accountId, the account to {purpose}: call list_accounts and pass its accountId. " +
+                "When the user has more than one account and has not named one, ask which.");
+    }
+
     public static async Task<AccountInfo> RequireAccountAsync(IAccountRegistry registry, string accountId)
     {
         var account = await registry.GetAccountAsync(accountId);

@@ -102,7 +102,7 @@ file says the fork does not have, this file wins.
    schema, one `action` enum over every operation's arguments at once, confused the model.
 
    **Every upstream class the fork modifies** (a sync keeps these hunks; see *Pulling upstream updates*):
-   the six event classes (`EventRef`), `SendEmailTool`, `GetEmailAttachmentTool`, the optional value types
+   the six event classes (`EventRef`), `SendEmailTool`, `CreateContactTool`, `GetEmailAttachmentTool`, the optional value types
    made nullable (below), the explicit names on all 29, and the deleted `IAccountRegistry.GetAccountsByDomain`.
 
    - **`send_email` requires `accountId`** (`SendEmailTool.cs`, 2026-11-23). Upstream routes a
@@ -114,6 +114,18 @@ file says the fork does not have, this file wins.
      fallback. `IAccountRegistry.GetAccountsByDomain`,
      whose only caller was that routing, is deleted with its tests and fakes.
 
+   - **`create_event` and `create_contact` require `accountId` too** (`CreateEventTool.cs`, `CreateContactTool.cs`, 2026-11-25).
+     Upstream falls back to the first account that permits the write; measured 2026-11-25 on Aura's first
+     `create_event`, which left it out and wrote the event to the Microsoft account. The two classes take a
+     non-nullable `accountId` with no default (so it is in the schema's `required` list; 4th parameter of
+     `create_event`, 2nd of `create_contact`, where C# still allows a required one), a missing, empty or blank
+     one is refused by `ToolGuard.RequireAccountId` (the message `send_email` already gave, now shared: name
+     `accountId`, call `list_accounts`, ask the user when there is more than one account) before any provider
+     is reached, and an unknown account or one without the write permission still fails in
+     `ToolGuard.RequireAccountAsync`. `WithNamedMissingArguments()` adds the `list_accounts` hint when the
+     missing parameter is `accountId`. The first-account lookup is gone from both classes. The event
+     tools that take an `eventRef` (`get_calendar_event_details`, `update_event`, `delete_event`,
+     `respond_to_event`) have no `accountId` and are unchanged.
    - **Events are addressed by an opaque reference** (`EventRef.cs`, minted and resolved inside `GetCalendarEventsTool`,
      `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool` and `RespondToEventTool`).
      `get_calendar_events` and `create_event` return `eventId = EventRef(accountId, id)`;
@@ -431,7 +443,7 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
 
 - `Components/`, `BlazorAdmin/`, admin-console security, API-key auth: keep deleted.
 - `*.csproj`: keep the fork's package versions; add only packages the kept code needs.
-- A tool class upstream changed: take upstream's version, keeping the fork's `[McpServerTool(Name = ...)]` (all 29 name themselves; `mark_email_read` and `bulk_mark_emails_read` are the two that differ from upstream's `_as_read`), its short description and its nullable optional value types. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
+- A tool class upstream changed: take upstream's version, keeping the fork's `[McpServerTool(Name = ...)]` (all 29 name themselves; `mark_email_read` and `bulk_mark_emails_read` are the two that differ from upstream's `_as_read`), its short description and its nullable optional value types. Exception: the six event classes (`GetCalendarEventsTool`, `CreateEventTool`, `GetCalendarEventDetailsTool`, `UpdateEventTool`, `DeleteEventTool`, `RespondToEventTool`) -- merge upstream's change but keep the fork's EventRef hunks; and `SendEmailTool` (required `accountId`, no routing), `CreateEventTool` and `CreateContactTool` (required `accountId`, no first-account fallback) and `GetEmailAttachmentTool` (always stashes, returns the `attachment://` link, states the store limits) -- merge upstream's change but keep those hunks; the class tests pin them. `IAccountRegistry.GetAccountsByDomain` stays deleted.
   A tool class upstream adds goes into `CalendarMcpSurface`'s list, under Aura's name (change 4).
 - Tests upstream adds for a tool class: keep them. They exercise the tool the fork registers.
 - `AccountValidation` stays upstream's; the tenant rules live in `TenantProviderConfig`.

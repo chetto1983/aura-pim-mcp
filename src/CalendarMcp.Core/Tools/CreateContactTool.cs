@@ -16,10 +16,10 @@ public sealed class CreateContactTool(
     IProviderServiceFactory providerFactory,
     ILogger<CreateContactTool> logger)
 {
-    [McpServerTool(Name = "create_contact"), Description("Create a new contact in a specific account. Without accountId, the first account that permits contact writes is used.")]
+    [McpServerTool(Name = "create_contact"), Description("Create a new contact. Required: accountId, the account to create it in (call list_accounts). When the user has more than one account and has not named one, ask which.")]
     public async Task<string> CreateContact(
         [Description("Contact display name")] string displayName,
-        [Description("Specific account ID, or omit to use the first account that permits contact writes")] string? accountId = null,
+        [Description("Required. Account ID to create the contact in, from list_accounts. The contact is created in exactly this account.")] string accountId,
         [Description("First/given name")] string? givenName = null,
         [Description("Last/family name")] string? surname = null,
         [Description("Email address (or comma-separated list)")] string? email = null,
@@ -28,29 +28,13 @@ public sealed class CreateContactTool(
         [Description("Company name")] string? companyName = null,
         [Description("Notes about the contact")] string? notes = null)
     {
+        ToolGuard.RequireAccountId(accountId, "create_contact", "create the contact in");
         ToolGuard.RequireNonEmpty(displayName, nameof(displayName));
         logger.LogInformation("Creating contact: displayName={DisplayName}, accountId={AccountId}",
             displayName, accountId);
 
-        // Determine which account to use
-        Models.AccountInfo account;
-        if (!string.IsNullOrEmpty(accountId))
-        {
-            account = await ToolGuard.RequireAccountAsync(
-                accountRegistry, accountId, Models.AccountPermission.ContactsWrite);
-        }
-        else
-        {
-            // Fall back to the first account that actually permits the write, so a
-            // scoped-out account at the head of the list doesn't hijack the operation.
-            var accounts = await accountRegistry.GetAllAccountsAsync();
-            var candidates = ToolGuard.FilterByPermission(
-                accounts, Models.AccountPermission.ContactsWrite, logger, "create_contact");
-            var first = candidates.FirstOrDefault();
-            if (first == null)
-                throw new McpException("No enabled account permits create contact");
-            account = first;
-        }
+        var account = await ToolGuard.RequireAccountAsync(
+            accountRegistry, accountId, Models.AccountPermission.ContactsWrite);
 
         try
         {

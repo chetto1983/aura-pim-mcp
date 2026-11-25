@@ -128,7 +128,7 @@ public sealed class CalendarPrompts
             2. Call get_calendar_events with timeZone="{timeZone}" to see existing events. {dateHint}
             3. Propose 3 available time slots that avoid conflicts, prefering business hours (9 AM–5 PM {timeZone}).
             4. Ask me to confirm which slot to use.
-            5. Once confirmed, call create_event with the chosen time, title "{title}", duration {durationMinutes} minutes, and attendees: {attendees}.
+            5. Once confirmed, call create_event with that account's accountId, the chosen time, title "{title}", duration {durationMinutes} minutes, and attendees: {attendees}.
             6. Confirm the event was created and share the details.
             """;
     }
