@@ -52,7 +52,7 @@ to find a message there — e.g. after moving it.
 Returns full body, recipients, and the `attachments[]` array. Each
 attachment has `attachmentId` — feed that to `get_email_attachment`.
 
-### `send_email(to[], subject, body, accountId?, bodyFormat="html", cc?[], attachments?[], textBody?, htmlBody?)`
+### `send_email(to[], subject, body, accountId, bodyFormat="html", cc?[], attachments?[], textBody?, htmlBody?)`
 
 - `to` is an array of strings. Single recipient: `["alice@x"]`.
 - `bodyFormat` defaults to `"html"`. Options:
