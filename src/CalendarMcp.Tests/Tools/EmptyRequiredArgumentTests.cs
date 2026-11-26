@@ -54,4 +54,15 @@ public sealed class EmptyRequiredArgumentTests
         StringAssert.Contains(SurfaceSession.Text(result), "list_accounts");
         Assert.IsEmpty(factory.Requested);
     }
+
+    [TestMethod]
+    public async Task AnEmailToolMissingAccountId_PointsAtTheEmailListingAsWellAsListAccounts()
+    {
+        var result = await SurfaceSession.CallAsync(new RecordingProviderFactory(), "get_email_details", """{"emailId":"e-1"}""");
+
+        Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
+        StringAssert.Contains(SurfaceSession.Text(result), "Required parameter 'accountId' was not provided to 'get_email_details'.");
+        StringAssert.Contains(SurfaceSession.Text(result), "list_accounts");
+        StringAssert.Contains(SurfaceSession.Text(result), "from the email's listing");
+    }
 }
