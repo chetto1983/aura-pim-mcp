@@ -475,7 +475,11 @@ Resolution rules, in the order the 1.8.3 and 1.9.0 syncs needed them:
   skipping attachments and forwarded messages, `MailParts.NoBody`, the `TokenResponseException`
   filter, `Transport`, `Authorize`, `FormatOfUntyped` on an event's description.
   `M365ProviderService.cs` and `OutlookComProviderService.cs`: `partial`, `Transport`,
-  `CreateGraphClient`. `M365AuthenticationService.cs`: no catch-all returning null (`NullWhenGrantIsGoneAsync`).
+  `CreateGraphClient`, and `MsalClientAsync`, the one place that reads an account's tenant and client, for the
+  token and for `SignedInUsernameAsync` in `.Clients.cs`, so both reach the same MSAL application.
+  `M365AuthenticationService.cs`: no catch-all returning null (`NullWhenGrantIsGoneAsync`), and
+  `SignedInUsernameAsync` (also on `IM365AuthenticationService`), which `SendingAddresses` reads a Microsoft
+  account's sending address from instead of Graph's `/me`, which needs a User.Read scope the accounts do not have.
   `ImapProviderService.Support.cs`: `ExtractBody` with text first, `MailParts.NoBody`.
   `GetEmailDetailsTool.cs` and `GetCalendarEventDetailsTool.cs`: `MailBody.ForModel`.
   `GetContextualEmailSummaryTool.cs`: `PlainTextOf`, which is the only way a body or a preview reaches
