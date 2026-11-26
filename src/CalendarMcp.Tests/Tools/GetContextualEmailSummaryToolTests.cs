@@ -177,13 +177,11 @@ public class GetContextualEmailSummaryToolTests
     }
 
     [TestMethod]
-    public void TheTool_SaysAPreviewIsNotFiltered()
+    public async Task TheTool_SaysAPreviewIsNotFiltered()
     {
-        var description = typeof(GetContextualEmailSummaryTool)
-            .GetMethod(nameof(GetContextualEmailSummaryTool.GetContextualEmailSummary))!
-            .GetParameters().Single(parameter => parameter.Name == "includeBodyPreview")
-            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
-            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        var tool = (await SurfaceSession.ListToolsAsync()).Single(t => t.Name == "get_contextual_email_summary");
+        var description = tool.ProtocolTool.InputSchema.GetProperty("properties").GetProperty("includeBodyPreview")
+            .GetProperty("description").GetString()!;
 
         StringAssert.Contains(description, "cannot be filtered for hidden text");
     }

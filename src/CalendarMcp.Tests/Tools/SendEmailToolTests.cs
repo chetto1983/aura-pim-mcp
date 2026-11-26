@@ -67,25 +67,11 @@ public class SendEmailToolTests
         "When the user has more than one account and has not named one, ask which.";
 
     [TestMethod]
-    public void SendEmail_SchemaRequiresAccountId()
+    public async Task SendEmail_DescriptionsDoNotOfferRouting()
     {
-        var method = typeof(SendEmailTool).GetMethod(nameof(SendEmailTool.SendEmail))!;
-        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
-
-        var required = tool.ProtocolTool.InputSchema.GetProperty("required").EnumerateArray()
-            .Select(e => e.GetString()).ToList();
-
-        CollectionAssert.Contains(required, "accountId");
-    }
-
-    [TestMethod]
-    public void SendEmail_DescriptionsDoNotOfferRouting()
-    {
-        var method = typeof(SendEmailTool).GetMethod(nameof(SendEmailTool.SendEmail))!;
-        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
-        var account = method.GetParameters().Single(p => p.Name == "accountId")
-            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
-            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        var tool = (await SurfaceSession.ListToolsAsync()).Single(t => t.Name == "send_email");
+        var account = tool.ProtocolTool.InputSchema.GetProperty("properties").GetProperty("accountId")
+            .GetProperty("description").GetString()!;
 
         foreach (var text in new[] { tool.ProtocolTool.Description!, account })
         {

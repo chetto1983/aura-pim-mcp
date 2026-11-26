@@ -86,12 +86,11 @@ public class GetEmailAttachmentToolTests
     }
 
     [TestMethod]
-    public void GetEmailAttachment_DescriptionsOfferALinkAndNoInlineBytes()
+    public async Task GetEmailAttachment_DescriptionsOfferALinkAndNoInlineBytes()
     {
-        var method = typeof(GetEmailAttachmentTool).GetMethod(nameof(GetEmailAttachmentTool.GetEmailAttachment))!;
-        var tool = ModelContextProtocol.Server.McpServerTool.Create(method, _ => null!);
+        var tool = (await SurfaceSession.ListToolsAsync()).Single(t => t.Name == "get_email_attachment");
 
-        var parameters = method.GetParameters().Select(p => p.Name).ToList();
+        var parameters = tool.ProtocolTool.InputSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
         CollectionAssert.DoesNotContain(parameters, "mode");
         StringAssert.Contains(tool.ProtocolTool.Description!, "attachment://");
         Assert.DoesNotContain("inline", tool.ProtocolTool.Description!, StringComparison.OrdinalIgnoreCase);
