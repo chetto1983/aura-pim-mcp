@@ -12,8 +12,9 @@ namespace CalendarMcp.Core.Tools;
 /// <summary>
 /// Registers this fork's whole MCP surface: the tenant binding, one tool per operation, the MCP Apps
 /// view, the <c>attachment://stash/{id}</c> resource, the quoted-scalar argument filter, the filter
-/// naming a missing required argument and the three prompt classes. Both hosts and the test harness call this one extension, so a <c>Program.cs</c>
-/// merge in an upstream sync cannot narrow the chain, and the tests exercise the chain the hosts run.
+/// naming a missing required argument and the three prompt classes. Both hosts and the test harness
+/// call this one extension, so a <c>Program.cs</c> merge in an upstream sync cannot narrow the chain,
+/// and the tests exercise the chain the hosts run.
 /// </summary>
 public static class CalendarMcpSurface
 {

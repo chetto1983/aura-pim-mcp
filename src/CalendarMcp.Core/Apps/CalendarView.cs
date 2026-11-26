@@ -23,9 +23,10 @@ namespace CalendarMcp.Core.Apps;
 /// a script with, and the CSP this resource declares would refuse it anyway -- so the theme,
 /// the transport bridge and the view's script are kept as separate authorable files and inlined
 /// at read time. The script is two fragments of one closure (<c>_view_list.js</c>,
-/// <c>_view_reader.js</c>) only to keep each file under 600 lines. The files are embedded with explicit <c>LogicalName</c>s (see the csproj) because
-/// the default manifest name is derived from the root namespace and folder path, which makes
-/// renaming a directory silently break resource lookup at runtime instead of at build.
+/// <c>_view_reader.js</c>) only to keep each file under 600 lines. The files are embedded with explicit
+/// <c>LogicalName</c>s (see the csproj) because the default manifest name is derived from the root
+/// namespace and folder path, which makes renaming a directory silently break resource lookup at
+/// runtime instead of at build.
 /// </para>
 /// <para>
 /// The bridge is shared verbatim with chetto1983/whatsapp-mcp's <c>ui/_bridge.js</c>: it
