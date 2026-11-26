@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using CalendarMcp.Core.Models;
 using CalendarMcp.Core.Services;
+using Google;
 using Microsoft.Extensions.Logging;
+using Microsoft.Identity.Client;
 
 namespace CalendarMcp.Core.Providers;
 
@@ -28,10 +31,20 @@ public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning("Sending address of account {AccountId} not found: {ErrorType}", account.Id, ex.GetType().Name);
+            // The code says why it failed; the message can name the address, so it is never logged.
+            logger.LogWarning("Sending address of account {AccountId} not found: {ErrorType} {ErrorCode}",
+                account.Id, ex.GetType().Name, ErrorCode(ex));
             return null;
         }
     }
+
+    // Only the failures a lookup can raise: the Graph branch reads MSAL's cache and calls no Graph.
+    private static string? ErrorCode(Exception ex) => ex switch
+    {
+        GoogleApiException google => ((int)google.HttpStatusCode).ToString(CultureInfo.InvariantCulture),
+        MsalException msal => msal.ErrorCode,
+        _ => null
+    };
 
     private async Task<string?> LookUpAsync(AccountInfo account, CancellationToken cancellationToken)
     {

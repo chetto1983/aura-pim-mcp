@@ -4,7 +4,11 @@ using CalendarMcp.Core.Providers;
 using CalendarMcp.Core.Services;
 using CalendarMcp.Tests.Changes;
 using CalendarMcp.Tests.Helpers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Identity.Client;
+using Rocks;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace CalendarMcp.Tests.Providers;
 
@@ -26,8 +30,10 @@ public class SendingAddressesTests
         }
     }
 
-    private static SendingAddresses Addresses(IProviderServiceFactory factory) =>
-        new(factory, NullLogger<SendingAddresses>.Instance);
+    private static SendingAddresses Addresses(IProviderServiceFactory factory, CapturingLogs? logs = null) =>
+        new(factory, logs is null
+            ? NullLogger<SendingAddresses>.Instance
+            : LoggerFactory.Create(builder => builder.AddProvider(logs)).CreateLogger<SendingAddresses>());
 
     [TestMethod]
     public async Task ImapIsItsUsername()
@@ -125,6 +131,37 @@ public class SendingAddressesTests
         var address = await Addresses(new OneProvider(GmailFixtures.Provider(http))).AddressAsync(account, default);
 
         Assert.IsNull(address);
+    }
+
+    // Measured 2026-11-25: the warning kept only "ODataError", so nothing said why the lookup failed.
+    [TestMethod]
+    public async Task AFailedGmailLookupLogsItsCodeAndNotItsMessage()
+    {
+        var http = new FakeHttp().On("/users/me/profile", GmailFixtures.NotFound, HttpStatusCode.NotFound);
+        var account = TestData.CreateAccount(id: "personal", provider: "google");
+        var logs = new CapturingLogs();
+
+        await Addresses(new OneProvider(GmailFixtures.Provider(http)), logs).AddressAsync(account, default);
+
+        var warning = logs.Entries.Single(entry => entry.Level == LogLevel.Warning).Line;
+        StringAssert.Contains(warning, "GoogleApiException 404");
+        Assert.DoesNotContain("Requested entity was not found", warning);
+    }
+
+    [TestMethod]
+    public async Task AFailedMsalReadLogsItsCodeAndNotItsMessage()
+    {
+        var graph = new IM365ProviderServiceCreateExpectations();
+        graph.Setups.SignedInUsernameAsync(Arg.Any<string>())
+            .Callback(_ => throw new MsalClientException("client_id_must_be_guid", "mario.rossi@contoso.com: no client"));
+        var account = TestData.CreateAccount(id: "m365", provider: "microsoft365");
+        var logs = new CapturingLogs();
+
+        await Addresses(new OneProvider(graph.Instance()), logs).AddressAsync(account, default);
+
+        var warning = logs.Entries.Single(entry => entry.Level == LogLevel.Warning).Line;
+        StringAssert.Contains(warning, "MsalClientException client_id_must_be_guid");
+        Assert.DoesNotContain("mario.rossi@contoso.com", warning);
     }
 
     [TestMethod]
