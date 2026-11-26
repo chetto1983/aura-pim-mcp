@@ -117,7 +117,7 @@ graph TD
 - `get_emails` - Get emails for specific account or all accounts
 - `search_emails` - Search emails by criteria
 - `get_email_details` - Get full email content
-- `send_email` - Send email from appropriate account
+- `send_email` - Send email from the account named by its required `accountId` (writes name one account; reads without an `accountId` fan out across the tenant's accounts)
 
 ### Calendar Operations
 - `list_calendars` - List all calendars
