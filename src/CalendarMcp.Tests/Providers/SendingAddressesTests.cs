@@ -108,6 +108,34 @@ public class SendingAddressesTests
         Assert.IsEmpty(http.Requests);
     }
 
+    // Review 2026-11-26: after a sign-out and a sign-in as someone else under the same account id, a cached
+    // address showed the previous person as the From.
+    [TestMethod]
+    public async Task AGraphAccountSignedInAgainAsSomeoneElseShowsTheNewAddress()
+    {
+        var auth = new StaticTokenAuthentication("mario.rossi@contoso.com");
+        var addresses = Addresses(new OneProvider(GraphFixtures.Provider(GraphProfile(), auth)));
+        var account = TestData.CreateAccount(id: "m365", provider: "microsoft365");
+        await addresses.AddressAsync(account, default);
+
+        auth.Username = "lucia.bianchi@contoso.com";
+
+        Assert.AreEqual("lucia.bianchi@contoso.com", await addresses.AddressAsync(account, default));
+    }
+
+    [TestMethod]
+    public async Task AnImapAccountRepairedToAnotherUsernameShowsTheNewAddress()
+    {
+        var account = TestData.CreateAccount(id: "work", provider: "imap",
+            providerConfig: new Dictionary<string, string> { ["username"] = "tecnico@example.com", ["password"] = "x" });
+        var addresses = Addresses(new OneProvider(new IImapProviderServiceCreateExpectations().Instance()));
+        await addresses.AddressAsync(account, default);
+
+        account.ProviderConfig["username"] = "ufficio@example.com";
+
+        Assert.AreEqual("ufficio@example.com", await addresses.AddressAsync(account, default));
+    }
+
     [TestMethod]
     public async Task CachesAFoundAddress()
     {

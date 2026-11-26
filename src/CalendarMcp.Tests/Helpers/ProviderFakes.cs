@@ -20,11 +20,14 @@ internal sealed class SingleAccountRegistry(params AccountInfo[] accounts) : IAc
 
 }
 
-/// <summary>A signed-in Microsoft account whose token never expires, signed in as <paramref name="username"/>.</summary>
+/// <summary>A signed-in Microsoft account whose token never expires, signed in as <see cref="Username"/>.</summary>
 internal sealed class StaticTokenAuthentication(string? username = "signed-in@example.com") : IM365AuthenticationService
 {
+    /// <summary>Who is signed in; set it to sign in as someone else.</summary>
+    public string? Username { get; set; } = username;
+
     public Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId) =>
-        Task.FromResult(username);
+        Task.FromResult(Username);
 
     public Task<string?> GetTokenSilentlyAsync(
         string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>

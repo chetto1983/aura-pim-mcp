@@ -11,22 +11,18 @@ namespace CalendarMcp.Core.Providers;
 /// <summary>
 /// Reads each account's sending address where its provider keeps it: IMAP sends as its username, Gmail as
 /// "me", so its address comes from the profile, and a Microsoft account from the username it signed in with.
-/// A found address is cached per account; a failed lookup is not, and never fails the caller.
+/// Only the Gmail profile, a call to Google, is cached per account once found; the other two are local reads,
+/// so a sign-out or a repair shows at once. A failed lookup is not cached, and never fails the caller.
 /// </summary>
 public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<SendingAddresses> logger) : ISendingAddresses
 {
-    private readonly ConcurrentDictionary<(string Tenant, string Account), string> _found = new();
+    private readonly ConcurrentDictionary<(string Tenant, string Account), string> _gmail = new();
 
     public async Task<string?> AddressAsync(AccountInfo account, CancellationToken cancellationToken)
     {
-        var key = (account.TenantId, account.Id);
-        if (_found.TryGetValue(key, out var cached))
-            return cached;
         try
         {
             var address = await LookUpAsync(account, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(address))
-                _found[key] = address;
             return string.IsNullOrWhiteSpace(address) ? null : address;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -53,8 +49,7 @@ public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<
             case IImapProviderService:
                 return account.ProviderConfig.TryGetValue("username", out var username) ? username : null;
             case IGoogleApiClients google:
-                var gmail = await google.GmailAsync(account.Id, cancellationToken);
-                return (await gmail.Users.GetProfile("me").ExecuteAsync(cancellationToken)).EmailAddress;
+                return await GmailAddressAsync(google, account, cancellationToken);
             case IGraphApiClients graph:
                 // Not GET /me: Graph's "Get user" asks for User.Read, which no scope list here carries
                 // (https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0). MSAL requests
@@ -70,5 +65,17 @@ public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<
             default:
                 return null;
         }
+    }
+
+    private async Task<string?> GmailAddressAsync(IGoogleApiClients google, AccountInfo account, CancellationToken cancellationToken)
+    {
+        var key = (account.TenantId, account.Id);
+        if (_gmail.TryGetValue(key, out var cached))
+            return cached;
+        var gmail = await google.GmailAsync(account.Id, cancellationToken);
+        var address = (await gmail.Users.GetProfile("me").ExecuteAsync(cancellationToken)).EmailAddress;
+        if (!string.IsNullOrWhiteSpace(address))
+            _gmail[key] = address;
+        return address;
     }
 }
