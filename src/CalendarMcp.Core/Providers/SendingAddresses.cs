@@ -34,7 +34,9 @@ public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<
         }
     }
 
-    // Only the failures a lookup can raise: the Graph branch reads MSAL's cache and calls no Graph.
+    // The failures that carry a code; any other logs "(null)" and its type says why (a gone Google grant is
+    // AccountAuthenticationRequiredException, a Microsoft account missing its tenant or client is
+    // ProviderOperationException). No ODataError: the Graph branch reads MSAL's cache and calls no Graph.
     private static string? ErrorCode(Exception ex) => ex switch
     {
         GoogleApiException google => ((int)google.HttpStatusCode).ToString(CultureInfo.InvariantCulture),
