@@ -201,10 +201,11 @@ file says the fork does not have, this file wins.
      place that maps a provider's exception). A provider implements `IChangesSource`. A provider with
      no source answers `422 unsupported_resource`, which is CalDAV, ICS and JSON today.
    - **Sources read through seams, not through `IProviderService`.** `IGoogleApiClients` and
-     `IGraphApiClients` hand a source an authenticated client; `ImapProviderService.Changes.cs` is a
-     partial, because IMAP has one pooled connection per account. Each provider gained a small
-     `.Clients.cs`, and `GoogleProviderService`, `M365ProviderService` and `OutlookComProviderService`
-     became `partial`.
+     `IGraphApiClients` hand a source an authenticated client; `IGraphApiClients` also hands
+     `SendingAddresses` the username a Microsoft account signed in with, read from MSAL's cache without
+     calling Graph. `ImapProviderService.Changes.cs` is a partial, because IMAP has one pooled connection
+     per account. Each provider gained a small `.Clients.cs`, and `GoogleProviderService`,
+     `M365ProviderService` and `OutlookComProviderService` became `partial`.
    - **A failure says nothing about a grant unless it does.** `M365AuthenticationService.GetTokenSilentlyAsync`
      no longer turns every exception into null, and `GoogleProviderService.GetCredentialAsync` no
      longer takes a token endpoint's 5xx for a revoked grant, because `provider_auth` pauses a watch.
