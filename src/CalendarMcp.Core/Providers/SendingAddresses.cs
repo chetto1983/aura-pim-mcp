@@ -55,9 +55,11 @@ public sealed class SendingAddresses(IProviderServiceFactory providers, ILogger<
             case IGraphApiClients graph:
                 // Not GET /me: Graph's "Get user" asks for User.Read, which no scope list here carries
                 // (https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0). MSAL requests
-                // openid and profile with every token on its own (MSAL.NET 4.88.0 source: OAuth2Value.ReservedScopes,
-                // merged in by TokenClient; no Learn page says so), so the cached account carries the id token's preferred_username: "UserPrincipalName
-                // (UPN) format ... This can be null" (https://learn.microsoft.com/en-us/dotnet/api/microsoft.identity.client.iaccount.username).
+                // openid and profile with every token on its own (MSAL.NET 4.88.0 source:
+                // OAuth2Value.ReservedScopes, merged in by TokenClient; no Learn page says so), so the cached
+                // account carries the id token's preferred_username: "UserPrincipalName (UPN) format ... This
+                // can be null"
+                // (https://learn.microsoft.com/en-us/dotnet/api/microsoft.identity.client.iaccount.username).
                 // The claim is mutable and "can be used for username hints and in human-readable UI"
                 // (https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference), which a
                 // review's From line is; nothing authorizes on it. It "could be an email address, phone number, or
