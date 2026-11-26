@@ -63,6 +63,17 @@ public sealed class EmptyRequiredArgumentTests
         Assert.IsTrue(result.IsError, SurfaceSession.Text(result));
         StringAssert.Contains(SurfaceSession.Text(result), "Required parameter 'accountId' was not provided to 'get_email_details'.");
         StringAssert.Contains(SurfaceSession.Text(result), "list_accounts");
-        StringAssert.Contains(SurfaceSession.Text(result), "from the email's listing");
+        StringAssert.Contains(SurfaceSession.Text(result), "from list_accounts, or from the email's listing (get_emails, search_emails)");
+    }
+
+    [TestMethod]
+    public async Task ACalendarToolMissingAccountId_SendsTheModelToListAccountsOnly()
+    {
+        var result = await SurfaceSession.CallAsync(new RecordingProviderFactory(), "create_event",
+            """{"subject":"s","start":"2026-10-01T09:00:00Z","end":"2026-10-01T10:00:00Z"}""");
+
+        StringAssert.Contains(SurfaceSession.Text(result), "from list_accounts");
+        Assert.DoesNotContain("listing", SurfaceSession.Text(result));
+        Assert.DoesNotContain("get_emails", SurfaceSession.Text(result));
     }
 }

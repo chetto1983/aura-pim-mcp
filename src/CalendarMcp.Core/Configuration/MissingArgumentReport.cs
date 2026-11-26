@@ -32,10 +32,17 @@ public static partial class MissingArgumentReport
                 var name = match.Success ? match.Groups[1].Value : "a required parameter";
                 throw new McpException(
                     $"Required parameter '{name}' was not provided to '{context.Params?.Name}'. " +
-                    (name == "accountId" ? "Pass the id of the account to use: from list_accounts, or from the email's listing (get_emails, search_emails). " : "") +
+                    (name == "accountId" ? AccountHint(context.Params?.Name) : "") +
                     "Check the tool's input schema and retry the call including all required parameters.");
             }
         };
+
+    // Email tools get their account from the listing that returned the mail; calendar and contact
+    // tools have no such listing.
+    private static string AccountHint(string? tool) =>
+        tool is not null && (tool.Contains("email") || tool.Contains("unsubscribe"))
+            ? "Pass the id of the account to use: from list_accounts, or from the email's listing (get_emails, search_emails). "
+            : "Pass the id of the account to use: from list_accounts. ";
 
     [GeneratedRegex(@"required parameter '([^']+)'")]
     private static partial Regex RequiredParameter();
