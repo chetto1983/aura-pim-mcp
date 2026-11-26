@@ -34,9 +34,9 @@ public partial class M365ProviderService : IM365ProviderService
     }
 
     /// <summary>
-    /// Get access token for an account
+    /// The account with the tenant and client its tokens are requested under, which pick its MSAL application.
     /// </summary>
-    private async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<(AccountInfo Account, string TenantId, string ClientId)> MsalClientAsync(string accountId)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
@@ -51,6 +51,16 @@ public partial class M365ProviderService : IM365ProviderService
             _logger.LogError("Account {AccountId} missing tenantId or clientId in configuration", accountId);
             throw new ProviderOperationException($"Account '{accountId}' is missing tenantId or clientId in its configuration");
         }
+
+        return (account, tenantId, clientId);
+    }
+
+    /// <summary>
+    /// Get access token for an account
+    /// </summary>
+    private async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
+    {
+        var (account, tenantId, clientId) = await MsalClientAsync(accountId);
 
         // Use the scopes this account was actually consented for, if recorded; otherwise
         // fall back to the historical default so existing configs keep working unchanged.

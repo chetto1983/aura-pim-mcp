@@ -191,6 +191,9 @@ public class RealMailboxFailureTests
         public Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId) =>
             throw new NotSupportedException();
 
+        public Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId) =>
+            throw new NotSupportedException();
+
         public Task<string> AuthenticateInteractiveAsync(
             string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

@@ -52,18 +52,54 @@ public class SendingAddressesTests
         Assert.AreEqual("someone@gmail.com", address);
     }
 
-    [TestMethod]
-    public async Task GraphPrefersMailThenUserPrincipalName()
-    {
-        var withMail = new FakeHttp().On("/me", """{"mail":"davide@contoso.com","userPrincipalName":"davide_contoso#EXT#@x.onmicrosoft.com"}""");
-        var account = TestData.CreateAccount(id: "m365", provider: "microsoft365");
-        Assert.AreEqual("davide@contoso.com",
-            await Addresses(new OneProvider(GraphFixtures.Provider(withMail))).AddressAsync(account, default));
+    // Measured 2026-11-25 on the lab VM: GET /me failed for every Microsoft account (Graph's documentation asks
+    // for User.Read, which no scope list here carries). Each Graph case scripts /me with another address, so an
+    // address read from Graph shows.
+    private static FakeHttp GraphProfile() =>
+        new FakeHttp().On("/me", """{"mail":"profile@contoso.com","userPrincipalName":"profile@contoso.com"}""");
 
-        var withoutMail = new FakeHttp().On("/me", """{"mail":null,"userPrincipalName":"davide@outlook.com"}""");
-        var outlook = TestData.CreateAccount(id: "m365", provider: "outlook.com");
-        Assert.AreEqual("davide@outlook.com",
-            await Addresses(new OneProvider(GraphFixtures.Outlook(withoutMail))).AddressAsync(outlook, default));
+    private static IEnumerable<(IProviderService Provider, AccountInfo Account)> GraphAccounts(FakeHttp http, string? username)
+    {
+        yield return (GraphFixtures.Provider(http, new StaticTokenAuthentication(username)),
+            TestData.CreateAccount(id: "m365", provider: "microsoft365"));
+        yield return (GraphFixtures.Outlook(http, new StaticTokenAuthentication(username)),
+            TestData.CreateAccount(id: "m365", provider: "outlook.com"));
+    }
+
+    [TestMethod]
+    public async Task GraphIsTheSignedInUsername()
+    {
+        foreach (var (provider, account) in GraphAccounts(GraphProfile(), "mario.rossi@contoso.com"))
+        {
+            var address = await Addresses(new OneProvider(provider)).AddressAsync(account, default);
+
+            Assert.AreEqual("mario.rossi@contoso.com", address, account.Provider);
+        }
+    }
+
+    [TestMethod]
+    public async Task AGraphUsernameThatIsNoAddressIsLeftOut()
+    {
+        // preferred_username may be a phone number; MSAL falls back to the display name, then to a label.
+        foreach (var username in new[] { "+393331234567", "Mario Rossi", "Missing from the token response", null })
+        {
+            foreach (var (provider, account) in GraphAccounts(GraphProfile(), username))
+            {
+                var address = await Addresses(new OneProvider(provider)).AddressAsync(account, default);
+
+                Assert.IsNull(address, $"{account.Provider}: {username}");
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task TheGraphLookupCallsNoGraph()
+    {
+        var http = GraphProfile();
+        foreach (var (provider, account) in GraphAccounts(http, "mario.rossi@contoso.com"))
+            await Addresses(new OneProvider(provider)).AddressAsync(account, default);
+
+        Assert.IsEmpty(http.Requests);
     }
 
     [TestMethod]

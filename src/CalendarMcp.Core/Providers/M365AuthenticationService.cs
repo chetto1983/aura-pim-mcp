@@ -136,6 +136,14 @@ public class M365AuthenticationService : IM365AuthenticationService
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId)
+    {
+        var app = await GetOrCreateAppAsync(tenantId, clientId, accountId);
+        // The first account, because GetTokenSilentlyAsync takes the first one.
+        return (await app.GetAccountsAsync()).FirstOrDefault()?.Username;
+    }
+
     // Only this exception says the grant is gone. Null reads as "reconnect the account", so a
     // network blip during a refresh must not end here: it would pause a person's watch.
     internal async Task<string?> NullWhenGrantIsGoneAsync(Func<Task<string?>> acquire, string accountId)

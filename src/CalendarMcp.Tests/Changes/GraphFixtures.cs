@@ -20,11 +20,11 @@ internal static class GraphFixtures
             ["clientId"] = "client"
         }));
 
-    public static M365ProviderService Provider(FakeHttp http) =>
-        new(NullLogger<M365ProviderService>.Instance, new StaticTokenAuthentication(), Registry()) { Transport = http };
+    public static M365ProviderService Provider(FakeHttp http, StaticTokenAuthentication? auth = null) =>
+        new(NullLogger<M365ProviderService>.Instance, auth ?? new StaticTokenAuthentication(), Registry()) { Transport = http };
 
-    public static OutlookComProviderService Outlook(FakeHttp http) =>
-        new(NullLogger<OutlookComProviderService>.Instance, new StaticTokenAuthentication(), Registry()) { Transport = http };
+    public static OutlookComProviderService Outlook(FakeHttp http, StaticTokenAuthentication? auth = null) =>
+        new(NullLogger<OutlookComProviderService>.Instance, auth ?? new StaticTokenAuthentication(), Registry()) { Transport = http };
 
     public static string Json(object body) => JsonSerializer.Serialize(body);
 

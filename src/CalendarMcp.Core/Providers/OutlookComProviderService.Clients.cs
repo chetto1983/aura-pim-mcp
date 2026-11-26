@@ -7,4 +7,10 @@ public partial class OutlookComProviderService : IGraphApiClients
 {
     public async Task<GraphServiceClient> GraphAsync(string accountId, CancellationToken cancellationToken) =>
         CreateGraphClient(new BearerTokenAuthenticationProvider(await GetAccessTokenAsync(accountId, cancellationToken)));
+
+    public async Task<string?> SignedInUsernameAsync(string accountId)
+    {
+        var (tenantId, clientId) = await MsalClientAsync(accountId);
+        return await _authService.SignedInUsernameAsync(tenantId, clientId, accountId);
+    }
 }

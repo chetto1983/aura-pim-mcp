@@ -65,4 +65,11 @@ public interface IM365AuthenticationService
     /// polling it never calls Microsoft.
     /// </summary>
     Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId);
+
+    /// <summary>
+    /// The username MSAL keeps for the account whose tokens <see cref="GetTokenSilentlyAsync"/> returns, or null
+    /// when nobody is signed in. Like <see cref="HasSignedInUserAsync"/> it reads the cache only. It is a display
+    /// value, not necessarily an address.
+    /// </summary>
+    Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId);
 }

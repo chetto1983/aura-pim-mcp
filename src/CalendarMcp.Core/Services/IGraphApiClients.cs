@@ -6,4 +6,10 @@ namespace CalendarMcp.Core.Services;
 public interface IGraphApiClients
 {
     Task<GraphServiceClient> GraphAsync(string accountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The username of the Microsoft account the account's tokens are issued to, from MSAL's cache, without
+    /// calling Graph; null when nobody is signed in.
+    /// </summary>
+    Task<string?> SignedInUsernameAsync(string accountId);
 }

@@ -35,9 +35,9 @@ public partial class OutlookComProviderService : IOutlookComProviderService
     }
 
     /// <summary>
-    /// Get access token for an account
+    /// The tenant and client the account's tokens are requested under, which pick its MSAL application.
     /// </summary>
-    private async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
+    private async Task<(string TenantId, string ClientId)> MsalClientAsync(string accountId)
     {
         var account = await _accountRegistry.GetAccountAsync(accountId);
         if (account == null)
@@ -54,6 +54,16 @@ public partial class OutlookComProviderService : IOutlookComProviderService
             _logger.LogError("Account {AccountId} missing tenantId or clientId in configuration", accountId);
             throw new ProviderOperationException($"Account '{accountId}' is missing tenantId or clientId in its configuration");
         }
+
+        return (tenantId, clientId);
+    }
+
+    /// <summary>
+    /// Get access token for an account
+    /// </summary>
+    private async Task<string> GetAccessTokenAsync(string accountId, CancellationToken cancellationToken)
+    {
+        var (tenantId, clientId) = await MsalClientAsync(accountId);
 
         var token = await _authService.GetTokenSilentlyAsync(
             tenantId,

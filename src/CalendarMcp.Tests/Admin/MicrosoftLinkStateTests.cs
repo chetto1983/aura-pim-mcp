@@ -52,6 +52,12 @@ public sealed class MicrosoftLinkStateTests
     }
 
     [TestMethod]
+    public async Task AccountThatNeverFinishedSigningIn_HasNoUsername()
+    {
+        Assert.IsNull(await _service.SignedInUsernameAsync("consumers", ClientId, "tenant__outlook"));
+    }
+
+    [TestMethod]
     [DataRow("microsoft365")]
     [DataRow("m365")]
     [DataRow("outlook.com")]
