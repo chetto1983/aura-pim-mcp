@@ -6,7 +6,7 @@ using ModelContextProtocol;
 namespace CalendarMcp.Core.Tools;
 
 /// <summary>
-/// Opaque calendar-event reference minted by <c>get_calendar_events</c> and
+/// Opaque calendar-event reference minted by <c>get_calendar_events</c> and <c>create_event</c> and
 /// consumed by <c>get_calendar_event_details</c>, <c>update_event</c>, <c>delete_event</c> and
 /// <c>respond_to_event</c> (MCP-05, D-20). Encodes
 /// the account id alongside the provider's own event id so those tools
