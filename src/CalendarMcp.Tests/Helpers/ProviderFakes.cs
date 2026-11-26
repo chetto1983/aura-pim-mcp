@@ -26,12 +26,21 @@ internal sealed class StaticTokenAuthentication(string? username = "signed-in@ex
     /// <summary>Who is signed in; set it to sign in as someone else.</summary>
     public string? Username { get; set; } = username;
 
-    public Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId) =>
-        Task.FromResult(Username);
+    /// <summary>The MSAL application each token and username read asked for.</summary>
+    public List<(string Read, string TenantId, string ClientId, string AccountId)> Reads { get; } = [];
+
+    public Task<string?> SignedInUsernameAsync(string tenantId, string clientId, string accountId)
+    {
+        Reads.Add(("username", tenantId, clientId, accountId));
+        return Task.FromResult(Username);
+    }
 
     public Task<string?> GetTokenSilentlyAsync(
-        string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken) =>
-        Task.FromResult<string?>("token");
+        string tenantId, string clientId, string[] scopes, string accountId, CancellationToken cancellationToken)
+    {
+        Reads.Add(("token", tenantId, clientId, accountId));
+        return Task.FromResult<string?>("token");
+    }
 
     public Task<bool> HasSignedInUserAsync(string tenantId, string clientId, string accountId) =>
         Task.FromResult(true);
